@@ -1,0 +1,34 @@
+# Terraform
+# State enthält Zugangsdaten im Klartext und gehört nie ins Repo.
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+*.auto.tfvars
+crash.log
+
+# OpenStack-Zugangsdaten
+clouds.yaml
+*-openrc.sh
+
+# Ansible
+*.retry
+ansible/inventory/hosts.generated
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# System
+.DS_Store

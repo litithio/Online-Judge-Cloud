@@ -1,0 +1,13 @@
+# Werkzeuge für Lint und Infra-Checks. Einzige Quelle der Versionen: die CI
+# installiert genau diese Datei, und environment.yml zieht sie in die
+# conda-Umgebung. Einrichten:
+#
+#   conda env create -f environment.yml
+#   conda activate online-judge
+#
+# Eine systemweit installierte Version kann die der Projektumgebung verdecken;
+# scripts/infra-check.sh prüft die Übereinstimmung und warnt bei Abweichung.
+
+ruff==0.15.22
+ansible-lint==26.6.0
+ansible-core==2.21.2

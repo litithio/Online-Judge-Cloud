@@ -1,0 +1,42 @@
+name: infra
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  infra-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # Festgelegt, weil sich die fmt-Regeln zwischen Minor-Versionen
+          # ändern: sonst meldet die CI Formatierungsfehler, die lokal keine sind.
+          terraform_version: "1.15.8"
+          # Der Wrapper würde die Ausgabe von terraform in den Step-Output
+          # umleiten; das Skript wertet den Exit-Code selbst aus.
+          terraform_wrapper: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Werkzeuge installieren
+        # Versionen stehen ausschließlich in requirements.txt
+        run: pip install -r requirements.txt
+
+      - name: Terraform und Ansible prüfen
+        # Dasselbe Skript, das lokal läuft — keine zweite Wahrheit in der CI.
+        run: ./scripts/infra-check.sh

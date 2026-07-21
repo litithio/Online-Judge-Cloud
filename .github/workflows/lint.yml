@@ -1,0 +1,36 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Pull-Request-Läufe über die PR-Nummer gruppieren (eindeutig, auch bei Forks),
+  # Läufe auf main über den Ref-Namen.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
+  # Auf main nichts abbrechen: schnelle Merge-Folgen würden sonst laufende
+  # Checks abschießen und die Historie des Default-Branch verfälschen.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ruff installieren
+        # Version steht ausschließlich in requirements.txt, damit CI und
+        # Entwicklungsumgebung nicht auseinanderlaufen.
+        run: pip install -r requirements.txt
+      - name: ruff check
+        run: ruff check --output-format=github .
+      - name: ruff format --check
+        run: ruff format --check .

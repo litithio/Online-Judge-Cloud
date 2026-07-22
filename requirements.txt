@@ -1,9 +1,13 @@
 # Werkzeuge für Lint und Infra-Checks. Einzige Quelle der Versionen: die CI
-# installiert genau diese Datei, und environment.yml zieht sie in die
-# conda-Umgebung. Einrichten:
+# installiert genau diese Datei. Einrichten:
 #
-#   conda env create -f environment.yml
-#   conda activate online-judge
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Vorausgesetzt wird Python 3.12, dieselbe Version wie in den Workflows.
+# venv erzwingt sie nicht, es übernimmt das python3, das beim Anlegen der
+# Umgebung in der PATH steht: notfalls python3.12 -m venv .venv aufrufen.
 #
 # Eine systemweit installierte Version kann die der Projektumgebung verdecken;
 # scripts/infra-check.sh prüft die Übereinstimmung und warnt bei Abweichung.

@@ -9,18 +9,41 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 fail=0
 
-# Das bin/ der Projektumgebung wird ausdrücklich vorangestellt. `conda activate`
-# setzt zwar CONDA_PREFIX, garantiert aber nicht, dass sein bin/ in der PATH vor
-# den Systempfaden steht — eine systemweit installierte Version würde sonst die
-# der Projektumgebung verdecken und andere Regeln melden als die CI.
-if [ -n "${CONDA_PREFIX:-}" ] && [ -d "$CONDA_PREFIX/bin" ]; then
-  PATH="$CONDA_PREFIX/bin:$PATH"
+# Das bin/ der Projektumgebung wird ausdrücklich vorangestellt. Der Aufruf über
+# ./scripts/infra-check.sh erbt die PATH der Shell, in der er startet: ist dort
+# keine Umgebung aktiv, würde eine systemweit installierte Version greifen und
+# andere Regeln melden als die CI.
+if [ -n "${VIRTUAL_ENV:-}" ] && [ -d "$VIRTUAL_ENV/bin" ]; then
+  PATH="$VIRTUAL_ENV/bin:$PATH"
 elif [ -d .venv/bin ]; then
   PATH="$PWD/.venv/bin:$PATH"
 else
   echo "Hinweis: keine Projektumgebung aktiv." >&2
-  echo "         conda env create -f environment.yml && conda activate online-judge" >&2
+  echo "         python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
 fi
+
+# Die erwartete Python-Version wird aus den Workflows gelesen statt hier
+# hinterlegt, damit sie nicht an zwei Stellen gepflegt werden muss. Nötig ist
+# der Vergleich, weil venv keine Version erzwingt: es übernimmt das python3,
+# das beim Anlegen der Umgebung in der PATH stand.
+check_python() {
+  local versions want actual
+  versions=$(grep -rhoE 'python-version:[[:space:]]*"?[0-9]+\.[0-9]+' .github/workflows/ 2>/dev/null \
+             | grep -oE '[0-9]+\.[0-9]+$' | sort -u)
+  [ -n "$versions" ] || return 0
+  if [ "$(printf '%s\n' "$versions" | wc -l)" -gt 1 ]; then
+    echo "WARNUNG: die Workflows nennen mehr als eine Python-Version." >&2
+    return 0
+  fi
+  want="$versions"
+  actual=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)
+  [ -n "$actual" ] || return 0
+  if [ "$actual" != "$want" ]; then
+    echo "WARNUNG: Python $actual, die Workflows nutzen $want." >&2
+    echo "         Abhilfe: rm -rf .venv && python$want -m venv .venv" >&2
+    echo "                  && .venv/bin/pip install -r requirements.txt" >&2
+  fi
+}
 
 # Weicht eine aufgelöste Version vom Pin ab, meldet die CI später Regeln, die
 # in der Entwicklungsumgebung gar nicht auftauchen.
@@ -32,7 +55,7 @@ check_pin() {
   actual=$("$tool" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
   if [ -n "$actual" ] && [ "$actual" != "$pinned" ]; then
     echo "WARNUNG: $tool $actual, gepinnt ist $pinned." >&2
-    echo "         Abhilfe: conda env update -f environment.yml --prune" >&2
+    echo "         Abhilfe: pip install -r requirements.txt" >&2
   fi
 }
 
@@ -40,6 +63,8 @@ step() { printf '\n=== %s\n' "$1"; }
 result() {
   if [ "$1" -eq 0 ]; then echo "    ok"; else echo "    FEHLGESCHLAGEN"; fail=1; fi
 }
+
+check_python
 
 # ---------- Terraform ----------
 tf_dirs=$(find . -name '*.tf' -not -path './.terraform/*' -not -path './.git/*' \

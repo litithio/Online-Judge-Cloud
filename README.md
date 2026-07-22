@@ -1,7 +1,20 @@
 # Online-Judge-Cloud
 
 ## Problem
-Die Domäne und warum sie ein Problem hat, in maximal 10 Zeilen
+
+Programmieraufgaben von Hand zu korrigieren skaliert nicht. Bei mehreren
+hundert Einreichungen je Aufgabe entscheidet die Korrekturkapazität
+darüber, wie oft Studierende überhaupt abgeben dürfen.
+
+Der Online Judge führt eingereichten Code automatisch gegen hinterlegte
+Testfälle aus und gibt das Ergebnis zurück.
+
+Zwei Eigenschaften der Domäne prägen die Infrastruktur. Die Last ist
+stoßweise: Kurz vor einer Abgabefrist treffen fast alle Einreichungen
+gleichzeitig ein, davor liegt der Betrieb nahe null. Und der ausgeführte
+Code ist fremd — Endlosschleifen, Speicherfresser und Zugriffsversuche
+auf das Netz sind der Normalfall, nicht die Ausnahme.
+
 ## Architektur
 Diagramm und Datenfluss, von der VM bis zum Pod
 ## Betrieb

@@ -15,7 +15,8 @@ clouds.yaml
 
 # Ansible
 *.retry
-ansible/inventory/hosts.generated
+# Von Terraform erzeugt, enthält die IPs eines konkreten Deployments.
+ansible/inventory/generated-inventory.yml
 
 # Python
 __pycache__/

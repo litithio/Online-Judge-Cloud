@@ -1,0 +1,17 @@
+# Fremder Code, in ## Entscheidungen benannt (Issue #5). Anders als in der
+# GridFlex-Übung auf feste Stände gepinnt: einmal grün gelaufen, dann
+# eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht.
+---
+roles:
+  # Stand main vom 2026-07-04.
+  - name: k3s-dhbw-cloud-role
+    src: https://github.com/pfisterer/k3s-dhbw-cloud-role.git
+    version: 114cdb4c54bc46e3076db2330b77dd2f8ee38513
+
+# Die Rolle setzt auf dem Steuerrechner diese Collections voraus:
+# kubernetes.core für die Helm- und k8s-Module, ansible.posix für sysctl.
+collections:
+  - name: kubernetes.core
+    version: 6.5.0
+  - name: ansible.posix
+    version: 2.2.2

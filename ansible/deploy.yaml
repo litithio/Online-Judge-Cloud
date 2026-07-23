@@ -1,0 +1,23 @@
+# Bringt den k3s-Cluster auf die Nodes aus dem Terraform-Inventory. Aufruf:
+#
+#   ansible-galaxy install -r requirements.yml
+#   ansible-playbook -i inventory/generated-inventory.yml -i dns-credentials.yaml deploy.yaml
+#
+# VPN dabei aus: die Nodes sind über ihr öffentliches IPv6 erreichbar, der
+# Full-Tunnel würde genau das kappen.
+---
+- name: Auf SSH und cloud-init warten
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Warten, bis die Nodes bereit sind
+      ansible.builtin.import_tasks: tasks/wait.yaml
+
+# Die Rolle erkennt Server und Agents an k3s_role aus dem Inventory und
+# richtet DNS und TLS über die Zone aus dns-credentials.yaml ein.
+- name: K3s-Cluster ausrollen
+  hosts: all
+  tags: [k3s]
+  become: true
+  roles:
+    - role: k3s-dhbw-cloud-role

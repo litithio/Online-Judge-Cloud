@@ -1,0 +1,7 @@
+# Generierte und persönliche Dateien (alle im .gitignore) prüft der Lint
+# nicht: ihr Format bestimmen Terraform bzw. die k3s-Rolle, nicht wir.
+---
+exclude_paths:
+  - ansible/kubeconfig-generated.yaml
+  - ansible/inventory/generated-inventory.yml
+  - ansible/dns-credentials.yaml

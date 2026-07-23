@@ -18,9 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           # Festgelegt, weil sich die fmt-Regeln zwischen Minor-Versionen
           # ändern: sonst meldet die CI Formatierungsfehler, die lokal keine sind.
@@ -29,7 +29,7 @@ jobs:
           # umleiten; das Skript wertet den Exit-Code selbst aus.
           terraform_wrapper: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 

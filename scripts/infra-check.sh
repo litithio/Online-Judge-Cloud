@@ -93,6 +93,15 @@ fi
 if [ ! -d ansible ]; then
   step "Ansible: kein ansible/, übersprungen"
 else
+  # Lint und Syntax-Check lösen die Rolle aus deploy.yaml auf; ohne
+  # installierte Rolle scheitern beide. In der CI fehlt sie immer, lokal ist
+  # der Aufruf ein schneller Durchlauf, weil galaxy Vorhandenes überspringt.
+  if [ -f ansible/requirements.yml ] && command -v ansible-galaxy >/dev/null; then
+    step "ansible-galaxy install (Rolle und Collections)"
+    ansible-galaxy install -r ansible/requirements.yml >/dev/null
+    result $?
+  fi
+
   if command -v ansible-lint >/dev/null; then
     check_pin ansible-lint
     step "ansible-lint (Profil basic)"

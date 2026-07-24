@@ -8,6 +8,11 @@ config:
   # Innenabstand. Die etwas kleinere Schrift schafft die Luft; !important,
   # weil der Text eine Inline-Schriftgröße trägt.
   themeCSS: ".noteText { font-size: 14px !important; }"
+  # Enger als der Default (50): Das Diagramm wird im README auf
+  # Spaltenbreite skaliert, jeder gesparte Querpixel macht die Schrift
+  # dort größer.
+  sequence:
+    actorMargin: 35
 ---
 sequenceDiagram
     autonumber
@@ -20,21 +25,21 @@ sequenceDiagram
     participant B as 📦 Sandbox
     participant M as 🗄️ MongoDB
 
-    S->>T: Einreichung abgeben (HTTPS)
-    T->>K: ForwardAuth, Anmeldung prüfen
+    S->>T: Einreichung<br/>abgeben (HTTPS)
+    T->>K: ForwardAuth,<br/>Anmeldung prüfen
     K-->>T: Identität bestätigt
-    T->>A: Anfrage mit geprüfter Identität
+    T->>A: Anfrage mit<br/>geprüfter Identität
     A->>M: Einreichung anlegen, Status wartend
-    A->>V: XADD auf den Einreichungs-Stream
+    A->>V: XADD auf den<br/>Einreichungs-Stream
     A-->>S: angenommen, Einreichungs-ID
-    W->>V: XREADGROUP, nächste Einreichung
-    W->>+B: Testfälle ausführen, Zeit- und Speicherlimit je Lauf
-    B-->>-W: Ergebnis je Testfall
+    W->>V: XREADGROUP,<br/>nächste Einreichung
+    W->>+B: Testfälle ausführen, Zeit-<br/>und Speicherlimit je Lauf
+    B-->>-W: Ergebnis<br/>je Testfall
     W->>M: Ergebnisse schreiben
-    W->>V: XACK, Einreichung abgeschlossen
+    W->>V: XACK, Einreichung<br/>abgeschlossen
     loop bis das Ergebnis vorliegt
         S->>A: Ergebnis abfragen (Polling)
         A->>M: Ergebnis lesen
     end
     A-->>S: Ergebnis je Testfall
-    Note over V,W: Stirbt ein Worker vor dem XACK, bleibt die Einreichung<br/>als pending im Stream. Ein anderer Worker holt sie per<br/>XAUTOCLAIM nach Ablauf der Min-Idle-Time zurück.
+    Note over V,B: Stirbt ein Worker vor dem XACK, bleibt die Einreichung<br/>als pending im Stream. Ein anderer Worker holt sie per<br/>XAUTOCLAIM nach Ablauf der Min-Idle-Time zurück.

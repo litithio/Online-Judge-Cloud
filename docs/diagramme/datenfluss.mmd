@@ -1,0 +1,40 @@
+---
+# Feste Schrift: mermaid bemisst die Kästen mit der Schrift, die beim
+# Rendern verfügbar ist. Weicht die Anzeigeschrift ab, laufen Texte über
+# die Ränder.
+config:
+  fontFamily: Arial, Helvetica, sans-serif
+  # Der Notiz-Kasten liegt exakt auf der vermessenen Textbreite, ohne
+  # Innenabstand. Die etwas kleinere Schrift schafft die Luft; !important,
+  # weil der Text eine Inline-Schriftgröße trägt.
+  themeCSS: ".noteText { font-size: 14px !important; }"
+---
+sequenceDiagram
+    autonumber
+    actor S as 🧑‍🎓 Studierende
+    participant T as 🚪 Traefik
+    participant K as 🔐 Keycloak
+    participant A as ⚡ API-Service
+    participant V as 📨 Valkey
+    participant W as ⚖️ Judge-Worker
+    participant B as 📦 Sandbox
+    participant M as 🗄️ MongoDB
+
+    S->>T: Einreichung abgeben (HTTPS)
+    T->>K: ForwardAuth, Anmeldung prüfen
+    K-->>T: Identität bestätigt
+    T->>A: Anfrage mit geprüfter Identität
+    A->>M: Einreichung anlegen, Status wartend
+    A->>V: XADD auf den Einreichungs-Stream
+    A-->>S: angenommen, Einreichungs-ID
+    W->>V: XREADGROUP, nächste Einreichung
+    W->>+B: Testfälle ausführen, Zeit- und Speicherlimit je Lauf
+    B-->>-W: Ergebnis je Testfall
+    W->>M: Ergebnisse schreiben
+    W->>V: XACK, Einreichung abgeschlossen
+    loop bis das Ergebnis vorliegt
+        S->>A: Ergebnis abfragen (Polling)
+        A->>M: Ergebnis lesen
+    end
+    A-->>S: Ergebnis je Testfall
+    Note over V,W: Stirbt ein Worker vor dem XACK, bleibt die Einreichung<br/>als pending im Stream. Ein anderer Worker holt sie per<br/>XAUTOCLAIM nach Ablauf der Min-Idle-Time zurück.

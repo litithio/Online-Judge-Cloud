@@ -20,8 +20,6 @@ variable "ssh_public_key" {
   type        = string
 }
 
-# ID statt Name wie in der GridFlex-Übung. Default ist Ubuntu Server 24.04;
-# aus openstack image list, wenn das Image neu hochgeladen wird.
 variable "image_id" {
   description = "ID des Boot-Images der Nodes (Ubuntu Server 24.04)"
   type        = string

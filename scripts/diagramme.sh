@@ -14,7 +14,8 @@ cd "$(dirname "$0")/.."
 #
 # Version gepinnt, damit Entwicklungsrechner und CI byte-gleich rendern;
 # der Diagramm-Job in lint.yml vergleicht das Ergebnis mit dem Commit.
-# Beim Anheben die SVGs im selben Commit neu erzeugen.
+# Wer die Version wechselt, erzeugt die SVGs im selben Commit neu, sonst
+# schlägt genau dieser Abgleich fehl.
 for quelle in docs/diagramme/*.mmd; do
     npx -y @mermaid-js/mermaid-cli@11.16.0 -i "$quelle" -o "${quelle%.mmd}.svg" -b white
 done

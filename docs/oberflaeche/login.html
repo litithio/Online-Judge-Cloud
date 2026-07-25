@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anmeldung, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+<div class="anmeldung">
+<div class="karte">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+
+    <h1>Online Judge</h1>
+    <p class="unterzeile">Bitte melden Sie sich mit Ihrer Hochschulkennung an.</p>
+
+    <div class="fehler">Benutzername oder Passwort ist nicht korrekt.</div>
+
+    <form onsubmit="return false;">
+      <label for="kennung">Hochschulkennung</label>
+      <input type="text" id="kennung" name="username" autocomplete="username" placeholder="w3m20035">
+
+      <label for="passwort">Passwort</label>
+      <input type="password" id="passwort" name="password" autocomplete="current-password">
+
+      <div class="zeile">
+        <label class="merken" for="merken">
+          <input type="checkbox" id="merken"> Angemeldet bleiben
+        </label>
+        <a href="#">Passwort vergessen?</a>
+      </div>
+
+      <a href="aufgaben.html" class="knopf" style="display:block;text-align:center;text-decoration:none;">Anmelden</a>
+    </form>
+
+    <div class="trenner">oder</div>
+    <button type="button" class="knopf zweit">Mit DHBW-Konto anmelden</button>
+  </div>
+</div>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

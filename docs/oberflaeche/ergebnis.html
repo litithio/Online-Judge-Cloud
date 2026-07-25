@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Einreichung #1035, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>Johannes Ullrich</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <button data-ziel="aufgaben">Aufgaben</button>
+    <button class="aktiv" data-ziel="einreichungen">Meine Einreichungen</button>
+  </div>
+</nav>
+
+<main>
+<a href="#" class="zurueck">&#8592; Meine Einreichungen</a>
+    <div class="kopfzeile"><h1>Einreichung #1035</h1></div>
+
+    <div class="ergebnis-kopf">
+      <div class="punktstand">3 von 5<small>Testfälle bestanden</small></div>
+      <div class="ergebnis-meta">
+        <div><span>Aufgabe</span><strong>Zweisumme</strong></div>
+        <div><span>Sprache</span><strong>Python 3.12</strong></div>
+        <div><span>Eingereicht</span><strong>25.07.2026, 13:04</strong></div>
+        <div><span>Gesamtlaufzeit</span><strong>2,04 s</strong></div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 42%">Testfall</th>
+          <th>Ergebnis</th>
+          <th>Laufzeit</th>
+          <th>Speicher</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Beispiel aus der Angabe</td>
+          <td><span class="status ok"><span class="zeichen">&#10003;</span>bestanden</span></td>
+          <td class="num">12 ms</td>
+          <td class="num">9,4 MB</td>
+        </tr>
+        <tr>
+          <td>Keine Lösung vorhanden</td>
+          <td><span class="status ok"><span class="zeichen">&#10003;</span>bestanden</span></td>
+          <td class="num">9 ms</td>
+          <td class="num">9,4 MB</td>
+        </tr>
+        <tr>
+          <td>Zwei Elemente</td>
+          <td><span class="status ok"><span class="zeichen">&#10003;</span>bestanden</span></td>
+          <td class="num">8 ms</td>
+          <td class="num">9,3 MB</td>
+        </tr>
+        <tr>
+          <td>
+            Negative Zahlen
+            <div class="diff">
+              <div><em>Eingabe</em>-3 4 -1 8, Ziel 5</div>
+              <div><em>Erwartet</em>1 3</div>
+              <div><em>Erhalten</em><span class="ist">0 2</span></div>
+            </div>
+          </td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>falsche Ausgabe</span></td>
+          <td class="num">11 ms</td>
+          <td class="num">9,4 MB</td>
+        </tr>
+        <tr>
+          <td>
+            Große Eingabe, 100 000 Zahlen
+            <span class="zusatz">Abgebrochen beim Erreichen des Zeitlimits</span>
+          </td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>Zeitlimit überschritten</span></td>
+          <td class="num">2,00 s</td>
+          <td class="num">48,1 MB</td>
+        </tr>
+      </tbody>
+    </table>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

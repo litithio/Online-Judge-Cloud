@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zweisumme, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>Johannes Ullrich</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <button class="aktiv" data-ziel="aufgaben">Aufgaben</button>
+    <button data-ziel="einreichungen">Meine Einreichungen</button>
+  </div>
+</nav>
+
+<main>
+<a href="#" class="zurueck">&#8592; Alle Aufgaben</a>
+    <div class="kopfzeile"><h1>Zweisumme</h1></div>
+
+    <div class="zweispaltig">
+      <div class="aufgabentext">
+        <p>Gegeben ist eine Liste ganzer Zahlen und ein Zielwert. Geben Sie die
+           beiden Indizes aus, deren Werte zusammen den Zielwert ergeben.
+           Es gibt höchstens eine Lösung, denselben Index dürfen Sie nicht
+           zweimal verwenden.</p>
+
+        <h3>Eingabe</h3>
+        <p>Die erste Zeile enthält den Zielwert, die zweite die Zahlen,
+           durch Leerzeichen getrennt.</p>
+
+        <h3>Ausgabe</h3>
+        <p>Die beiden Indizes aufsteigend, durch ein Leerzeichen getrennt.
+           Gibt es keine Lösung, geben Sie <code>-1</code> aus.</p>
+
+        <h3>Beispiel</h3>
+        <div class="beispiel">Eingabe:
+9
+2 7 11 15
+
+Ausgabe:
+0 1</div>
+
+        <div class="eckdaten">
+          <div><span>Zeitlimit</span><strong>2,0 s je Testfall</strong></div>
+          <div><span>Speicher</span><strong>256 MB</strong></div>
+          <div><span>Testfälle</span><strong>5</strong></div>
+          <div><span>Abgabe bis</span><strong>31.07.2026, 23:59</strong></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="editor-rahmen">
+          <div class="editor-leiste">
+            <label for="sprache">Sprache</label>
+            <select id="sprache">
+              <option>Python 3.12</option>
+              <option>Java 21</option>
+              <option>C++ 20</option>
+              <option>Rust 1.83</option>
+            </select>
+          </div>
+          <div class="editor">
+            <div class="zeilen"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span></div>
+            <div class="code"><span class="schl">import</span> sys
+
+ziel = <span class="schl">int</span>(<span class="schl">input</span>())
+zahlen = <span class="schl">list</span>(<span class="schl">map</span>(<span class="schl">int</span>, <span class="schl">input</span>().split()))
+
+<span class="kom"># Index je bereits gesehenem Wert</span>
+gesehen = {}
+<span class="schl">for</span> i, wert <span class="schl">in</span> <span class="schl">enumerate</span>(zahlen):
+    <span class="schl">if</span> ziel - wert <span class="schl">in</span> gesehen:
+        <span class="schl">print</span>(gesehen[ziel - wert], i)
+        sys.exit()
+<span class="schl">print</span>(-<span class="str">1</span>)</div>
+          </div>
+        </div>
+
+        <div class="editor-fuss">
+          <span class="hinweis">Ihre letzte Einreichung: #1035, 3 von 5 Testfällen</span>
+          <button class="knopf">Einreichen</button>
+        </div>
+      </div>
+    </div>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

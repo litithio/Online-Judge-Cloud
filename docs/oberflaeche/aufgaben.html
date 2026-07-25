@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aufgaben, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>Johannes Ullrich</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <button class="aktiv" data-ziel="aufgaben">Aufgaben</button>
+    <button data-ziel="einreichungen">Meine Einreichungen</button>
+  </div>
+</nav>
+
+<main>
+<div class="kopfzeile">
+      <h1>Aufgaben</h1>
+      <p>Reichen Sie Ihre Lösung ein. Jede Einreichung wird gegen die
+         hinterlegten Testfälle ausgeführt, das Ergebnis erscheint
+         wenige Sekunden später.</p>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 46%">Aufgabe</th>
+          <th>Schwierigkeit</th>
+          <th>Zeitlimit</th>
+          <th>Abgabe bis</th>
+          <th>Ihr Stand</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="titel-zelle">
+            <a href="aufgabe.html">Zweisumme</a>
+            <span class="zusatz">Zwei Indizes finden, deren Werte eine Zielsumme ergeben</span>
+          </td>
+          <td><span class="marke">leicht</span></td>
+          <td class="num">2,0 s</td>
+          <td class="num">31.07.2026</td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>3 von 5</span></td>
+        </tr>
+        <tr>
+          <td class="titel-zelle">
+            <a href="aufgabe.html">Klammern prüfen</a>
+            <span class="zusatz">Prüfen, ob eine Klammerfolge korrekt geschachtelt ist</span>
+          </td>
+          <td><span class="marke">leicht</span></td>
+          <td class="num">1,0 s</td>
+          <td class="num">31.07.2026</td>
+          <td><span class="status ok"><span class="zeichen">&#10003;</span>5 von 5</span></td>
+        </tr>
+        <tr>
+          <td class="titel-zelle">
+            <a href="aufgabe.html">Wortfrequenz</a>
+            <span class="zusatz">Die zehn häufigsten Wörter eines Textes ausgeben</span>
+          </td>
+          <td><span class="marke">mittel</span></td>
+          <td class="num">3,0 s</td>
+          <td class="num">07.08.2026</td>
+          <td><span class="status wartet">noch nicht abgegeben</span></td>
+        </tr>
+        <tr>
+          <td class="titel-zelle">
+            <a href="aufgabe.html">Kürzester Weg im Raster</a>
+            <span class="zusatz">Breitensuche auf einem Gitter mit Hindernissen</span>
+          </td>
+          <td><span class="marke">schwer</span></td>
+          <td class="num">5,0 s</td>
+          <td class="num">14.08.2026</td>
+          <td><span class="status wartet">noch nicht abgegeben</span></td>
+        </tr>
+      </tbody>
+    </table>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Einreichung #1030, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>Johannes Ullrich</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <button data-ziel="aufgaben">Aufgaben</button>
+    <button class="aktiv" data-ziel="einreichungen">Meine Einreichungen</button>
+  </div>
+</nav>
+
+<main>
+<a href="#" class="zurueck">&#8592; Meine Einreichungen</a>
+    <div class="kopfzeile"><h1>Einreichung #1030</h1></div>
+
+    <div class="ergebnis-kopf">
+      <div class="punktstand" style="font-size: 24px;">Kompilierfehler<small>kein Testfall ausgeführt</small></div>
+      <div class="ergebnis-meta">
+        <div><span>Aufgabe</span><strong>Wortfrequenz</strong></div>
+        <div><span>Sprache</span><strong>Java 21</strong></div>
+        <div><span>Eingereicht</span><strong>vor 1 h</strong></div>
+      </div>
+    </div>
+
+    <h2 style="margin-bottom: 14px;">Ausgabe des Compilers</h2>
+    <pre class="compilerausgabe">Loesung.java:14: error: cannot find symbol
+        Map&lt;String, Integer&gt; zaehler = new HashMap&lt;&gt;();
+        ^
+  symbol:   class Map
+  location: class Loesung
+1 error</pre>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

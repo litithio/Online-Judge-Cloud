@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entwurf, Online Judge im DHBW-Design</title>
+<link rel="stylesheet" href="dhbw.css">
+<style>
+/* Nur für diese Übersicht, gehört nicht zum Entwurf selbst. */
+.uebersicht { max-width: 760px; margin: 0 auto; padding: 70px 28px 90px; }
+.uebersicht .logo-bild { margin-bottom: 46px; }
+.uebersicht ol { list-style: none; padding: 0; margin: 0; }
+.uebersicht li { border-bottom: 1px solid var(--grau-25); }
+.uebersicht a { display: flex; align-items: baseline; gap: 16px; padding: 17px 4px; text-decoration: none; }
+.uebersicht a:hover { background: #fafbfb; }
+.uebersicht a:hover strong { color: var(--rot); }
+.uebersicht strong { font-weight: bold; font-size: 15px; color: var(--grau); min-width: 200px; }
+.uebersicht span { color: var(--grau-80); font-size: 13.5px; flex: 1; }
+.uebersicht code { font-family: var(--mono); font-size: 12px; color: var(--grau-50); }
+</style>
+</head>
+<body>
+
+<div class="uebersicht">
+  <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+  <h1>Online Judge, Entwurf der Oberfläche</h1>
+  <p style="color: var(--grau-80); margin: 10px 0 44px; max-width: 60ch;">
+    Neun statische Seiten im DHBW-Design nach dem Corporate Design der
+    Karrieremarke Masterstudiengänge. Farben, Schriften und Abstände
+    stehen in <code>dhbw.css</code> und werden später
+    <code>static/dhbw.css</code> im API-Service.
+  </p>
+
+  <ol>
+    <li><a href="login.html"><strong>Anmeldung</strong><span>Entwurf für das Keycloak-Theme, nicht Teil des API-Service</span><code>login.html</code></a></li>
+    <li><a href="aufgaben.html"><strong>Aufgabenliste</strong><span>Einstieg nach der Anmeldung</span><code>aufgaben.html</code></a></li>
+    <li><a href="aufgabe.html"><strong>Aufgabe und Editor</strong><span>Aufgabe lesen und Lösung einreichen</span><code>aufgabe.html</code></a></li>
+    <li><a href="einreichungen.html"><strong>Meine Einreichungen</strong><span>Liste mit laufenden und fertigen Abgaben</span><code>einreichungen.html</code></a></li>
+    <li><a href="ergebnis-laeuft.html"><strong>Ergebnis, läuft</strong><span>Bildschirm der Pflichtszene im Screencast</span><code>ergebnis-laeuft.html</code></a></li>
+    <li><a href="ergebnis.html"><strong>Ergebnis, fertig</strong><span>Testfälle mit Laufzeit, Speicher und Abweichung</span><code>ergebnis.html</code></a></li>
+    <li><a href="ergebnis-fehler.html"><strong>Kompilierfehler</strong><span>Abbruch vor dem ersten Testfall</span><code>ergebnis-fehler.html</code></a></li>
+    <li><a href="einreichungen-leer.html"><strong>Ohne Einreichung</strong><span>Erster Bildschirm eines frischen Kontos</span><code>einreichungen-leer.html</code></a></li>
+    <li><a href="fehler.html"><strong>Dienst nicht erreichbar</strong><span>Störungsseite, muss unabhängig vom API-Service ausgeliefert werden</span><code>fehler.html</code></a></li>
+  </ol>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meine Einreichungen, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>Johannes Ullrich</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <button data-ziel="aufgaben">Aufgaben</button>
+    <button class="aktiv" data-ziel="einreichungen">Meine Einreichungen</button>
+  </div>
+</nav>
+
+<main>
+<div class="kopfzeile">
+      <h1>Meine Einreichungen</h1>
+      <p>Die Liste aktualisiert sich selbst, solange eine Einreichung
+         noch bearbeitet wird.</p>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 10%">Nummer</th>
+          <th style="width: 28%">Aufgabe</th>
+          <th>Sprache</th>
+          <th>Eingereicht</th>
+          <th>Ergebnis</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="num">#1042</td>
+          <td class="titel-zelle"><a href="ergebnis-laeuft.html">Zweisumme</a></td>
+          <td>Python 3.12</td>
+          <td class="num">vor 3 s</td>
+          <td><span class="status laeuft"><span class="puls"></span>wird ausgeführt</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1041</td>
+          <td class="titel-zelle"><a href="aufgabe.html">Zweisumme</a></td>
+          <td>Python 3.12</td>
+          <td class="num">vor 5 s</td>
+          <td><span class="status wartet"><span class="zeichen">&#9711;</span>in der Warteschlange</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1039</td>
+          <td class="titel-zelle"><a href="aufgabe.html">Klammern prüfen</a></td>
+          <td>Python 3.12</td>
+          <td class="num">vor 12 min</td>
+          <td><span class="status ok"><span class="zeichen">&#10003;</span>5 von 5</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1035</td>
+          <td class="titel-zelle"><a href="ergebnis.html">Zweisumme</a></td>
+          <td>Python 3.12</td>
+          <td class="num">vor 24 min</td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>3 von 5</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1030</td>
+          <td class="titel-zelle"><a href="ergebnis-fehler.html">Wortfrequenz</a></td>
+          <td>Java 21</td>
+          <td class="num">vor 1 h</td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>Kompilierfehler</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="polling">
+      <span class="puls"></span>
+      Nächste Aktualisierung in 3 s
+    </div>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -40,18 +40,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v4
-        # Puppeteer lädt beim ersten npx-Lauf ein Chromium; der Schlüssel
-        # folgt der in scripts/diagramme.sh gepinnten mermaid-cli-Version.
-        with:
-          path: ~/.cache/puppeteer
-          key: puppeteer-mermaid-cli-11.16.0
-      - name: Unprivilegierte User-Namespaces freigeben
-        # Ubuntu-24.04-Runner sperren sie per AppArmor, dann startet das
-        # Chromium von puppeteer nicht ("No usable sandbox"). Freigeben
-        # statt --no-sandbox, so bleibt die Chromium-Sandbox aktiv.
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: SVGs aus den Mermaid-Quellen rendern
+        # Das Skript rendert im mermaid-cli-Container; Docker ist auf den
+        # Runnern vorinstalliert, das Image kommt gepinnt aus dem Skript.
         run: ./scripts/diagramme.sh
       - name: Gerendertes gegen den Commit abgleichen
         # Schlägt fehl, wenn eine .mmd geändert wurde, ohne

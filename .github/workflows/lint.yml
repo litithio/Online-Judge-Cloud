@@ -34,3 +34,21 @@ jobs:
         run: ruff check --output-format=github .
       - name: ruff format --check
         run: ruff format --check .
+
+  diagramme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v4
+        # Puppeteer lädt beim ersten npx-Lauf ein Chromium; der Schlüssel
+        # folgt der in scripts/diagramme.sh gepinnten mermaid-cli-Version.
+        with:
+          path: ~/.cache/puppeteer
+          key: puppeteer-mermaid-cli-11.16.0
+      - name: SVGs aus den Mermaid-Quellen rendern
+        run: ./scripts/diagramme.sh
+      - name: Gerendertes gegen den Commit abgleichen
+        # Schlägt fehl, wenn eine .mmd geändert wurde, ohne
+        # scripts/diagramme.sh laufen zu lassen und die SVGs mitzucommitten.
+        run: git diff --exit-code docs/diagramme

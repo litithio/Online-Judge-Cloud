@@ -11,6 +11,10 @@ cd "$(dirname "$0")/.."
 
 # Schrift und weitere Render-Einstellungen stehen als Frontmatter in den
 # .mmd-Dateien selbst, hier kommt nur der Hintergrund dazu.
+#
+# Version gepinnt, damit Entwicklungsrechner und CI byte-gleich rendern;
+# der Diagramm-Job in lint.yml vergleicht das Ergebnis mit dem Commit.
+# Beim Anheben die SVGs im selben Commit neu erzeugen.
 for quelle in docs/diagramme/*.mmd; do
-    npx -y @mermaid-js/mermaid-cli -i "$quelle" -o "${quelle%.mmd}.svg" -b white
+    npx -y @mermaid-js/mermaid-cli@11.16.0 -i "$quelle" -o "${quelle%.mmd}.svg" -b white
 done

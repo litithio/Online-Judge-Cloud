@@ -36,6 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Richtet den Treiber docker-container ein. Ohne diesen Schritt baut der
+      # Runner mit dem Treiber docker und bricht bei cache-to mit
+      # "Cache export is not supported for the docker driver" ab.
+      - uses: docker/setup-buildx-action@v4.2.0
+
       - name: Tags und Labels bestimmen
         id: meta
         uses: docker/metadata-action@v6.2.0

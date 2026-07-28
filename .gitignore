@@ -15,7 +15,12 @@ clouds.yaml
 
 # Ansible
 *.retry
-ansible/inventory/hosts.generated
+# Von Terraform erzeugt, enthält die IPs eines konkreten Deployments.
+ansible/inventory/generated-inventory.yml
+# Enthält den TSIG-Key der eigenen DNS-Zone; Vorlage ist die .example-Datei.
+ansible/dns-credentials.yaml
+# Von der Rolle geschrieben, enthält die Cluster-Zugangsdaten.
+ansible/kubeconfig-generated.yaml
 
 # Python
 __pycache__/

@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: ruff installieren
@@ -34,3 +34,17 @@ jobs:
         run: ruff check --output-format=github .
       - name: ruff format --check
         run: ruff format --check .
+
+  diagramme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: SVGs aus den Mermaid-Quellen rendern
+        # Das Skript rendert im mermaid-cli-Container; Docker ist auf den
+        # Runnern vorinstalliert, das Image kommt gepinnt aus dem Skript.
+        run: ./scripts/diagramme.sh
+      - name: Gerendertes gegen den Commit abgleichen
+        # Schlägt fehl, wenn eine .mmd geändert wurde, ohne
+        # scripts/diagramme.sh laufen zu lassen und die SVGs mitzucommitten.
+        run: git diff --exit-code docs/diagramme

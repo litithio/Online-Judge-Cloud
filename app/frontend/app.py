@@ -84,21 +84,23 @@ if selected_title:
         submit_res = requests.post(
             f"{BACKEND_URL}/submit",
             json={"task_id": task_id, "code": user_code},
-            headers=headers
+            headers=headers,
         )
-        
+
         if submit_res.status_code == 200:
             sub_id = submit_res.json()["submission_id"]
-            
+
             # Polling für das Ergebnis
             with st.spinner("Code wird in isolierter Sandbox ausgeführt..."):
                 while True:
                     time.sleep(1)
-                    status_res = requests.get(f"{BACKEND_URL}/submission/{sub_id}", headers=headers).json()
-                    
+                    status_res = requests.get(
+                        f"{BACKEND_URL}/submission/{sub_id}", headers=headers
+                    ).json()
+
                     if status_res["status"] != "PENDING":
                         break
-            
+
             # Anzeige des Ergebnisses
             if status_res["status"] == "SUCCESS":
                 st.success("🎉 ERFOLG! " + status_res["result"])

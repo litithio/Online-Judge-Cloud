@@ -1,0 +1,282 @@
+/* ------------------------------------------------------------------
+   Wird später static/dhbw.css. Die Werte stammen aus dem
+   DHBW Corporate Design Manual:
+     Farben        1.3.1 (Rot HKS 14, Grau HKS 92)
+     Rasterstufen  1.3.1 (Grau in 25/50/75 %, auf Weiß aufgerastert)
+     Mischton      1.1.2 (Rot 100 % multipliziert mit Grau 60 %)
+     Schriften     1.2.2 (Ersatzschriften Arial und Times New Roman)
+     Gewichtung    1.6.3 (Rot zurückgenommen, Grau trägt, viel Weißraum)
+     Eckenrundung  1.6.2 (Höhe mal 0,04)
+   ------------------------------------------------------------------ */
+:root {
+  --rot: #e2001a;
+  --misch: #8b0011;
+  --grau: #5c6971;
+  --grau-80: #7d878d;
+  --grau-75: #858e94;
+  --grau-60: #9da5aa;
+  --grau-50: #aeb4b8;
+  --grau-25: #d6dadc;
+  --weiss: #ffffff;
+
+  /* Statusfarben. Das CD kennt kein Grün, darum trägt das Symbol das
+     Signal und Rot bleibt der Fehlerfarbe vorbehalten. Wer Grün will,
+     ändert genau diese eine Zeile. */
+  --status-ok: var(--grau);
+  --status-fehler: var(--rot);
+  --status-wartet: var(--grau-60);
+
+  --serif: "Times New Roman", Times, serif;
+  --sans: Arial, Helvetica, sans-serif;
+  --mono: "SF Mono", Menlo, Consolas, monospace;
+
+  --rundung: 2px;
+  --spalte: 1180px;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  color: #1a1a1a;
+  background: var(--weiss);
+}
+
+/* Überschriften in Serif nach 1.6.4. Fließtext bleibt bewusst Sans,
+   das ist unsere dokumentierte Abweichung: in einer Oberfläche mit
+   Quelltext ist Times New Roman als Lesetext die falsche Wahl. */
+h1, h2, h3 { font-family: var(--serif); font-weight: normal; color: var(--grau); margin: 0; }
+h1 { font-size: 30px; letter-spacing: -0.01em; }
+h2 { font-size: 21px; }
+h3 { font-size: 17px; }
+
+a { color: var(--grau); }
+
+/* ---------- Kopfbereich ---------- */
+.kopf {
+  border-bottom: 1px solid var(--grau-25);
+  padding: 20px 28px;
+}
+.kopf-innen {
+  max-width: var(--spalte);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.kopf img { height: 62px; width: auto; display: block; }
+.nutzer { font-size: 13px; color: var(--grau-80); text-align: right; }
+.nutzer strong { color: var(--grau); font-weight: bold; display: block; }
+
+/* Die Anmeldung erledigt Traefik per ForwardAuth gegen Keycloak (W6).
+   Die Seite hat darum kein Login-Formular, sie ist immer eingeloggt. */
+
+/* ---------- Navigation ---------- */
+.nav { border-bottom: 1px solid var(--grau-25); padding: 0 28px; }
+.nav-innen { max-width: var(--spalte); margin: 0 auto; display: flex; gap: 30px; }
+.nav button {
+  background: none; border: none; cursor: pointer;
+  font-family: var(--sans); font-size: 14px; color: var(--grau-80);
+  padding: 13px 0; border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+}
+.nav button:hover { color: var(--grau); }
+.nav button.aktiv { color: var(--grau); border-bottom-color: var(--rot); }
+
+/* ---------- Grundgerüst ---------- */
+main { max-width: var(--spalte); margin: 0 auto; padding: 44px 28px 80px; }
+
+.kopfzeile { margin-bottom: 34px; }
+.kopfzeile p { color: var(--grau-80); margin: 8px 0 0; max-width: 62ch; }
+.zurueck { font-size: 13px; color: var(--grau-80); text-decoration: none; display: inline-block; margin-bottom: 14px; }
+.zurueck:hover { color: var(--rot); }
+
+/* ---------- Tabellen ---------- */
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+thead th {
+  text-align: left; font-weight: bold; font-size: 12px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--grau-80);
+  padding: 0 14px 9px; border-bottom: 1px solid var(--grau-50);
+}
+tbody td { padding: 15px 14px; border-bottom: 1px solid var(--grau-25); vertical-align: top; }
+tbody tr:hover { background: #fafbfb; }
+td.num { font-family: var(--mono); font-size: 13px; color: var(--grau-80); white-space: nowrap; }
+.titel-zelle a { font-weight: bold; text-decoration: none; }
+.titel-zelle a:hover { color: var(--rot); }
+.zusatz { display: block; font-size: 12.5px; color: var(--grau-80); margin-top: 3px; font-weight: normal; }
+
+/* ---------- Status ---------- */
+.status { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; white-space: nowrap; }
+.status .zeichen { font-size: 15px; line-height: 1; }
+.status.ok { color: var(--status-ok); }
+.status.fehler { color: var(--status-fehler); font-weight: bold; }
+.status.wartet { color: var(--status-wartet); }
+.status.laeuft { color: var(--grau); }
+
+/* Der laufende Zustand ist der wichtigste der ganzen Oberfläche: Er
+   trägt die Pflichtszene des Screencasts (Worker-Pod stirbt, die
+   Einreichung wird trotzdem fertig). Darum bewegt er sich sichtbar. */
+.puls {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--rot); display: inline-block;
+  animation: puls 1.4s ease-in-out infinite;
+}
+@keyframes puls { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* ---------- Marken ---------- */
+.marke {
+  display: inline-block; font-size: 11.5px; padding: 3px 9px;
+  border: 1px solid var(--grau-50); color: var(--grau-80);
+  border-radius: var(--rundung); white-space: nowrap;
+}
+
+/* ---------- Aufgabenansicht ---------- */
+.zweispaltig { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 52px; align-items: start; }
+.aufgabentext p { margin: 0 0 15px; }
+.aufgabentext h3 { margin: 26px 0 10px; }
+.beispiel {
+  background: #f7f8f9; border-left: 3px solid var(--grau-50);
+  padding: 14px 18px; font-family: var(--mono); font-size: 13px;
+  white-space: pre; overflow-x: auto; margin: 0 0 15px;
+}
+.eckdaten { border-top: 1px solid var(--grau-25); margin-top: 26px; padding-top: 18px; display: flex; gap: 38px; font-size: 13px; }
+.eckdaten div span { display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grau-80); margin-bottom: 3px; }
+.eckdaten div strong { font-weight: bold; color: var(--grau); }
+
+/* ---------- Editor ---------- */
+.editor-rahmen { border: 1px solid var(--grau-50); border-radius: var(--rundung); overflow: hidden; }
+.editor-leiste {
+  background: #f7f8f9; border-bottom: 1px solid var(--grau-25);
+  padding: 9px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+}
+.editor-leiste label { font-size: 12.5px; color: var(--grau-80); }
+select {
+  font-family: var(--sans); font-size: 13px; padding: 5px 9px;
+  border: 1px solid var(--grau-50); border-radius: var(--rundung);
+  background: var(--weiss); color: var(--grau);
+}
+/* Hier steht später Monaco. Im Entwurf reicht ein pre mit Zeilennummern,
+   damit die Höhe und das Umfeld stimmen. */
+.editor { display: flex; font-family: var(--mono); font-size: 13px; line-height: 1.75; background: var(--weiss); }
+.zeilen { padding: 14px 0 14px 14px; color: var(--grau-50); text-align: right; user-select: none; }
+.zeilen span { display: block; }
+.code { padding: 14px 16px 14px 14px; white-space: pre; overflow-x: auto; flex: 1; }
+.schl { color: var(--misch); }
+.kom { color: var(--grau-60); }
+.str { color: var(--grau); }
+
+.editor-fuss { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
+.hinweis { font-size: 12.5px; color: var(--grau-80); }
+
+/* ---------- Schaltflächen ---------- */
+.knopf {
+  font-family: var(--sans); font-size: 14px; font-weight: bold;
+  padding: 11px 26px; border-radius: var(--rundung); cursor: pointer;
+  border: 1px solid var(--rot); background: var(--rot); color: var(--weiss);
+}
+.knopf:hover { background: var(--misch); border-color: var(--misch); }
+.knopf.zweit { background: var(--weiss); color: var(--grau); border-color: var(--grau-50); }
+.knopf.zweit:hover { border-color: var(--grau); background: #fafbfb; }
+
+/* ---------- Ergebnisansicht ---------- */
+.ergebnis-kopf {
+  border: 1px solid var(--grau-25); border-left: 3px solid var(--rot);
+  border-radius: var(--rundung); padding: 22px 26px; margin-bottom: 34px;
+  display: flex; align-items: center; justify-content: space-between; gap: 30px; flex-wrap: wrap;
+}
+.punktstand { font-family: var(--serif); font-size: 34px; color: var(--grau); line-height: 1.1; }
+.punktstand small { font-family: var(--sans); font-size: 13px; color: var(--grau-80); display: block; margin-top: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+.ergebnis-meta { display: flex; gap: 34px; font-size: 13px; }
+.ergebnis-meta span { display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grau-80); margin-bottom: 3px; }
+.ergebnis-meta strong { color: var(--grau); }
+
+.diff { background: #f7f8f9; border: 1px solid var(--grau-25); border-radius: var(--rundung); padding: 13px 16px; margin-top: 11px; font-family: var(--mono); font-size: 12.5px; }
+.diff div { display: flex; gap: 12px; }
+.diff em { font-style: normal; color: var(--grau-80); min-width: 74px; display: inline-block; }
+.diff .ist { color: var(--rot); }
+
+/* Der Polling-Hinweis macht sichtbar, dass die Seite nachfragt statt
+   geschoben zu werden (Beschluss Ergebnisabruf per Polling). */
+.polling { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--grau-80); margin-top: 26px; }
+
+footer { border-top: 1px solid var(--grau-25); margin-top: 60px; padding: 22px 28px 44px; }
+.fuss-innen { max-width: var(--spalte); margin: 0 auto; font-size: 12px; color: var(--grau-80); display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+
+/* ---------- Zustaende waehrend der Ausfuehrung ---------- */
+/* Testfaelle, die der Worker noch nicht erreicht hat. */
+tr.offen td, tr.offen td.num { color: var(--grau-50); }
+.ergebnis-kopf.offen { border-left-color: var(--grau-50); }
+.laufanzeige { font-family: var(--serif); font-size: 30px; color: var(--grau); display: flex; align-items: center; gap: 14px; line-height: 1.1; }
+.laufanzeige small { font-family: var(--sans); font-size: 13px; color: var(--grau-80); display: block; margin-top: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+/* Wird eine Einreichung nach einem Worker-Ausfall erneut aufgenommen,
+   sagt die Oberflaeche das ehrlich statt es zu verbergen. Genau diese
+   Zeile belegt im Screencast, dass nichts verloren geht. */
+.wiederaufnahme { font-size: 12.5px; color: var(--grau-80); border-left: 2px solid var(--grau-50); padding-left: 12px; margin-top: 26px; }
+
+/* ---------- Compilerausgabe ---------- */
+.compilerausgabe { background: #f7f8f9; border: 1px solid var(--grau-25); border-left: 3px solid var(--rot); border-radius: var(--rundung); padding: 16px 18px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; color: var(--misch); margin: 0; overflow-x: auto; }
+
+/* ---------- Leerzustand ---------- */
+.leer { text-align: center; padding: 74px 24px; border: 1px solid var(--grau-25); border-radius: var(--rundung); }
+.leer h3 { margin-bottom: 9px; }
+.leer p { color: var(--grau-80); margin: 0 auto 26px; max-width: 46ch; }
+
+@media (max-width: 900px) {
+  .zweispaltig { grid-template-columns: 1fr; gap: 38px; }
+  .kopf-innen { flex-wrap: wrap; }
+}
+
+/* Logo einmal hinterlegt, damit es in jedem Bildschirm ohne Duplikat steht. */
+.logo-bild { height: 62px; width: 165px; background: url(logo.jpg) no-repeat left center / contain; }
+
+/* ================= Anmeldung (Keycloak-Theme) =================
+   Alle Regeln hängen an .anmeldung, damit sie die Anwendung nicht
+   beeinflussen. Im Keycloak-Theme trägt das body-Element diese Klasse.
+   Die Seite gehört nicht zum API-Service: Traefik leitet unangemeldete
+   Anfragen per ForwardAuth zu Keycloak um, das diese Seite ausliefert. */
+.anmeldung { min-height: 76vh; display: flex; align-items: center; justify-content: center; padding: 60px 28px; }
+.anmeldung .karte { width: 100%; max-width: 380px; }
+.anmeldung .logo-bild { margin: 0 auto 52px; }
+.anmeldung h1 { font-size: 27px; margin: 0 0 8px; text-align: center; }
+.anmeldung .unterzeile { text-align: center; color: var(--grau-80); font-size: 13.5px; margin: 0 0 40px; }
+.anmeldung label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grau-80); margin-bottom: 6px; }
+.anmeldung input[type="text"], .anmeldung input[type="password"] { width: 100%; font-family: var(--sans); font-size: 15px; padding: 11px 13px; border: 1px solid var(--grau-50); border-radius: var(--rundung); background: var(--weiss); color: #1a1a1a; margin-bottom: 22px; }
+.anmeldung input:focus { outline: none; border-color: var(--grau); box-shadow: 0 0 0 3px rgba(92, 105, 113, 0.12); }
+.anmeldung .zeile { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 30px; }
+.anmeldung .merken { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--grau); text-transform: none; letter-spacing: 0; margin: 0; }
+.anmeldung .merken input { margin: 0; width: auto; accent-color: var(--rot); }
+.anmeldung .zeile a { font-size: 13.5px; color: var(--grau-80); text-decoration: none; }
+.anmeldung .zeile a:hover { color: var(--rot); }
+.anmeldung .knopf { width: 100%; font-size: 15px; padding: 12px 26px; }
+.anmeldung .trenner { display: flex; align-items: center; gap: 14px; margin: 32px 0; color: var(--grau-80); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+.anmeldung .trenner::before, .anmeldung .trenner::after { content: ""; flex: 1; height: 1px; background: var(--grau-25); }
+
+/* Fehlermeldung von Keycloak, im Entwurf ausgeblendet. Der rote Balken
+   links ist dasselbe Muster wie der Ergebniskopf in der Anwendung. */
+.anmeldung .fehler { display: none; border: 1px solid var(--grau-25); border-left: 3px solid var(--rot); border-radius: var(--rundung); padding: 12px 16px; font-size: 13.5px; color: var(--misch); margin-bottom: 28px; }
+.anmeldung .fehler.sichtbar { display: block; }
+
+.nutzer a { display: inline-block; margin-top: 3px; font-size: 12.5px; color: var(--grau-80); text-decoration: none; border-bottom: 1px solid var(--grau-25); }
+.nutzer a:hover { color: var(--rot); border-bottom-color: var(--rot); }
+
+/* ---------- Störungsseite ----------
+   Deckt die Fehler ab, die die Anwendung selbst bemerkt, etwa eine nicht
+   erreichbare MongoDB. Fällt ein API-Pod aus, übernimmt die zweite Replica.
+   Erst wenn keine mehr antwortet, kann auch diese Seite nicht mehr
+   ausgeliefert werden. Eine errors-Middleware auf einen eigenen Dienst wäre die
+   Erweiterung dafür, sie ist zurückgestellt (Issue 15). */
+.stoerung { min-height: 74vh; display: flex; align-items: center; justify-content: center; padding: 60px 28px; }
+.stoerung .karte { width: 100%; max-width: 520px; text-align: center; }
+.stoerung .logo-bild { margin: 0 auto 52px; }
+.stoerung h1 { margin: 0 0 14px; }
+.stoerung p { color: var(--grau-80); margin: 0 auto 12px; max-width: 52ch; }
+
+/* Der beruhigende Satz ist der eigentliche Zweck dieser Seite: Wer sie
+   sieht, hat gerade eingereicht und fragt sich, ob die Abgabe weg ist. */
+.stoerung .zusicherung { border-top: 1px solid var(--grau-25); border-bottom: 1px solid var(--grau-25); padding: 18px 0; margin: 32px 0; color: var(--grau); }
+.stoerung .knopf { margin-top: 4px; }
+.stoerung .kennung { font-family: var(--mono); font-size: 12px; color: var(--grau-50); margin-top: 34px; }

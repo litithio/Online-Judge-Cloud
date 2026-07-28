@@ -11,8 +11,9 @@ db = mongo_client["coding_platform"]
 redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:6379"))
 docker_client = docker.from_env()
 
+
 def run_code_in_sandbox(code: str, test_input: str) -> str:
-    """ Führt Code sicher in einem isolierten Docker-Container aus. """
+    """Führt Code sicher in einem isolierten Docker-Container aus."""
     # Wrapper-Skript, das Input übergibt
     wrapped_code = f"""
 import sys
@@ -28,19 +29,20 @@ sys.stdin.seek(0)
         container = docker_client.containers.run(
             image="python:3.11-slim",
             command=["python", "-c", wrapped_code],
-            network_mode="none", # Keinen Netzwerkzugriff erlauben!
-            mem_limit="128m",    # RAM begrenzen
-            nano_cpus=500000000, # Max 0.5 CPU Cores
+            network_mode="none",  # Keinen Netzwerkzugriff erlauben!
+            mem_limit="128m",  # RAM begrenzen
+            nano_cpus=500000000,  # Max 0.5 CPU Cores
             detach=False,
             stdout=True,
             stderr=True,
-            timeout=5            # Max 5 Sekunden Laufzeit
+            timeout=5,  # Max 5 Sekunden Laufzeit
         )
-        return container.decode('utf-8').strip()
+        return container.decode("utf-8").strip()
     except docker.errors.ContainerError as e:
         return f"EXECUTION_ERROR: {e.stderr.decode('utf-8')}"
     except Exception as e:
         return f"TIMEOUT_OR_SYSTEM_ERROR: {str(e)}"
+
 
 def process_queue():
     print("Worker gestartet, warte auf Tasks...")
@@ -48,10 +50,10 @@ def process_queue():
         # Blockierendes Pop aus Redis Queue
         _, item = redis_client.blpop("code_queue")
         job = json.loads(item)
-        
+
         sub_id = job["submission_id"]
         task = db.tasks.find_one({"_id": ObjectId(job["task_id"])})
-        
+
         if not task:
             continue
 
@@ -74,13 +76,16 @@ def process_queue():
 
         db.submissions.update_one(
             {"_id": ObjectId(sub_id)},
-            {"$set": {
-                "status": final_status,
-                "result": result_text,
-                "updated_at": time.time()
-            }}
+            {
+                "$set": {
+                    "status": final_status,
+                    "result": result_text,
+                    "updated_at": time.time(),
+                }
+            },
         )
         print(f"Submission {sub_id} verarbeitet: {final_status}")
+
 
 if __name__ == "__main__":
     process_queue()

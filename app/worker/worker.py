@@ -2,6 +2,7 @@ import os
 import json
 import time
 import docker
+import requests
 from pymongo import MongoClient
 from bson import ObjectId
 import redis
@@ -9,39 +10,82 @@ import redis
 mongo_client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
 db = mongo_client["coding_platform"]
 redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:6379"))
+# Im Cluster gibt es diesen Socket nicht, dort läuft containerd statt Docker.
+# Der Worker startet die Ausführung dann entweder als eigenen Pod über die
+# Kubernetes-API oder er läuft selbst unter der gVisor-RuntimeClass und führt
+# den Code im eigenen Pod aus. Die Wahl steht noch aus.
 docker_client = docker.from_env()
+
+# Leer im lokalen Lauf, dann nimmt Docker seine Standardlaufzeit runc. Im
+# Cluster steht hier runsc, damit gVisor den eingereichten Code ausführt.
+SANDBOX_RUNTIME = os.getenv("SANDBOX_RUNTIME") or None
+SANDBOX_TIMEOUT = 5
 
 
 def run_code_in_sandbox(code: str, test_input: str) -> str:
     """Führt Code sicher in einem isolierten Docker-Container aus."""
-    # Wrapper-Skript, das Input übergibt
+    # Wrapper-Skript, das Input übergibt. Die Eingabe hängt an einem echten
+    # Dateideskriptor 0 und nicht nur an sys.stdin, sonst scheitern Lösungen,
+    # die sys.stdin.buffer, os.read(0, ...) oder /dev/stdin lesen.
     wrapped_code = f"""
+import os
 import sys
-input_data = {repr(test_input)}
-sys.stdin = open('/tmp/input.txt', 'w')
-sys.stdin.write(input_data)
-sys.stdin.seek(0)
+
+with open('/tmp/input.txt', 'w') as _f:
+    _f.write({repr(test_input)})
+_fd = os.open('/tmp/input.txt', os.O_RDONLY)
+os.dup2(_fd, 0)
+sys.stdin = open(0, closefd=False)
 
 {code}
 """
+    container = None
     try:
-        # Container mit strengen Limits starten
         container = docker_client.containers.run(
             image="python:3.11-slim",
             command=["python", "-c", wrapped_code],
+            # Die drei Grenzen setzt im Cluster der Pod: eine NetworkPolicy
+            # ohne erlaubten Verkehr, resources.limits.memory und
+            # resources.limits.cpu.
             network_mode="none",  # Keinen Netzwerkzugriff erlauben!
             mem_limit="128m",  # RAM begrenzen
             nano_cpus=500000000,  # Max 0.5 CPU Cores
-            detach=False,
-            stdout=True,
-            stderr=True,
-            timeout=5,  # Max 5 Sekunden Laufzeit
+            runtime=SANDBOX_RUNTIME,
+            detach=True,  # ohne das wartet run selbst, ohne Zeitlimit
         )
-        return container.decode("utf-8").strip()
-    except docker.errors.ContainerError as e:
-        return f"EXECUTION_ERROR: {e.stderr.decode('utf-8')}"
+        try:
+            # Das Zeitlimit begrenzt nur das Warten, nicht den Container. Der
+            # läuft weiter und muss selbst beendet werden.
+            result = container.wait(timeout=SANDBOX_TIMEOUT)
+        except requests.exceptions.RequestException:
+            # Den abgelaufenen Lesevorgang meldet docker je nach Fall als
+            # ReadTimeout oder als ConnectionError. Statt den Typ zu prüfen:
+            # läuft der Container noch, dann war es das Zeitlimit. Wenn nicht,
+            # ist die Verbindung zum Daemon das Problem und der Fehler gehört
+            # nicht der Einreichung angelastet.
+            container.reload()
+            if container.status != "running":
+                raise
+            container.kill()
+            return f"TIMEOUT: Zeitlimit von {SANDBOX_TIMEOUT} Sekunden überschritten"
+
+        output = container.logs().decode("utf-8").strip()
+        if result["StatusCode"] != 0:
+            return f"EXECUTION_ERROR: {output}"
+        return output
     except Exception as e:
-        return f"TIMEOUT_OR_SYSTEM_ERROR: {str(e)}"
+        # Mit dem Typ, sonst sieht ein Fehler im Worker aus wie ein Fehler im
+        # eingereichten Code.
+        return f"SYSTEM_ERROR: {type(e).__name__}: {e}"
+    finally:
+        # Ohne das bleibt je Testfall ein beendeter Container liegen. Der
+        # eigene Fehlerfang muss sein: eine Ausnahme aus dem finally heraus
+        # verwirft das Ergebnis der Einreichung und beendet den Worker.
+        if container is not None:
+            try:
+                container.remove(force=True)
+            except Exception as e:
+                print(f"Container {container.short_id} nicht entfernt: {e}")
 
 
 def process_queue():

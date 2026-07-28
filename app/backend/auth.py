@@ -9,21 +9,20 @@ REALM = os.getenv("KEYCLOAK_REALM", "master")
 
 security = HTTPBearer()
 
+
 def get_keycloak_public_key():
     url = f"{KEYCLOAK_URL}/realms/{REALM}"
     res = requests.get(url).json()
     public_key = res.get("public_key")
     return f"-----BEGIN PUBLIC KEY-----\n{public_key}\n-----END PUBLIC KEY-----"
 
+
 def verify_jwt(credentials: HTTPAuthorizationCredentials = Security(security)):
     token = credentials.credentials
     try:
         public_key = get_keycloak_public_key()
         payload = jwt.decode(
-            token, 
-            public_key, 
-            algorithms=["RS256"], 
-            options={"verify_aud": False}
+            token, public_key, algorithms=["RS256"], options={"verify_aud": False}
         )
         return payload
     except Exception as e:

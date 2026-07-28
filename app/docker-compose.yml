@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Datenbank & Queue
+  # ---------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: coding_platform_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: coding_platform
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - coding_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: coding_platform_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - coding_net
+
+  # ---------------------------------------------------------------------------
+  # 2. Keycloak (Authentifizierung)
+  # ---------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.1
+    container_name: coding_platform_keycloak
+    restart: always
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: start-dev
+    ports:
+      - "8080:8080"
+    networks:
+      - coding_net
+
+  # ---------------------------------------------------------------------------
+  # 3. Anwendungs-Dienste (Backend, Worker, Frontend)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: coding_platform_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      REDIS_URI: redis://redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: master
+    depends_on:
+      - mongodb
+      - redis
+      - keycloak
+    networks:
+      - coding_net
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: coding_platform_worker
+    restart: always
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      REDIS_URI: redis://redis:6379
+    volumes:
+      # Erlaubt dem Worker, isolierte Sandbox-Container für die Code-Ausführung zu starten
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - coding_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: coding_platform_frontend
+    restart: always
+    ports:
+      - "8501:8501"
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - coding_net
+
+# ---------------------------------------------------------------------------
+# Netzwerke & Volumes
+# ---------------------------------------------------------------------------
+networks:
+  coding_net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  redis_data:

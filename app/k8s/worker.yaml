@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: code-worker
+  template:
+    metadata:
+      labels:
+        app: code-worker
+    spec:
+      containers:
+      - name: worker
+        image: my-registry/code-worker:latest
+        env:
+        - name: MONGO_URI
+          value: "mongodb://mongodb:27017"
+        - name: REDIS_URI
+          value: "redis://redis:6379"
+        volumeMounts:
+        - mountPath: /var/run/docker.sock
+          name: docker-socket
+      volumes:
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock

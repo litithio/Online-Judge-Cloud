@@ -24,13 +24,18 @@ SANDBOX_TIMEOUT = 5
 
 def run_code_in_sandbox(code: str, test_input: str) -> str:
     """Führt Code sicher in einem isolierten Docker-Container aus."""
-    # Wrapper-Skript, das Input übergibt
+    # Wrapper-Skript, das Input übergibt. Die Eingabe hängt an einem echten
+    # Dateideskriptor 0 und nicht nur an sys.stdin, sonst scheitern Lösungen,
+    # die sys.stdin.buffer, os.read(0, ...) oder /dev/stdin lesen.
     wrapped_code = f"""
+import os
 import sys
-input_data = {repr(test_input)}
-sys.stdin = open('/tmp/input.txt', 'w')
-sys.stdin.write(input_data)
-sys.stdin.seek(0)
+
+with open('/tmp/input.txt', 'w') as _f:
+    _f.write({repr(test_input)})
+_fd = os.open('/tmp/input.txt', os.O_RDONLY)
+os.dup2(_fd, 0)
+sys.stdin = open(0, closefd=False)
 
 {code}
 """
@@ -73,9 +78,14 @@ sys.stdin.seek(0)
         # eingereichten Code.
         return f"SYSTEM_ERROR: {type(e).__name__}: {e}"
     finally:
-        # Ohne das bleibt je Testfall ein beendeter Container liegen.
+        # Ohne das bleibt je Testfall ein beendeter Container liegen. Der
+        # eigene Fehlerfang muss sein: eine Ausnahme aus dem finally heraus
+        # verwirft das Ergebnis der Einreichung und beendet den Worker.
         if container is not None:
-            container.remove(force=True)
+            try:
+                container.remove(force=True)
+            except Exception as e:
+                print(f"Container {container.short_id} nicht entfernt: {e}")
 
 
 def process_queue():

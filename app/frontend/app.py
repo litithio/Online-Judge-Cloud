@@ -4,7 +4,10 @@ import time
 import os
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-KEYCLOAK_TOKEN_URL = os.getenv("KEYCLOAK_TOKEN_URL", "http://keycloak:8080/realms/master/protocol/openid-connect/token")
+KEYCLOAK_TOKEN_URL = os.getenv(
+    "KEYCLOAK_TOKEN_URL",
+    "http://keycloak:8080/realms/master/protocol/openid-connect/token",
+)
 
 st.set_page_config(page_title="Coding Platform", layout="wide")
 st.title("💻 Python Code Evaluator")
@@ -16,21 +19,21 @@ if "token" not in st.session_state:
 # Login-Formular in der Sidebar
 with st.sidebar:
     st.header("🔑 Keycloak Login")
-    
+
     if st.session_state["token"] is None:
         username = st.text_input("Benutzername")
         password = st.text_input("Passwort", type="password")
-        
+
         if st.button("Anmelden"):
             # Token von Keycloak anfordern
             payload = {
                 "grant_type": "password",
                 "client_id": "admin-cli",
                 "username": username,
-                "password": password
+                "password": password,
             }
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
-            
+
             try:
                 res = requests.post(KEYCLOAK_TOKEN_URL, data=payload, headers=headers)
                 if res.status_code == 200:

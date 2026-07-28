@@ -4,22 +4,55 @@ import time
 import os
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+KEYCLOAK_TOKEN_URL = os.getenv("KEYCLOAK_TOKEN_URL", "http://keycloak:8080/realms/master/protocol/openid-connect/token")
 
 st.set_page_config(page_title="Coding Platform", layout="wide")
 st.title("💻 Python Code Evaluator")
 
-# Token Handling (Simulierter OAuth Token oder Eingabe für Demo)
+# Session-State für Token verwalten
 if "token" not in st.session_state:
-    st.session_state["token"] = ""
+    st.session_state["token"] = None
 
+# Login-Formular in der Sidebar
 with st.sidebar:
-    st.header("🔑 Auth")
-    st.session_state["token"] = st.text_input("Keycloak Bearer Token", type="password")
+    st.header("🔑 Keycloak Login")
+    
+    if st.session_state["token"] is None:
+        username = st.text_input("Benutzername")
+        password = st.text_input("Passwort", type="password")
+        
+        if st.button("Anmelden"):
+            # Token von Keycloak anfordern
+            payload = {
+                "grant_type": "password",
+                "client_id": "admin-cli",
+                "username": username,
+                "password": password
+            }
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            
+            try:
+                res = requests.post(KEYCLOAK_TOKEN_URL, data=payload, headers=headers)
+                if res.status_code == 200:
+                    st.session_state["token"] = res.json()["access_token"]
+                    st.success("Erfolgreich angemeldet!")
+                    st.rerun()
+                else:
+                    st.error("Login fehlgeschlagen. Zugangsdaten überprüfen.")
+            except Exception as e:
+                st.error(f"Verbindung zu Keycloak fehlgeschlagen: {e}")
+    else:
+        st.success("Eingeloggt")
+        if st.button("Abmelden"):
+            st.session_state["token"] = None
+            st.rerun()
 
+# Wenn nicht eingeloggt, Anwendung stoppen
 if not st.session_state["token"]:
-    st.warning("Bitte füge einen gültigen Keycloak JWT Token ein, um fortzufahren.")
+    st.info("Bitte melde dich in der Sidebar an, um Aufgaben zu sehen.")
     st.stop()
 
+# Ab hier geschützte API-Anfragen
 headers = {"Authorization": f"Bearer {st.session_state['token']}"}
 
 # 1. Aufgaben laden

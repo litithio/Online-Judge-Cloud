@@ -73,7 +73,14 @@ tf_dirs=$(find . -name '*.tf' -not -path './.terraform/*' -not -path './.git/*' 
 if [ -z "$tf_dirs" ]; then
   step "Terraform: keine .tf-Dateien, übersprungen"
 elif ! command -v terraform >/dev/null; then
-  echo "terraform nicht gefunden" >&2; fail=1
+  echo "terraform nicht gefunden" >&2
+  # Verwiesen wird auf die Seite statt auf ein Kommando: der Weg unterscheidet
+  # sich je nach Betriebssystem, unter Windows gibt es nur den Binär-Download.
+  # Die Version steht in den Workflows und nicht hier, damit sie an einer
+  # Stelle gepflegt wird.
+  echo "         Abhilfe: https://developer.hashicorp.com/terraform/install" >&2
+  echo "         Version: siehe terraform_version in .github/workflows/infra.yml" >&2
+  fail=1
 else
   step "terraform fmt -check -recursive"
   terraform fmt -check -recursive
@@ -120,7 +127,12 @@ else
     # Nur echte Playbooks prüfen; Variablendateien haben weder hosts noch import_playbook.
     grep -qE '^\s*-?\s*(hosts|import_playbook):' "$pb" || continue
     step "ansible-playbook --syntax-check ($pb)"
-    ansible-playbook --syntax-check "$pb"
+    # Geprüft wird ohne Inventory: das schreibt Terraform, es liegt nicht im
+    # Repo und fehlt in der CI immer. Die beiden Warnungen daraus melden nur,
+    # dass hosts: all niemanden trifft. Playbook, Imports und Rolle löst der
+    # Check trotzdem auf, ein Fehler darin fällt weiterhin auf.
+    ANSIBLE_LOCALHOST_WARNING=False ANSIBLE_INVENTORY_UNPARSED_WARNING=False \
+      ansible-playbook --syntax-check "$pb"
     result $?
   done
 fi

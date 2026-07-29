@@ -20,4 +20,11 @@
   tags: [k3s]
   become: true
   roles:
+    # Die Rolle stellt external-dns auf v0.19.0. Dort beendet ein einzelner
+    # fehlgeschlagener AXFR den Prozess und der Pod startet neu, siehe
+    # kubernetes-sigs/external-dns#6219. Ab v0.21.0 gilt der Fehler als weich.
+    # Damit fällt der Neustart als Warnsignal weg: ein anhaltender Ausfall
+    # hinterlässt dann einen laufenden Pod, der still nichts mehr abgleicht.
     - role: k3s-dhbw-cloud-role
+      vars:
+        external_dns_version: "v0.21.0"

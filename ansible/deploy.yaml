@@ -28,3 +28,48 @@
     - role: k3s-dhbw-cloud-role
       vars:
         external_dns_version: "v0.21.0"
+
+# Nur auf den Agents, der Server führt keine Einreichungen aus.
+- name: Sandbox-Laufzeit gVisor auf den Judge-Nodes einrichten
+  hosts: judge_k3s_agent
+  tags: [gvisor]
+  become: true
+  vars:
+    # Gepinnt wie die Rolle in requirements.yml: einmal grün gelaufen, dann
+    # eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht. Die
+    # Prüfsummen liegen unter derselben URL mit der Endung .sha512 und gelten
+    # für genau diese Release-Nummer.
+    gvisor_version: "20260721.0"
+    gvisor_binaries:
+      - name: runsc
+        sha512: "5de08aa2c048f85289084a6c65648a49dea510da54677a196f223fbf08499c36741da79976b51e0e2b61063bde01ef2a709c7ced95b6d829d9a3c0f3c68b78ab"
+      - name: containerd-shim-runsc-v1
+        sha512: "a6562b8c5557ef56a6dac35bd957a8682b513d649f35c6c0d37974165f2a9b989a032225c4b829cafa852fc6ce75094446a45add3505e31eb291a3ce4c51bff3"
+  tasks:
+    - name: Laufzeit runsc einrichten
+      ansible.builtin.import_tasks: tasks/gvisor.yaml
+  handlers:
+    # k3s rendert die containerd-Konfiguration beim Start aus der Vorlage neu.
+    # Ohne Neustart bleibt der Eintrag für runsc wirkungslos.
+    - name: K3s-Agent neu starten
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: restarted
+
+# Die RuntimeClass ist ein Objekt im Cluster, angelegt wird sie deshalb über
+# den Server. Der Handler muss so heißen wie die Laufzeit im containerd-Block.
+- name: RuntimeClass für gVisor anlegen
+  hosts: judge_k3s_server
+  tags: [gvisor]
+  become: true
+  tasks:
+    - name: RuntimeClass gvisor
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        definition:
+          apiVersion: node.k8s.io/v1
+          kind: RuntimeClass
+          metadata:
+            name: gvisor
+          handler: runsc

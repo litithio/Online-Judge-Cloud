@@ -97,14 +97,25 @@ in die tfvars eintragen.
 Vor dem Push:
 
 ```bash
+./scripts/check.sh
+```
+
+Das Skript ruft die Prüfungen nacheinander auf und läuft auch nach einem
+Fehlschlag weiter. Am Ende steht, welcher Schritt gescheitert ist und womit
+er sich beheben lässt. Es prüft selbst nichts, die Einzelaufrufe bleiben
+gültig:
+
+```bash
 ./scripts/infra-check.sh   # terraform fmt und validate, ansible-lint, Syntax
 ruff check . && ruff format --check .
 ./scripts/diagramme.sh     # nur nach Änderung an docs/diagramme/*.mmd
 ```
 
-Dieselben Prüfungen laufen in `lint.yml`. Der Diagramm-Job vergleicht die
-gerenderten SVGs mit dem Commit: eine geänderte `.mmd` ohne mitcommittete
-SVG macht den Pull Request rot.
+Dieselben Prüfungen laufen in `lint.yml`, dort einzeln und nicht über
+`check.sh`. Der Diagramm-Job vergleicht die gerenderten SVGs mit dem Commit:
+eine geänderte `.mmd` ohne mitcommittete SVG macht den Pull Request rot.
+`check.sh` rendert dafür nicht selbst, es vergleicht die Zeitstempel und
+meldet, wenn eine `.mmd` neuer ist als ihr SVG.
 
 ## Entscheidungen
 Je Pflicht- und Wahlthema ein Absatz: Wahl, Alternative, Begründung

@@ -7,6 +7,30 @@ from pymongo import MongoClient
 from bson import ObjectId
 import redis
 
+# Leer im lokalen Lauf, dann nimmt Docker seine Standardlaufzeit runc. Im
+# Cluster steht hier runsc, damit gVisor den eingereichten Code ausführt.
+SANDBOX_RUNTIME = os.getenv("SANDBOX_RUNTIME") or None
+SANDBOX_TIMEOUT = 5
+
+# Kommt als ENV aus dem Dockerfile, aus demselben ARG wie FROM. Damit läuft der
+# eingereichte Code in der Fassung, die der Judge zusagt, und nicht in einer
+# anderen. Ohne Vorgabe, weil eine zweite Zeichenkette an dieser Stelle genau
+# die Abweichung wieder möglich machen würde, die das ARG verhindert.
+#
+# Der leere Wert muss mitgeprüft werden, er kommt durch os.getenv hindurch, und
+# der Worker würde dann jede Einreichung mit SYSTEM_ERROR beantworten, statt
+# gar nicht zu starten.
+SANDBOX_IMAGE = os.getenv("SANDBOX_IMAGE", "").strip()
+if not SANDBOX_IMAGE:
+    raise SystemExit(
+        "SANDBOX_IMAGE ist leer oder nicht gesetzt. Der Wert kommt aus dem "
+        "ARG PYTHON_IMAGE in app/worker/Dockerfile, damit der Worker und die "
+        "Sandbox dieselbe Fassung von Python verwenden."
+    )
+
+# Erst nach der Prüfung der Konfiguration. Andernfalls scheitert der Aufbau der
+# Verbindungen zuerst, und eine fehlende Einstellung sieht dann nach einem
+# Ausfall von Docker oder der Datenbank aus.
 mongo_client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
 db = mongo_client["coding_platform"]
 redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:6379"))
@@ -15,11 +39,6 @@ redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:63
 # Kubernetes-API oder er läuft selbst unter der gVisor-RuntimeClass und führt
 # den Code im eigenen Pod aus. Die Wahl steht noch aus.
 docker_client = docker.from_env()
-
-# Leer im lokalen Lauf, dann nimmt Docker seine Standardlaufzeit runc. Im
-# Cluster steht hier runsc, damit gVisor den eingereichten Code ausführt.
-SANDBOX_RUNTIME = os.getenv("SANDBOX_RUNTIME") or None
-SANDBOX_TIMEOUT = 5
 
 
 def run_code_in_sandbox(code: str, test_input: str) -> str:
@@ -42,7 +61,7 @@ sys.stdin = open(0, closefd=False)
     container = None
     try:
         container = docker_client.containers.run(
-            image="python:3.11-slim",
+            image=SANDBOX_IMAGE,
             command=["python", "-c", wrapped_code],
             # Die drei Grenzen setzt im Cluster der Pod: eine NetworkPolicy
             # ohne erlaubten Verkehr, resources.limits.memory und

@@ -1,0 +1,14 @@
+{
+  "title": "Summe zweier Zahlen",
+  "description": "Lies zwei durch Leerzeichen getrennte ganze Zahlen von der Standardeingabe und gib ihre Summe aus.",
+  "test_cases": [
+    {
+      "input": "3 4\n",
+      "expected_output": "7"
+    },
+    {
+      "input": "-5 5\n",
+      "expected_output": "0"
+    }
+  ]
+}

@@ -125,7 +125,7 @@ services:
   # ---------------------------------------------------------------------------
   # 4. Beispieldaten
   # ---------------------------------------------------------------------------
-  # Legt die Aufgabe an und beendet sich. Wiederholtes Starten ändert nichts,
+  # Legt die Aufgaben an und beendet sich. Wiederholtes Starten ändert nichts,
   # das Skript arbeitet mit upsert. Im Cluster dasselbe Skript als Job, der
   # nach dem Ausrollen einmal läuft.
   seed:
@@ -136,9 +136,9 @@ services:
       mongodb:
         condition: service_healthy
     volumes:
-      - ./seed:/seed:ro
+      - ./aufgaben:/aufgaben:ro
     command: >
-      mongosh mongodb://mongodb:27017/coding_platform --file /seed/tasks.js
+      mongosh mongodb://mongodb:27017/coding_platform --file /aufgaben/laden.js
     networks:
       - coding_net
 

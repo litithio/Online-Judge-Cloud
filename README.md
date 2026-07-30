@@ -121,5 +121,31 @@ meldet, wenn eine `.mmd` neuer ist als ihr SVG.
 Je Pflicht- und Wahlthema ein Absatz: Wahl, Alternative, Begründung
 ## Grenzen
 Was die Lösung nicht kann und was Sie unter echter Last erwarten
+
+Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
+User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
+Prozesszahl. Drei Lücken bleiben.
+
+Er teilt das Netz des Workers und erreicht MongoDB und Redis damit direkt.
+Solange beide Dienste keine Anmeldung verlangen, kann eine Einreichung die
+erwarteten Ausgaben lesen und Ergebnisse verändern.
+
+Die Speichergrenze von 128 MiB gilt für jeden Prozess einzeln. Startet eine
+Einreichung weitere Prozesse, bekommt jeder von ihnen erneut 128 MiB. Bei den
+erlaubten 64 Prozessen sind das zusammen 8 GiB. Lokal deckelt das Speicherlimit
+des Containers diese Summe, im Kubernetes-Manifest fehlt die Grenze bisher.
+
+Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
+Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, etwa in
+`/tmp`, und das Aufräumen danach kennt nur ihr eigenes Verzeichnis. Läuft der
+Platz voll, scheitern alle folgenden Einreichungen mit einem Systemfehler, bis
+jemand aufräumt oder den Container ersetzt. In unserer lokalen Umgebung waren
+5,4 GB aus einer einzelnen Einreichung erreichbar, die Menge hängt aber an
+Datenträger und Auslastung.
+
+Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Menge
+der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe
+mehr aus. Der Speicher des Workers bleibt davon unberührt, die Schreiblast auf
+dem Node nicht.
 ## Bonus
 Nur falls Sie Bonuspunkte beanspruchen, sonst weglassen

@@ -93,15 +93,14 @@ services:
     image: judge-worker:local
     container_name: coding_platform_worker
     restart: always
+    # Der Worker begrenzt jeden einzelnen Lauf über rlimits, aber die gelten je
+    # Prozess. Eine Einreichung, die forkt, käme in Summe auf ein Vielfaches.
+    # Diese Grenze deckelt alles zusammen. Im Cluster tritt resources.limits an
+    # ihre Stelle, siehe #15.
+    mem_limit: 512m
     environment:
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://redis:6379
-    volumes:
-      # Erlaubt dem Worker, isolierte Sandbox-Container für die Code-Ausführung
-      # zu starten. Im Cluster gibt es diesen Socket nicht, dort läuft
-      # containerd, und die Isolation kommt von gVisor. Der Mount fällt damit
-      # weg, siehe den Kommentar an docker.from_env() in worker/worker.py.
-      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - mongodb
       - redis

@@ -1,8 +1,2 @@
 pymongo==4.6.2
 redis==5.0.3
-docker==7.1.0
-# docker 7.0.0 verbindet sich mit requests ab 2.32 nicht mehr, der Aufruf
-# bricht mit "Not supported URL scheme http+docker" ab. requests kam bisher
-# nur über docker herein und war offen, derselbe Bau zog je nach Zeitpunkt
-# eine andere Version.
-requests==2.34.2

@@ -1,5 +1,5 @@
-# Baut die drei Dienste aus app/ und schiebt sie nach
-# ghcr.io/<owner>/online-judge-{backend,worker,frontend}.
+# Baut die beiden Dienste aus app/ und schiebt sie nach
+# ghcr.io/<owner>/online-judge-{backend,worker}.
 #
 # Die Packages entstehen beim ersten Push mit der Sichtbarkeit des Repos, also
 # privat. Damit der Cluster ohne imagePullSecret ziehen kann (Issue #10), müssen
@@ -28,11 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
-      # Ein kaputtes Dockerfile soll die beiden anderen Dienste nicht abbrechen:
+      # Ein kaputtes Dockerfile soll den anderen Dienst nicht abbrechen:
       # sonst sieht man in der Prüfliste einen Fehler statt aller Fehler.
       fail-fast: false
       matrix:
-        dienst: [backend, worker, frontend]
+        dienst: [backend, worker]
     steps:
       - uses: actions/checkout@v7
 

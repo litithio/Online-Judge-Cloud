@@ -7,7 +7,7 @@ services:
   # 1. Datenbank & Queue
   # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0
+    image: mongo:8.0
     container_name: coding_platform_mongodb
     restart: always
     # Der Port liegt nur für mongosh von außen an. Im Cluster erreichen die
@@ -88,6 +88,9 @@ services:
     build:
       context: ./worker
       dockerfile: Dockerfile
+    # Fester Name, weil der seed-Dienst unten dasselbe Image nutzt. Ohne ihn
+    # benennt Compose es nach dem Projektordner und der Bezug wäre unsichtbar.
+    image: judge-worker:local
     container_name: coding_platform_worker
     restart: always
     environment:
@@ -128,17 +131,26 @@ services:
   # Legt die Aufgaben an und beendet sich. Wiederholtes Starten ändert nichts,
   # das Skript arbeitet mit upsert. Im Cluster dasselbe Skript als Job, der
   # nach dem Ausrollen einmal läuft.
+  #
+  # Läuft im Worker-Image, weil pymongo dort schon liegt. Ein eigenes Image nur
+  # zum Laden wäre ein drittes, das gebaut und gepflegt werden müsste. Der
+  # build-Block steht deshalb zweimal, das Ergebnis ist dasselbe Image und der
+  # zweite Bau ein Treffer im Cache.
   seed:
-    image: mongo:7.0
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    image: judge-worker:local
     container_name: coding_platform_seed
     restart: "no"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
     depends_on:
       mongodb:
         condition: service_healthy
     volumes:
       - ./aufgaben:/aufgaben:ro
-    command: >
-      mongosh mongodb://mongodb:27017/coding_platform --file /aufgaben/laden.js
+    command: ["python3", "/aufgaben/laden.py"]
     networks:
       - coding_net
 

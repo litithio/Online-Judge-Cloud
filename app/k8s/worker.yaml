@@ -21,10 +21,16 @@ spec:
       - name: worker
         # Feste Version statt latest, damit nachvollziehbar bleibt, welcher
         # Stand im Cluster läuft. Gebaut wird sie von .github/workflows/images.yml
-        # bei einem Git-Tag v0.2.0.
-        image: ghcr.io/viereckl/online-judge-worker:0.2.0
+        # bei einem Git-Tag v0.2.1.
+        image: ghcr.io/litithio/online-judge-worker:0.2.1
         env:
         - name: MONGO_URI
           value: "mongodb://mongodb:27017"
         - name: REDIS_URI
           value: "redis://redis:6379"
+        # Der eingereichte Code bekommt hier einen eigenen Netz-Namespace, anders
+        # als im lokalen Compose-Stand. Ohne diesen Schalter würde die Trennung
+        # stillschweigend wegfallen, sobald der Aufruf einmal nicht mehr
+        # durchgeht, und Einreichungen erreichten wieder die Datenbank.
+        - name: SANDBOX_NETZ_ERZWINGEN
+          value: "1"

@@ -53,8 +53,8 @@ schlimmstenfalls ein zweites Mal ausgeführt.
 Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster. Das Ausrollen
 der Anwendung in den Cluster fehlt noch: es entsteht mit dem Chart (#15) und
 dem Deployment-Ablauf (#17). Die Images baut `images.yml` bereits nach
-ghcr.io, bis Issue #42 sind sie aber privat. Solange läuft die Anwendung
-lokal über `app/docker-compose.yml`.
+ghcr.io, sie sind öffentlich und lassen sich ohne Zugangsdaten ziehen.
+Solange läuft die Anwendung lokal über `app/docker-compose.yml`.
 
 VPN an für Terraform, VPN aus für alles andere. Terraform spricht mit der
 OpenStack-API und braucht den Tunnel. SSH, Ansible und kubectl erreichen die
@@ -126,9 +126,16 @@ Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
 User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
 Prozesszahl. Drei Lücken bleiben.
 
-Er teilt das Netz des Workers und erreicht MongoDB und Redis damit direkt.
-Solange beide Dienste keine Anmeldung verlangen, kann eine Einreichung die
-erwarteten Ausgaben lesen und Ergebnisse verändern.
+Im Cluster bekommt der eingereichte Code einen eigenen Netz-Namespace und damit
+kein Netz. Lokal im Compose-Stand greift das nicht, weil Dockers seccomp-Profil
+den nötigen Aufruf blockiert. Dort teilt er das Netz des Workers und erreicht
+MongoDB und Redis direkt, kann also die erwarteten Ausgaben lesen und Ergebnisse
+verändern, solange die Dienste keine Anmeldung verlangen. Der Worker schreibt
+diesen Zustand beim Start ins Log.
+
+Für den Cluster heißt das: Ein grüner lokaler Lauf sagt über diesen Punkt
+nichts. Und wo der Namespace nicht zustande kommt, etwa weil jemand ein
+seccomp-Profil setzt, bleibt nur die NetworkPolicy als Begrenzung.
 
 Die Speichergrenze von 128 MiB gilt für jeden Prozess einzeln. Startet eine
 Einreichung weitere Prozesse, bekommt jeder von ihnen erneut 128 MiB. Bei den

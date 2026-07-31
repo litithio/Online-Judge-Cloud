@@ -102,19 +102,70 @@ SANDBOX_BASIS.mkdir(mode=0o755, exist_ok=True)
 # eine Sperre, die ein anderer Thread hält, hängt er vor dem exec.
 # Nach dem exec bleiben die Grenzen bestehen, und senken kann sie der
 # eingereichte Code zwar, anheben nicht.
+# Der eingereichte Code soll kein Netz haben, so wie zuvor der Sandbox-Container
+# über network_mode none. Ein eigener Netz-Namespace verlangt CAP_SYS_ADMIN, die
+# der Worker nicht hat und nicht bekommen soll. Über einen User-Namespace geht es
+# ohne: Darin hat der Prozess die Rechte, sich einen leeren Netz-Namespace
+# anzulegen. Das uid_map hält seine Kennung fest, sonst wäre er darin nobody und
+# käme an sein eigenes Verzeichnis nicht mehr heran.
+#
+# Dockers seccomp-Profil blockiert CLONE_NEWUSER, im Compose-Stand geht das
+# deshalb nicht. containerd im Cluster setzt kein solches Profil, dort greift es.
+NETZ_BLOCK = (
+    "u, g = os.getuid(), os.getgid()\n"
+    "os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNET)\n"
+    "open('/proc/self/setgroups', 'w').write('deny')\n"
+    "open('/proc/self/uid_map', 'w').write(f'{u} {u} 1')\n"
+    "open('/proc/self/gid_map', 'w').write(f'{g} {g} 1')\n"
+)
+
+# Im Cluster gehört SANDBOX_NETZ_ERZWINGEN=1 ins Deployment. Dort funktioniert
+# die Trennung, und sie soll nicht unbemerkt wegfallen, wenn jemand später ein
+# seccomp-Profil setzt.
+NETZ_ERZWINGEN = os.getenv("SANDBOX_NETZ_ERZWINGEN", "0") != "0"
+
+
+def _netz_trennung_moeglich():
+    """Prüft einmal beim Start, ob der Sandbox ein leeres Netz zu geben ist."""
+    if SANDBOX_UID is None:
+        return False
+    fertig = subprocess.run(
+        [sys.executable, "-c", "import os\n" + NETZ_BLOCK],
+        capture_output=True,
+        user=SANDBOX_UID,
+        group=SANDBOX_USER,
+        extra_groups=[],
+    )
+    return fertig.returncode == 0
+
+
+NETZ_TRENNUNG = _netz_trennung_moeglich()
+if NETZ_ERZWINGEN and not NETZ_TRENNUNG:
+    raise SystemExit(
+        "SANDBOX_NETZ_ERZWINGEN ist gesetzt, aber der eingereichte Code bekommt "
+        "kein eigenes Netz. Meist blockiert ein seccomp-Profil den Aufruf von "
+        "unshare mit CLONE_NEWUSER."
+    )
+
+
 def _starter(zeit, speicher_bytes):
     # Die CPU-Zeit bekommt dieselbe Zahl wie die Wanduhr. Sie fängt Programme,
     # die durchgehend rechnen, die Wanduhr zusätzlich solche, die warten.
+    #
+    # Das Netz zuerst, danach die Grenzen: Der Namespace braucht selbst Speicher,
+    # und ein enges RLIMIT_AS würde ihn scheitern lassen.
     return (
         "import os, resource, sys\n"
-        f"resource.setrlimit(resource.RLIMIT_CPU, ({zeit}, {zeit + 1}))\n"
-        f"resource.setrlimit(resource.RLIMIT_AS, ({speicher_bytes}, {speicher_bytes}))\n"
-        f"resource.setrlimit(resource.RLIMIT_FSIZE, ({SANDBOX_AUSGABE_BYTES},"
-        f" {SANDBOX_AUSGABE_BYTES}))\n"
-        f"resource.setrlimit(resource.RLIMIT_NPROC, ({SANDBOX_PROZESSE},"
-        f" {SANDBOX_PROZESSE}))\n"
-        "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
-        'os.execv(sys.executable, [sys.executable, "loesung.py"])\n'
+        + (NETZ_BLOCK if NETZ_TRENNUNG else "")
+        + f"resource.setrlimit(resource.RLIMIT_CPU, ({zeit}, {zeit + 1}))\n"
+        + f"resource.setrlimit(resource.RLIMIT_AS, ({speicher_bytes},"
+        + f" {speicher_bytes}))\n"
+        + f"resource.setrlimit(resource.RLIMIT_FSIZE, ({SANDBOX_AUSGABE_BYTES},"
+        + f" {SANDBOX_AUSGABE_BYTES}))\n"
+        + f"resource.setrlimit(resource.RLIMIT_NPROC, ({SANDBOX_PROZESSE},"
+        + f" {SANDBOX_PROZESSE}))\n"
+        + "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
+        + 'os.execv(sys.executable, [sys.executable, "loesung.py"])\n'
     )
 
 
@@ -322,6 +373,12 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
 
 
 def process_queue():
+    if not NETZ_TRENNUNG:
+        print(
+            "Hinweis: der eingereichte Code teilt das Netz des Workers und "
+            "erreicht MongoDB und Redis direkt. Im Cluster greift die Trennung, "
+            "lokal blockiert das seccomp-Profil von Docker den nötigen Aufruf."
+        )
     print("Worker gestartet, warte auf Tasks...")
     while True:
         # Blockierendes Pop aus Redis Queue

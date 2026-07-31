@@ -60,7 +60,7 @@ services:
       - coding_net
 
   # ---------------------------------------------------------------------------
-  # 3. Anwendungs-Dienste (Backend, Worker, Frontend)
+  # 3. Anwendungs-Dienste (Backend, Worker)
   # ---------------------------------------------------------------------------
   backend:
     build:
@@ -104,23 +104,6 @@ services:
     depends_on:
       - mongodb
       - redis
-    networks:
-      - coding_net
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: coding_platform_frontend
-    restart: always
-    # Der einzige Dienst, der im Cluster von außen erreichbar sein muss. Dort
-    # ein Service plus die Route in Traefik statt der Portfreigabe.
-    ports:
-      - "8501:8501"
-    environment:
-      BACKEND_URL: http://backend:8000
-    depends_on:
-      - backend
     networks:
       - coding_net
 

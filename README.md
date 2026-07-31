@@ -53,8 +53,8 @@ schlimmstenfalls ein zweites Mal ausgeführt.
 Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster. Das Ausrollen
 der Anwendung in den Cluster fehlt noch: es entsteht mit dem Chart (#15) und
 dem Deployment-Ablauf (#17). Die Images baut `images.yml` bereits nach
-ghcr.io, bis Issue #42 sind sie aber privat. Solange läuft die Anwendung
-lokal über `app/docker-compose.yml`.
+ghcr.io, sie sind öffentlich und lassen sich ohne Zugangsdaten ziehen.
+Solange läuft die Anwendung lokal über `app/docker-compose.yml`.
 
 VPN an für Terraform, VPN aus für alles andere. Terraform spricht mit der
 OpenStack-API und braucht den Tunnel. SSH, Ansible und kubectl erreichen die

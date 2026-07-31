@@ -18,6 +18,12 @@ from pymongo import MongoClient
 ORDNER = pathlib.Path(__file__).parent
 FELDER = ("title", "description", "test_cases")
 
+# Zeit und Speicher darf jede Aufgabe selbst festlegen, weil sich der Bedarf
+# stark unterscheidet. Fehlen sie, nimmt der Worker seine Vorgaben.
+# Obergrenzen wie in app/worker/worker.py. Eine Aufgabe soll das Zeitlimit nicht
+# abschalten und nicht mehr Speicher erlauben, als der Container hat.
+GRENZEN = {"time_limit_seconds": 60, "memory_limit_mb": 256}
+
 
 def gelesen(datei):
     """Liest eine Aufgabe und meldet fehlende Felder mit Dateinamen."""
@@ -39,6 +45,20 @@ def gelesen(datei):
                 f"{datei.name}: Testfall {nummer} braucht input und "
                 f"expected_output als Zeichenketten"
             )
+    # Optional, aber wenn vorhanden, dann brauchbar. Eine Grenze als Zeichenkette
+    # oder als Null würde jede Einreichung dieser Aufgabe falsch beurteilen.
+    for feld, hoechstens in GRENZEN.items():
+        if feld not in aufgabe:
+            continue
+        wert = aufgabe[feld]
+        if not isinstance(wert, int) or isinstance(wert, bool) or wert <= 0:
+            raise SystemExit(
+                f"{datei.name}: {feld} muss eine positive ganze Zahl sein, ist {wert!r}"
+            )
+        if wert > hoechstens:
+            raise SystemExit(
+                f"{datei.name}: {feld} darf höchstens {hoechstens} sein, ist {wert}"
+            )
     return aufgabe
 
 
@@ -52,16 +72,24 @@ def main():
     ]
     for datei in dateien:
         aufgabe = gelesen(datei)
-        db.tasks.update_one(
-            {"title": aufgabe["title"]},
-            {
-                "$set": {
-                    "description": aufgabe["description"],
-                    "test_cases": aufgabe["test_cases"],
-                }
-            },
-            upsert=True,
-        )
+        setzen = {
+            "description": aufgabe["description"],
+            "test_cases": aufgabe["test_cases"],
+        }
+        # Was in der Datei fehlt, wird in der Datenbank entfernt. Sonst bliebe
+        # ein Limit stehen, das jemand aus der Aufgabe genommen hat, und die
+        # Datei wäre nicht mehr die Wahrheit.
+        entfernen = {}
+        for feld in GRENZEN:
+            if feld in aufgabe:
+                setzen[feld] = aufgabe[feld]
+            else:
+                entfernen[feld] = ""
+
+        aenderung = {"$set": setzen}
+        if entfernen:
+            aenderung["$unset"] = entfernen
+        db.tasks.update_one({"title": aufgabe["title"]}, aenderung, upsert=True)
         print(f"{datei.name}: {len(aufgabe['test_cases'])} Testfälle")
 
     print(

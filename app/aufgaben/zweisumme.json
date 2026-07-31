@@ -1,6 +1,8 @@
 {
   "title": "Zwei Zahlen mit gegebener Summe",
   "description": "Die erste Zeile enthält die Anzahl n und die gesuchte Summe k, die zweite Zeile n ganze Zahlen. Gib JA aus, wenn zwei verschiedene Stellen der Liste zusammen k ergeben, sonst NEIN.",
+  "time_limit_seconds": 2,
+  "memory_limit_mb": 64,
   "test_cases": [
     {
       "input": "4 9\n2 7 11 15\n",

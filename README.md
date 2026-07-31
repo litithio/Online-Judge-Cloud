@@ -126,9 +126,16 @@ Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
 User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
 Prozesszahl. Drei Lücken bleiben.
 
-Er teilt das Netz des Workers und erreicht MongoDB und Redis damit direkt.
-Solange beide Dienste keine Anmeldung verlangen, kann eine Einreichung die
-erwarteten Ausgaben lesen und Ergebnisse verändern.
+Im Cluster bekommt der eingereichte Code einen eigenen Netz-Namespace und damit
+kein Netz. Lokal im Compose-Stand greift das nicht, weil Dockers seccomp-Profil
+den nötigen Aufruf blockiert. Dort teilt er das Netz des Workers und erreicht
+MongoDB und Redis direkt, kann also die erwarteten Ausgaben lesen und Ergebnisse
+verändern, solange die Dienste keine Anmeldung verlangen. Der Worker schreibt
+diesen Zustand beim Start ins Log.
+
+Für den Cluster heißt das: Ein grüner lokaler Lauf sagt über diesen Punkt
+nichts. Und wo der Namespace nicht zustande kommt, etwa weil jemand ein
+seccomp-Profil setzt, bleibt nur die NetworkPolicy als Begrenzung.
 
 Die Speichergrenze von 128 MiB gilt für jeden Prozess einzeln. Startet eine
 Einreichung weitere Prozesse, bekommt jeder von ihnen erneut 128 MiB. Bei den

@@ -28,3 +28,9 @@ spec:
           value: "mongodb://mongodb:27017"
         - name: REDIS_URI
           value: "redis://redis:6379"
+        # Der eingereichte Code bekommt hier einen eigenen Netz-Namespace, anders
+        # als im lokalen Compose-Stand. Ohne diesen Schalter würde die Trennung
+        # stillschweigend wegfallen, sobald der Aufruf einmal nicht mehr
+        # durchgeht, und Einreichungen erreichten wieder die Datenbank.
+        - name: SANDBOX_NETZ_ERZWINGEN
+          value: "1"

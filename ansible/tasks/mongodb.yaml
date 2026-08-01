@@ -1,0 +1,45 @@
+# === MongoDB Operator ===
+- name: Add MongoDB Helm repository
+  kubernetes.core.helm_repository:
+    name: mongodb
+    repo_url: https://mongodb.github.io/helm-charts
+
+- name: Install MongoDB operator
+  kubernetes.core.helm:
+    name: community-operator
+    chart_ref: mongodb/community-operator
+    chart_version: "0.13.0"
+    release_namespace: default
+    wait: true
+    kubeconfig: "{{ kubeconfig_root }}"
+
+# === MongoDB Instance ===
+- name: Apply MongoDB password Secret
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('file', 'mongodb-password.yaml') | from_yaml }}"
+
+- name: Apply MongoDB Instance
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('file', 'mongodb-instance.yaml') | from_yaml }}"
+
+# === MongoDB Wait ===
+
+- name: Wait for MongoDB StatefulSet to exist
+  kubernetes.core.k8s_info:
+    kind: StatefulSet
+    name: mongodb
+    namespace: default
+    kubeconfig: "{{ kubeconfig_root }}"
+    wait: true
+    wait_timeout: 300
+
+- name: Wait for MongoDB to be ready
+  ansible.builtin.command:
+    argv: [kubectl, rollout, status, statefulset/mongodb, --timeout=300s]
+  environment:
+    KUBECONFIG: "{{ kubeconfig_root }}"
+  changed_when: false

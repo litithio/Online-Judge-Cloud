@@ -14,7 +14,10 @@ spec:
     spec:
       containers:
       - name: backend
-        image: my-registry/backend:latest
+        # Feste Version statt latest, damit nachvollziehbar bleibt, welcher
+        # Stand im Cluster läuft. Gebaut wird sie von .github/workflows/images.yml
+        # bei einem Git-Tag v0.2.2.
+        image: ghcr.io/litithio/online-judge-backend:0.2.2
         ports:
         - containerPort: 8000
         env:

@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Dieselbe Basis wie der Judge-Worker. Der Distributionsname steht dabei, weil
+# der kurze -slim-Tag die Debian-Basis von allein wechselt.
+FROM python:3.12-slim-trixie
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

@@ -1,0 +1,50 @@
+---
+# gVisor als zweite Container-Laufzeit auf den Judge-Nodes. Der eingereichte
+# Code soll darin laufen und nicht direkt auf dem Kernel der Node.
+#
+# k3s erkennt zusätzliche Laufzeiten beim Start selbst, aber nur die aus seiner
+# eigenen Liste: crun, nvidia, lunatic und die WASM-Laufzeiten. Für die legt es
+# auch die RuntimeClass an. runsc steht nicht darin, deshalb kommen der Eintrag
+# in containerd und die RuntimeClass hier von Hand.
+
+- name: Laufzeit runsc und ihren containerd-Shim ablegen
+  ansible.builtin.get_url:
+    url: "https://storage.googleapis.com/gvisor/releases/release/{{ gvisor_version }}/x86_64/{{ item.name }}"
+    dest: "/usr/local/bin/{{ item.name }}"
+    checksum: "sha512:{{ item.sha512 }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ gvisor_binaries }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: K3s-Agent neu starten
+
+# /usr/local/bin, weil containerd den Shim über den PATH des k3s-Dienstes sucht
+# und systemd dort den knappen Standardpfad setzt. Ein eigenes Verzeichnis
+# müsste erst in die Unit eingetragen werden.
+- name: Prüfen, dass runsc auf diesem Node startet
+  ansible.builtin.command: /usr/local/bin/runsc --version
+  register: runsc_version
+  changed_when: false
+
+# Der Name der Vorlage entscheidet über das Format: config-v3.toml.tmpl rendert
+# die Fassung für containerd 2, config.toml.tmpl die alte Fassung 2. Auf den
+# Nodes läuft containerd 2.3.
+#
+# raw-Block, weil {{ template "base" . }} für Go gedacht ist und Jinja2 sonst
+# versucht, es selbst aufzulösen. Der Block bindet die von k3s erzeugte
+# Standardkonfiguration ein, statt sie zu ersetzen. Eine hineinkopierte fertige
+# config.toml würde beim nächsten k3s-Update auseinanderlaufen.
+- name: Containerd-Vorlage um die runsc-Laufzeit erweitern
+  ansible.builtin.copy:
+    dest: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.tmpl
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {% raw %}{{ template "base" . }}{% endraw %}
+
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.'runsc']
+        runtime_type = 'io.containerd.runsc.v1'
+  notify: K3s-Agent neu starten

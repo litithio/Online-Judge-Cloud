@@ -1,0 +1,84 @@
+# Baut die beiden Dienste aus app/ und schiebt sie nach
+# ghcr.io/<owner>/online-judge-{backend,worker}.
+#
+# Die Packages entstehen beim ersten Push mit der Sichtbarkeit des Repos, also
+# privat. Damit der Cluster ohne imagePullSecret ziehen kann (Issue #10), müssen
+# sie einmalig auf öffentlich gestellt werden.
+name: images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+  # Für den Push nach ghcr.io. Der eingebaute GITHUB_TOKEN reicht damit aus,
+  # niemand muss ein persönliches Token anlegen und erneuern.
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Ein kaputtes Dockerfile soll den anderen Dienst nicht abbrechen:
+      # sonst sieht man in der Prüfliste einen Fehler statt aller Fehler.
+      fail-fast: false
+      matrix:
+        dienst: [backend, worker]
+    steps:
+      - uses: actions/checkout@v7
+
+      # Richtet den Treiber docker-container ein. Ohne diesen Schritt baut der
+      # Runner mit dem Treiber docker und bricht bei cache-to mit
+      # "Cache export is not supported for the docker driver" ab.
+      - uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Tags und Labels bestimmen
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          # github.repository liefert die Schreibweise des Repos mit
+          # Großbuchstaben, ghcr.io nimmt nur Kleinbuchstaben an.
+          images: ghcr.io/${{ github.repository_owner }}/online-judge-${{ matrix.dienst }}
+          # Die Action setzt latest bei einem Versions-Tag von sich aus. Ein
+          # beweglicher Tag im Deployment macht nicht mehr nachvollziehbar,
+          # welcher Stand im Cluster läuft.
+          flavor: latest=false
+          # sha-<7> bei jedem Push auf main, zusätzlich die Version bei einem
+          # Git-Tag v0.1.0. Der Commit steht über die OCI-Labels auch dann im
+          # Image, wenn es nur die Version trägt.
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+
+      - name: An ghcr.io anmelden
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bauen und schieben
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: app/${{ matrix.dienst }}
+          # Ziel sind die Nodes: Ubuntu 24.04 auf Flavor k8s.node, also amd64.
+          # Ein zweiter Bau für arm64 liefe auf dem Runner emuliert und
+          # vervielfacht die Laufzeit für ein Artefakt, das der Cluster nie zieht.
+          platforms: linux/amd64
+          # Pull Requests bauen nur. Das fängt ein kaputtes Dockerfile ab, ohne
+          # die Registry mit Ständen zu füllen, die nie deployt werden.
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -46,7 +46,7 @@ Erweiterung dafür; sie ist zurückgestellt, bis die Standardseite tatsächlich
 stört (#15).
 
 `ergebnis-laeuft.html` nennt eine Wiederaufnahme nach einem Worker-Ausfall.
-Das setzt voraus, dass der Delivery-Counter aus dem Valkey-Stream im Dokument
+Das setzt voraus, dass der Delivery-Counter aus dem Valkey-Stream im Document
 landet; ohne ihn entfällt der Absatz.
 
 Der Editor ist im Entwurf ein `pre` mit Zeilennummern. Dort steht später

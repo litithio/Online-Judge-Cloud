@@ -10,10 +10,11 @@ Der Online Judge führt eingereichten Code automatisch gegen hinterlegte
 Testfälle aus und gibt das Ergebnis zurück.
 
 Zwei Eigenschaften der Domäne prägen die Infrastruktur. Die Last ist
-stoßweise: Kurz vor einer Abgabefrist treffen fast alle Einreichungen
-gleichzeitig ein, davor liegt der Betrieb nahe null. Und der ausgeführte
-Code ist fremd: Endlosschleifen, Speicherfresser und Zugriffsversuche
-auf das Netz sind der Normalfall, nicht die Ausnahme.
+stoßweise: Der Judge wird in Prüfungen eingesetzt. Während einer Klausur
+arbeitet ein ganzer Kurs im selben Zeitfenster, zwischen den
+Prüfungsterminen liegt der Betrieb nahe null. Und der ausgeführte Code
+ist fremd: Endlosschleifen, Speicherfresser und Zugriffsversuche auf das
+Netz sind der Normalfall, nicht die Ausnahme.
 
 Über Container-Images können für jede Sprache (Python, C++, Java, Rust) maßgeschneiderte, schlanke Laufzeitumgebungen bereitgestellt werden, ohne den Host-Worker mit Abhängigkeiten zu überladen.
 

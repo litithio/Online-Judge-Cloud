@@ -29,7 +29,7 @@
       vars:
         external_dns_version: "v0.21.0"
   tasks:
-    - name: kubeconfig_root für spätere Plays merken
+    - name: Kubeconfig_root für spätere Plays merken
       ansible.builtin.set_fact:
         kubeconfig_root: "{{ kubeconfig_root }}"
       when: k3s_role == 'server'
@@ -79,7 +79,7 @@
             name: gvisor
           handler: runsc
 
-#MongoDB
+# MongoDB
 - name: MongoDB ausrollen
   hosts: judge_k3s_server
   tags: [mongodb]

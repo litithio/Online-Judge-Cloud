@@ -30,6 +30,7 @@ SANDBOX_AUSGABE_BYTES = 1024**2  # RLIMIT_FSIZE, begrenzt stdout und stderr
 SANDBOX_PROZESSE = 64  # RLIMIT_NPROC gegen Fork-Bomben
 MELDUNG_MAX = 2000  # so viel einer Fehlerausgabe steht später am Ergebnis
 REST_FRIST = 1.0  # Sekunden, die das Aufräumen auf beendete Prozesse wartet
+QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwortet
 
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine
 # Aufgabe das Zeitlimit praktisch abschalten oder mehr Speicher erlauben, als der
@@ -256,7 +257,15 @@ def _urteil_nach_signal(signalnummer, zeit):
     # Nicht pauschal als Zeitüberschreitung: Eine Einreichung kann sich selbst
     # per SIGKILL beenden, und der OOM-Killer trifft ebenso. Dass ein Kill vom
     # Zeitlimit kam, weiß nur der Pfad, der ihn selbst gesendet hat.
-    return f"EXECUTION_ERROR: durch {signal.Signals(signalnummer).name} beendet"
+    # signal.Signals kennt die Echtzeitsignale oberhalb von SIGRTMIN nicht und
+    # wirft dafür ValueError. Ungefangen käme der als Umgebungsfehler heraus,
+    # und eine Einreichung könnte ihr eigenes Ende damit zu einem Fehler des
+    # Judges umdeuten.
+    try:
+        name = signal.Signals(signalnummer).name
+    except ValueError:
+        name = f"Signal {signalnummer}"
+    return f"EXECUTION_ERROR: durch {name} beendet"
 
 
 def _gelesen(fd, grenze):
@@ -271,6 +280,15 @@ def _gelesen(fd, grenze):
     os.lseek(fd, 0, os.SEEK_SET)
     roh = os.read(fd, grenze)
     return roh.decode("utf-8", errors="replace")
+
+
+class Umgebungsfehler(Exception):
+    """Der Lauf ist an der Umgebung gescheitert, nicht am eingereichten Code.
+
+    Ohne eigene Ausnahme kommen diese Fälle als Zeichenkette zurück und laufen
+    in denselben Vergleich mit der erwarteten Ausgabe wie ein echtes Ergebnis.
+    Die Einreichung bekäme dann FAILED für Code, der nie gelaufen ist.
+    """
 
 
 def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) -> str:
@@ -353,13 +371,19 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
             return f"EXECUTION_ERROR: {meldung or ausgabe.strip()}"
         return ausgabe.strip()
     except Exception as e:
-        # Mit dem Typ, sonst sieht ein Fehler im Worker aus wie ein Fehler im
-        # eingereichten Code.
-        return f"SYSTEM_ERROR: {type(e).__name__}: {e}"
+        # Der Typ bleibt in der Meldung: Umgebungsfehler sagt, dass es nicht am
+        # eingereichten Code lag, nicht was gescheitert ist.
+        raise Umgebungsfehler(f"{type(e).__name__}: {e}") from e
     finally:
-        # Der eigene Fehlerfang muss sein: eine Ausnahme aus dem finally heraus
-        # verwirft das Ergebnis der Einreichung und beendet den Worker.
-        _reste_beenden()
+        # Jeder Schritt einzeln gefangen. Eine Ausnahme aus dem Aufräumen
+        # verdrängte sonst die eigentliche Ausnahme und ließe die Schritte
+        # danach aus. Seit process_queue Fehler je Job fängt, überlebt der
+        # Worker das, und Deskriptoren und Verzeichnisse sammelten sich über
+        # die Läufe hinweg an.
+        try:
+            _reste_beenden()
+        except Exception as e:
+            print(f"Reste der Sandbox nicht beendet: {type(e).__name__}: {e}")
         for fd in deskriptoren:
             try:
                 os.close(fd)
@@ -372,6 +396,59 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
                 print(f"{verzeichnis} nicht entfernt: {e}")
 
 
+def _job_lesen(item):
+    """Liest den Auftrag aus der Queue und gibt die ID der Einreichung dazu.
+
+    Eigene Funktion, weil hier eine Grenze verläuft: Scheitert etwas in ihr,
+    gibt es noch keine Einreichung, an die ein Fehler zu schreiben wäre. Alles
+    danach lässt sich beschriften.
+    """
+    job = json.loads(item)
+    sub_id = job["submission_id"]
+    # Ohne diese Prüfung erzeugt ObjectId(None) eine frische ID, statt zu
+    # scheitern. Das Ergebnis ginge dann an ein Document, das es nicht gibt.
+    if not isinstance(sub_id, str):
+        raise TypeError(
+            f"submission_id ist {type(sub_id).__name__}, keine Zeichenkette"
+        )
+    return ObjectId(sub_id), job
+
+
+def _urteil(job, task):
+    """Führt die Testfälle der Aufgabe aus und gibt Status und Ergebnistext."""
+    zeit, speicher = grenzen_der_aufgabe(task)
+    for case in task.get("test_cases", []):
+        ausgabe = run_code_in_sandbox(job["code"], case["input"], zeit, speicher)
+        erwartet = str(case["expected_output"]).strip()
+        if ausgabe != erwartet:
+            return "FAILED", (
+                f"Fehler bei Input '{case['input']}': "
+                f"Erwartet '{erwartet}', Bekommen '{ausgabe}'"
+            )
+    return "SUCCESS", "Alle Tests bestanden!"
+
+
+def _ergebnis_schreiben(sub_id, status, text):
+    """Schreibt Status und Ergebnistext an die Einreichung.
+
+    Eigener Fehlerfang, weil ein Teil der Gründe für SYSTEM_ERROR gerade die
+    nicht erreichbare Datenbank ist. Ohne ihn verließe die Ausnahme den
+    Fehlerpfad und beendete den Worker doch. Die Einreichung bleibt dann auf
+    PENDING stehen, und genau die nimmt der Durchlauf aus #82 später wieder auf.
+    """
+    try:
+        ergebnis = db.submissions.update_one(
+            {"_id": sub_id},
+            {"$set": {"status": status, "result": text, "updated_at": time.time()}},
+        )
+        # Sonst meldet die Zeile danach "verarbeitet", obwohl das Ergebnis
+        # nirgends steht.
+        if ergebnis.matched_count == 0:
+            print(f"Einreichung {sub_id}: kein Document getroffen")
+    except Exception as e:
+        print(f"Einreichung {sub_id}: nicht geschrieben, {type(e).__name__}: {e}")
+
+
 def process_queue():
     if not NETZ_TRENNUNG:
         print(
@@ -381,63 +458,50 @@ def process_queue():
         )
     print("Worker gestartet, warte auf Tasks...")
     while True:
-        # Blockierendes Pop aus Redis Queue
-        _, item = redis_client.blpop("code_queue")
-        job = json.loads(item)
-
-        sub_id = job["submission_id"]
-        task = db.tasks.find_one({"_id": ObjectId(job["task_id"])})
-
-        if not task:
-            continue
-
-        test_cases = task.get("test_cases", [])
-        all_passed = True
-        error_message = ""
-
-        # Vor dem ersten Testfall, damit eine Aufgabe mit unbrauchbaren Grenzen
-        # nicht erst nach halber Arbeit auffällt. Der Loader prüft dieselben
-        # Felder, hier steht die Prüfung für Aufgaben, die anders hineinkommen.
         try:
-            zeit, speicher = grenzen_der_aufgabe(task)
-        except ValueError as e:
-            print(f"Aufgabe {task['_id']}: {e}")
-            db.submissions.update_one(
-                {"_id": ObjectId(sub_id)},
-                {
-                    "$set": {
-                        "status": "FAILED",
-                        "result": f"SYSTEM_ERROR: Aufgabe hat unbrauchbare Grenzen: {e}",
-                        "updated_at": time.time(),
-                    }
-                },
-            )
+            _, item = redis_client.blpop("code_queue")
+        except Exception as e:
+            # Hier gibt es keinen Job, dem etwas anzulasten wäre. Sich zu
+            # beenden brächte nichts: Der Neustart landet an derselben Stelle,
+            # solange Valkey weg ist, und der Container geht in den Backoff.
+            print(f"Queue nicht erreichbar: {type(e).__name__}: {e}")
+            time.sleep(QUEUE_PAUSE)
             continue
 
-        for case in test_cases:
-            output = run_code_in_sandbox(job["code"], case["input"], zeit, speicher)
-            expected = str(case["expected_output"]).strip()
+        try:
+            sub_id, job = _job_lesen(item)
+        except Exception as e:
+            # Ohne brauchbare submission_id gibt es kein Document, an das ein
+            # Status zu schreiben wäre. Bleibt das Protokoll, mit dem rohen
+            # Inhalt, weil sonst niemand nachvollziehen kann, was ankam.
+            # Bytes, solange decode_responses nicht gesetzt ist. Über REDIS_URI
+            # lässt sich das umschalten, und ein AttributeError ausgerechnet im
+            # Fehlerfang beendete den Worker.
+            roh = item[:MELDUNG_MAX]
+            inhalt = (
+                roh.decode("utf-8", errors="replace") if isinstance(roh, bytes) else roh
+            )
+            print(f"Job übersprungen: {type(e).__name__}: {e}, Inhalt: {inhalt}")
+            continue
 
-            if output != expected:
-                all_passed = False
-                error_message = f"Fehler bei Input '{case['input']}': Erwartet '{expected}', Bekommen '{output}'"
-                break
+        try:
+            task = db.tasks.find_one({"_id": ObjectId(job["task_id"])})
+            if task is None:
+                # Ohne diesen Zweig sprang die Schleife still weiter und die
+                # Einreichung blieb dauerhaft auf PENDING stehen.
+                raise Umgebungsfehler(f"Aufgabe {job['task_id']} steht nicht in tasks")
+            status, text = _urteil(job, task)
+        except Exception as e:
+            # Was hier ankommt, ist kein Urteil über den eingereichten Code:
+            # ein Fehler der Umgebung, eine unbrauchbare Aufgabe oder ein
+            # Fehler im Worker selbst. Gekürzt, weil pymongo bei einem
+            # Verbindungsfehler die ganze Topologie in die Meldung schreibt.
+            status = "SYSTEM_ERROR"
+            text = f"{type(e).__name__}: {e}"[:MELDUNG_MAX]
+            print(f"Einreichung {sub_id}: {text}")
 
-        # Ergebnis in MongoDB aktualisieren
-        final_status = "SUCCESS" if all_passed else "FAILED"
-        result_text = "Alle Tests bestanden!" if all_passed else error_message
-
-        db.submissions.update_one(
-            {"_id": ObjectId(sub_id)},
-            {
-                "$set": {
-                    "status": final_status,
-                    "result": result_text,
-                    "updated_at": time.time(),
-                }
-            },
-        )
-        print(f"Submission {sub_id} verarbeitet: {final_status}")
+        _ergebnis_schreiben(sub_id, status, text)
+        print(f"Einreichung {sub_id} verarbeitet: {status}")
 
 
 if __name__ == "__main__":

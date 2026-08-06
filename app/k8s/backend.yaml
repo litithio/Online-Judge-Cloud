@@ -22,7 +22,10 @@ spec:
         - containerPort: 8000
         env:
         - name: MONGO_URI
-          value: "mongodb://mongodb:27017"
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-coding-platform-app
+              key: connectionString.standard
         - name: REDIS_URI
           value: "redis://redis:6379"
         - name: KEYCLOAK_URL

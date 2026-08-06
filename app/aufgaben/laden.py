@@ -94,7 +94,7 @@ def main():
 
     print(
         f"{len(dateien)} Aufgaben geladen, "
-        f"{db.tasks.count_documents({})} in der Sammlung"
+        f"{db.tasks.count_documents({})} in der Collection"
     )
 
 

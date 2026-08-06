@@ -51,7 +51,7 @@ def submit_code(payload: dict, user=Depends(verify_jwt)):
     }
     sub_id = db.submissions.insert_one(submission).inserted_id
 
-    # 2. In Redis Queue schreiben
+    # 2. In die Queue schreiben
     job_data = {"submission_id": str(sub_id), "task_id": task_id, "code": code}
     redis_client.rpush("code_queue", json.dumps(job_data))
 

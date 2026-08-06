@@ -18,18 +18,21 @@ from pymongo import MongoClient
 # Worker mit in den OOM-Kill nehmen, samt der Einreichung, die er gerade
 # bearbeitet.
 #
-# Zeit und Speicher sind Vorgaben. Eine Aufgabe kann beides über die Felder
-# time_limit_seconds und memory_limit_mb selbst festlegen, weil sich der Bedarf
-# je Aufgabe stark unterscheidet: Ein Sieb über 15 Millionen Zahlen ist etwas
-# anderes als die Summe zweier Zahlen. Ein Limit, das für die aufwendigste
-# Aufgabe passt, trennt bei allen anderen kaum noch zwischen einer guten und
-# einer schlechten Lösung.
+# Zeit und Speicher sind Vorgaben: Eine Aufgabe kann beides über
+# time_limit_seconds und memory_limit_mb überschreiben, denn ein Limit, das für
+# die aufwendigste Aufgabe passt, trennt bei allen anderen kaum noch zwischen
+# einer guten und einer schlechten Lösung.
 SANDBOX_TIMEOUT = 5  # vergangene Zeit, fängt auch wartende Prozesse
 SANDBOX_SPEICHER_MB = 128
+
+# Fest je Lauf, von keiner Aufgabe zu ändern: Diese Grenzen fangen
+# Fehlverhalten, keinen Bedarf, der mit der Aufgabe wächst.
 SANDBOX_AUSGABE_BYTES = 1024**2  # RLIMIT_FSIZE, begrenzt stdout und stderr
 SANDBOX_PROZESSE = 64  # RLIMIT_NPROC gegen Fork-Bomben
-MELDUNG_MAX = 2000  # so viel einer Fehlerausgabe steht später am Ergebnis
+
+MELDUNG_MAX = 2000  # so viel Fehlerausgabe übernimmt das Feld result der Einreichung
 REST_FRIST = 1.0  # Sekunden, die das Aufräumen auf beendete Prozesse wartet
+QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwortet
 
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine
 # Aufgabe das Zeitlimit praktisch abschalten oder mehr Speicher erlauben, als der
@@ -43,10 +46,11 @@ GRENZE_SPEICHER_MAX_MB = 256
 # angelegt und hat kein Leserecht auf /app.
 SANDBOX_USER = os.getenv("SANDBOX_USER", "sandbox")
 
-# Der Wechsel des Users braucht root im Worker. Ohne ihn liefe fremder Code
-# unter demselben User wie der Worker: Er könnte /app samt worker.py lesen,
-# den Worker signalisieren und über prlimit seine eigenen Grenzen wieder anheben.
-# Der Judge nimmt seine einzige Trennung deshalb nicht stillschweigend zurück,
+# Der Wechsel des Users braucht root im Worker. Ohne ihn würde fremder Code
+# unter demselben User laufen wie der Worker: Er könnte /app samt worker.py lesen,
+# den Worker per Signal beenden und über prlimit seine eigenen Grenzen wieder
+# anheben.
+# Der Judge läuft deshalb nicht stillschweigend ohne diese Trennung weiter,
 # sondern startet gar nicht erst.
 TRENNUNG_ERZWINGEN = os.getenv("SANDBOX_TRENNUNG_ERZWINGEN", "1") != "0"
 
@@ -87,27 +91,26 @@ def _sandbox_uid():
 
 SANDBOX_UID = _sandbox_uid()
 
-# Oberhalb der working directories, im Besitz des Workers. Ohne diese Ebene
-# läge ein Lauf direkt in /tmp, und weil dort jeder schreiben darf, könnte die
-# Einreichung ihr eigenes Verzeichnis umbenennen. Das Aufräumen danach fände
-# nur noch den alten Pfad und ließe alles liegen.
+# Basisverzeichnis, unter dem der Worker für jeden Lauf ein eigenes working
+# directory anlegt. Es gehört dem Worker und die Läufe liegen so nicht direkt
+# in /tmp: Dort darf jeder schreiben, die Einreichung könnte ihr eigenes
+# Verzeichnis also umbenennen, und das Aufräumen danach würde nur noch den
+# alten Pfad finden und alles liegen lassen.
 SANDBOX_BASIS = pathlib.Path(tempfile.gettempdir()) / "judge"
 SANDBOX_BASIS.mkdir(mode=0o755, exist_ok=True)
 
 
-# Setzt die Grenzen und übergibt dann an die Einreichung. Über -c und nicht über
-# preexec_fn, weil dort Python-Code zwischen fork und exec liefe und pymongo im
-# Hintergrund eigene Threads betreibt. Diese Kombination gilt laut Dokumentation
-# von subprocess als unsicher, sobald Threads im Spiel sind: Erbt der Subprozess
-# eine Sperre, die ein anderer Thread hält, hängt er vor dem exec.
-# Nach dem exec bleiben die Grenzen bestehen, und senken kann sie der
-# eingereichte Code zwar, anheben nicht.
-# Der eingereichte Code soll kein Netz haben, so wie zuvor der Sandbox-Container
-# über network_mode none. Ein eigener Netz-Namespace verlangt CAP_SYS_ADMIN, die
-# der Worker nicht hat und nicht bekommen soll. Über einen User-Namespace geht es
-# ohne: Darin hat der Prozess die Rechte, sich einen leeren Netz-Namespace
-# anzulegen. Das uid_map hält seine Kennung fest, sonst wäre er darin nobody und
-# käme an sein eigenes Verzeichnis nicht mehr heran.
+# Kappt dem eingereichten Code das Netz, so wie es zuvor der eigene
+# Sandbox-Container über network_mode none tat. Der direkte Weg wäre ein
+# leerer Netz-Namespace, doch den darf nur anlegen, wer CAP_SYS_ADMIN hat,
+# und die soll der Worker nicht bekommen. Der Umweg: Erst legt sich der
+# Prozess einen User-Namespace an, das darf jeder, und innerhalb davon hat
+# er die vollen Rechte, also auch die, sich den leeren Netz-Namespace
+# anzulegen. Das uid_map trägt seine UID wieder ein. Für den Dateizugriff
+# wäre das nicht nötig, den prüft der Kernel weiter gegen die alte UID. Aber
+# ohne den Eintrag hätte der Prozess im neuen Namespace keine darstellbare
+# UID mehr: Wer die eigene UID abfragt, würde den Platzhalter-User nobody
+# bekommen.
 #
 # Dockers seccomp-Profil blockiert CLONE_NEWUSER, im Compose-Stand geht das
 # deshalb nicht. containerd im Cluster setzt kein solches Profil, dort greift es.
@@ -126,7 +129,7 @@ NETZ_ERZWINGEN = os.getenv("SANDBOX_NETZ_ERZWINGEN", "0") != "0"
 
 
 def _netz_trennung_moeglich():
-    """Prüft einmal beim Start, ob der Sandbox ein leeres Netz zu geben ist."""
+    """Prüft einmal beim Start, ob es möglich ist, der Sandbox ein leeres Netz zu geben."""
     if SANDBOX_UID is None:
         return False
     fertig = subprocess.run(
@@ -148,9 +151,21 @@ if NETZ_ERZWINGEN and not NETZ_TRENNUNG:
     )
 
 
+# Baut den Starter: ein kleines Python-Programm, das zuerst die eigenen
+# Grenzen setzt und sich dann per exec durch die Lösung ersetzt. subprocess
+# bietet für solche Vorarbeit eigentlich preexec_fn an, das scheidet hier aber
+# aus: preexec_fn läuft zwischen fork und exec, und weil pymongo im
+# Hintergrund Threads betreibt, kann der Kindprozess dabei eine Sperre erben,
+# die nie mehr freigegeben wird. Er würde dann für immer vor dem exec hängen. Die
+# subprocess-Dokumentation warnt genau vor dieser Kombination.
+# Nach dem exec bleiben die Grenzen bestehen. Anheben kann der eingereichte
+# Code höchstens das CPU-Soft-Limit, um die eine Sekunde bis zum Hard-Limit,
+# alle anderen Grenzen liegen fest.
 def _starter(zeit, speicher_bytes):
-    # Die CPU-Zeit bekommt dieselbe Zahl wie die Wanduhr. Sie fängt Programme,
-    # die durchgehend rechnen, die Wanduhr zusätzlich solche, die warten.
+    # RLIMIT_CPU zählt nur Sekunden, in denen der Prozess rechnet. Wartezeit
+    # zählt das timeout beim communicate, beide bekommen dieselbe Zahl:
+    # RLIMIT_CPU fängt Programme, die durchgehend rechnen, das timeout
+    # zusätzlich solche, die warten.
     #
     # Das Netz zuerst, danach die Grenzen: Der Namespace braucht selbst Speicher,
     # und ein enges RLIMIT_AS würde ihn scheitern lassen.
@@ -170,7 +185,7 @@ def _starter(zeit, speicher_bytes):
 
 
 def grenzen_der_aufgabe(task):
-    """Liest Zeit und Speicher aus der Aufgabe, mit den Vorgaben als Rückfall.
+    """Liest Zeit und Speicher aus der Aufgabe, mit den Vorgaben als Fallback.
 
     Fehlerhafte Werte werden nicht stillschweigend übergangen: Ein Limit, das
     versehentlich als Zeichenkette oder als Null in der Aufgabe steht, würde den
@@ -231,7 +246,8 @@ def _reste_beenden():
 
         # Auch das Einsammeln ist gedeckelt. Ein übersehener Prozess, der
         # fortlaufend neue Prozesse erzeugt und sterben lässt, würde die Schleife
-        # sonst endlos mit Arbeit versorgen und der Worker käme nie zur Frist.
+        # sonst endlos mit Arbeit versorgen und der Worker würde nie zur Frist
+        # kommen.
         for _ in range(SANDBOX_PROZESSE * 2):
             try:
                 if os.waitpid(-1, os.WNOHANG)[0] == 0:
@@ -256,21 +272,39 @@ def _urteil_nach_signal(signalnummer, zeit):
     # Nicht pauschal als Zeitüberschreitung: Eine Einreichung kann sich selbst
     # per SIGKILL beenden, und der OOM-Killer trifft ebenso. Dass ein Kill vom
     # Zeitlimit kam, weiß nur der Pfad, der ihn selbst gesendet hat.
-    return f"EXECUTION_ERROR: durch {signal.Signals(signalnummer).name} beendet"
+    # signal.Signals kennt die Echtzeitsignale oberhalb von SIGRTMIN nicht und
+    # wirft dafür ValueError. Ungefangen würde der als Umgebungsfehler
+    # herauskommen,
+    # und eine Einreichung könnte ihr eigenes Ende damit zu einem Fehler des
+    # Judges umdeuten.
+    try:
+        name = signal.Signals(signalnummer).name
+    except ValueError:
+        name = f"Signal {signalnummer}"
+    return f"EXECUTION_ERROR: durch {name} beendet"
 
 
 def _gelesen(fd, grenze):
-    """Liest eine Ausgabedatei über ihren Deskriptor, nicht über den Pfad.
+    """Liest eine Ausgabedatei über ihren file descriptor, nicht über den Pfad.
 
     Das working directory gehört dem User der Sandbox, die Einreichung kann eine
     Ausgabedatei also löschen und durch einen Symlink oder ein FIFO ersetzen. Ein
-    Zugriff über den Pfad liefe danach als Worker in eine fremde Datei oder
-    blockierte dauerhaft. Der Deskriptor zeigt weiter auf die Datei, die beim
-    Start geöffnet wurde.
+    Zugriff über den Pfad würde danach als Worker in eine fremde Datei laufen
+    oder dauerhaft blockieren. Der file descriptor zeigt weiter auf die Datei, die
+    beim Start geöffnet wurde.
     """
     os.lseek(fd, 0, os.SEEK_SET)
     roh = os.read(fd, grenze)
     return roh.decode("utf-8", errors="replace")
+
+
+class Umgebungsfehler(Exception):
+    """Der Lauf ist an der Umgebung gescheitert, nicht am eingereichten Code.
+
+    Ohne eigene Exception kommen diese Fälle als Zeichenkette zurück und laufen
+    in denselben Vergleich mit der erwarteten Ausgabe wie ein echtes Ergebnis.
+    Die Einreichung würde dann FAILED für Code bekommen, der nie gelaufen ist.
+    """
 
 
 def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) -> str:
@@ -282,11 +316,12 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
         pfad = pathlib.Path(verzeichnis)
         (pfad / "loesung.py").write_text(code, encoding="utf-8")
 
-        # Beide Ströme in Dateien statt in Pipes. Nur so greift RLIMIT_FSIZE
+        # stdout und stderr in Dateien statt in Pipes. Nur so greift RLIMIT_FSIZE
         # gegen endlose Ausgabe. Eine Pipe würde stattdessen den Speicher des
         # Workers füllen, der sie ausliest, und zwar noch vor dem Zeitlimit.
         # Die Dateien gehören dem Worker und sind für die Sandbox nicht zu
-        # öffnen, geschrieben wird ausschließlich über den vererbten Deskriptor.
+        # öffnen, geschrieben wird ausschließlich über den vererbten
+        # file descriptor.
         for name in ("ausgabe.txt", "fehler.txt"):
             deskriptoren.append(
                 os.open(str(pfad / name), os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
@@ -306,23 +341,27 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
             stdin=subprocess.PIPE,
             stdout=aus_fd,
             stderr=fehler_fd,
-            # Ohne MONGO_URI und REDIS_URI. Das verhindert den Zugriff nicht,
-            # der Subprozess teilt das Netz des Workers, aber es gibt die
-            # Adressen nicht auch noch her.
+            # env ohne MONGO_URI und REDIS_URI: Der Parameter ersetzt die
+            # geerbte Umgebung des Workers, die Einreichung sieht nur die vier
+            # Variablen hier. Den Zugriff verhindert das nicht, der Subprozess
+            # teilt das Netz des Workers, aber es gibt die Adressen nicht auch
+            # noch her.
             env={
                 "PATH": "/usr/local/bin:/usr/bin:/bin",
                 "HOME": verzeichnis,
-                "PYTHONDONTWRITEBYTECODE": "1",
-                "PYTHONUNBUFFERED": "1",
+                "PYTHONDONTWRITEBYTECODE": "1",  # sonst legt jeder Import eigener Module __pycache__ an
+                "PYTHONUNBUFFERED": "1",  # sonst fehlt nach einem Kill die gepufferte Ausgabe
             },
-            # Gruppe und Zusatzgruppen müssen mit. Der Parameter user setzt für
-            # sich genommen nur die UID, die Gruppen blieben dann die des
+            # group und extra_groups müssen mit. Der Parameter user setzt für
+            # sich genommen nur die UID, die Gruppen würden dann die des
             # Workers, und über die Gruppe root wäre /app trotz 750 lesbar.
             user=SANDBOX_UID,
             group=SANDBOX_USER if SANDBOX_UID is not None else None,
             extra_groups=[] if SANDBOX_UID is not None else None,
-            # Eigene Prozessgruppe, damit beim Zeitlimit auch die Prozesse
-            # fallen, die die Einreichung selbst gestartet hat.
+            # start_new_session startet die Einreichung in einer eigenen
+            # Session und damit in einer eigenen Prozessgruppe. Das killpg
+            # beim Zeitlimit trifft dann auch die Prozesse, die die
+            # Einreichung selbst gestartet hat.
             start_new_session=True,
         )
         try:
@@ -337,9 +376,9 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
 
         # Die Grenze meldet der Kernel je nach Zeitpunkt als Signal oder als
         # EFBIG an den schreibenden Aufruf. Im zweiten Fall endet die Einreichung
-        # mit einem gewöhnlichen Traceback, und ohne diese Prüfung stünde als
-        # Urteil EXECUTION_ERROR statt des wahren Grundes. Für beide Ströme, denn
-        # die Grenze gilt jeder Datei einzeln.
+        # mit einem gewöhnlichen Traceback, und ohne diese Prüfung würde als
+        # Urteil EXECUTION_ERROR statt des wahren Grundes stehen. Für stdout und stderr
+        # getrennt geprüft, denn die Grenze gilt jeder Datei einzeln.
         for fd in (aus_fd, fehler_fd):
             if os.fstat(fd).st_size >= SANDBOX_AUSGABE_BYTES:
                 grenze = SANDBOX_AUSGABE_BYTES // 1024
@@ -353,13 +392,19 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
             return f"EXECUTION_ERROR: {meldung or ausgabe.strip()}"
         return ausgabe.strip()
     except Exception as e:
-        # Mit dem Typ, sonst sieht ein Fehler im Worker aus wie ein Fehler im
-        # eingereichten Code.
-        return f"SYSTEM_ERROR: {type(e).__name__}: {e}"
+        # Der Typ bleibt in der Meldung: Umgebungsfehler sagt, dass es nicht am
+        # eingereichten Code lag, nicht was gescheitert ist.
+        raise Umgebungsfehler(f"{type(e).__name__}: {e}") from e
     finally:
-        # Der eigene Fehlerfang muss sein: eine Ausnahme aus dem finally heraus
-        # verwirft das Ergebnis der Einreichung und beendet den Worker.
-        _reste_beenden()
+        # Jeder Schritt einzeln abgefangen. Eine Exception aus dem Aufräumen
+        # würde sonst die eigentliche Exception verdrängen und die Schritte
+        # danach auslassen. Seit process_queue Fehler je Job abfängt, überlebt
+        # der Worker das, und file descriptors und Verzeichnisse würden sich
+        # über die Läufe hinweg ansammeln.
+        try:
+            _reste_beenden()
+        except Exception as e:
+            print(f"Reste der Sandbox nicht beendet: {type(e).__name__}: {e}")
         for fd in deskriptoren:
             try:
                 os.close(fd)
@@ -372,72 +417,114 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
                 print(f"{verzeichnis} nicht entfernt: {e}")
 
 
+def _job_lesen(item):
+    """Liest den Auftrag aus der Queue und gibt die ID der Einreichung dazu.
+
+    Eigene Funktion, weil hier eine Grenze verläuft: Scheitert etwas in ihr,
+    gibt es noch keine Einreichung, an die ein Fehler zu schreiben wäre. Alles
+    danach lässt sich beschriften.
+    """
+    job = json.loads(item)
+    sub_id = job["submission_id"]
+    # Ohne diese Prüfung erzeugt ObjectId(None) eine frische ID, statt zu
+    # scheitern. Das Ergebnis würde dann an ein Document gehen, das es nicht gibt.
+    if not isinstance(sub_id, str):
+        raise TypeError(
+            f"submission_id ist {type(sub_id).__name__}, keine Zeichenkette"
+        )
+    return ObjectId(sub_id), job
+
+
+def _urteil(job, task):
+    """Führt die Testfälle der Aufgabe aus und gibt Status und Ergebnistext."""
+    zeit, speicher = grenzen_der_aufgabe(task)
+    for case in task.get("test_cases", []):
+        ausgabe = run_code_in_sandbox(job["code"], case["input"], zeit, speicher)
+        erwartet = str(case["expected_output"]).strip()
+        if ausgabe != erwartet:
+            return "FAILED", (
+                f"Fehler bei Input '{case['input']}': "
+                f"Erwartet '{erwartet}', Bekommen '{ausgabe}'"
+            )
+    return "SUCCESS", "Alle Tests bestanden!"
+
+
+def _ergebnis_schreiben(sub_id, status, text):
+    """Schreibt Status und Ergebnistext an die Einreichung.
+
+    Eigenes try/except, weil einer der Gründe für SYSTEM_ERROR gerade die
+    nicht erreichbare Datenbank ist. Ohne dieses try/except würde die
+    Exception den Fehlerpfad verlassen und den Worker doch beenden. Die Einreichung
+    bleibt dann auf PENDING stehen, und genau die nimmt der Durchlauf aus #82
+    später wieder auf.
+    """
+    try:
+        ergebnis = db.submissions.update_one(
+            {"_id": sub_id},
+            {"$set": {"status": status, "result": text, "updated_at": time.time()}},
+        )
+        # update_one scheitert nicht, wenn kein Document zur ID passt. Ohne
+        # diese Prüfung würde process_queue die Einreichung als verarbeitet
+        # melden, obwohl das Ergebnis nirgends steht.
+        if ergebnis.matched_count == 0:
+            print(f"Einreichung {sub_id}: kein Document getroffen")
+    except Exception as e:
+        print(f"Einreichung {sub_id}: nicht geschrieben, {type(e).__name__}: {e}")
+
+
 def process_queue():
     if not NETZ_TRENNUNG:
         print(
             "Hinweis: der eingereichte Code teilt das Netz des Workers und "
-            "erreicht MongoDB und Redis direkt. Im Cluster greift die Trennung, "
+            "erreicht MongoDB und die Queue direkt. Im Cluster greift die Trennung, "
             "lokal blockiert das seccomp-Profil von Docker den nötigen Aufruf."
         )
     print("Worker gestartet, warte auf Tasks...")
     while True:
-        # Blockierendes Pop aus Redis Queue
-        _, item = redis_client.blpop("code_queue")
-        job = json.loads(item)
-
-        sub_id = job["submission_id"]
-        task = db.tasks.find_one({"_id": ObjectId(job["task_id"])})
-
-        if not task:
-            continue
-
-        test_cases = task.get("test_cases", [])
-        all_passed = True
-        error_message = ""
-
-        # Vor dem ersten Testfall, damit eine Aufgabe mit unbrauchbaren Grenzen
-        # nicht erst nach halber Arbeit auffällt. Der Loader prüft dieselben
-        # Felder, hier steht die Prüfung für Aufgaben, die anders hineinkommen.
         try:
-            zeit, speicher = grenzen_der_aufgabe(task)
-        except ValueError as e:
-            print(f"Aufgabe {task['_id']}: {e}")
-            db.submissions.update_one(
-                {"_id": ObjectId(sub_id)},
-                {
-                    "$set": {
-                        "status": "FAILED",
-                        "result": f"SYSTEM_ERROR: Aufgabe hat unbrauchbare Grenzen: {e}",
-                        "updated_at": time.time(),
-                    }
-                },
-            )
+            _, item = redis_client.blpop("code_queue")
+        except Exception as e:
+            # Hier gibt es keinen Job, dem etwas anzulasten wäre. Sich zu
+            # beenden würde nichts bringen: Der Neustart landet an derselben Stelle,
+            # solange Valkey weg ist, und der Container geht in den Backoff.
+            print(f"Queue nicht erreichbar: {type(e).__name__}: {e}")
+            time.sleep(QUEUE_PAUSE)
             continue
 
-        for case in test_cases:
-            output = run_code_in_sandbox(job["code"], case["input"], zeit, speicher)
-            expected = str(case["expected_output"]).strip()
+        try:
+            sub_id, job = _job_lesen(item)
+        except Exception as e:
+            # Ohne brauchbare submission_id gibt es kein Document, an das ein
+            # Status zu schreiben wäre. Bleibt das Protokoll, mit dem rohen
+            # Inhalt, weil sonst niemand nachvollziehen kann, was ankam.
+            # Bytes, solange decode_responses nicht gesetzt ist. Über REDIS_URI
+            # lässt sich das umschalten, und ein AttributeError ausgerechnet in
+            # diesem except-Zweig würde den Worker beenden.
+            roh = item[:MELDUNG_MAX]
+            inhalt = (
+                roh.decode("utf-8", errors="replace") if isinstance(roh, bytes) else roh
+            )
+            print(f"Job übersprungen: {type(e).__name__}: {e}, Inhalt: {inhalt}")
+            continue
 
-            if output != expected:
-                all_passed = False
-                error_message = f"Fehler bei Input '{case['input']}': Erwartet '{expected}', Bekommen '{output}'"
-                break
+        try:
+            task = db.tasks.find_one({"_id": ObjectId(job["task_id"])})
+            if task is None:
+                # Ohne diesen Zweig würde die Schleife still weiterspringen und
+                # die Einreichung dauerhaft auf PENDING stehen bleiben.
+                raise Umgebungsfehler(f"Aufgabe {job['task_id']} steht nicht in tasks")
+            status, text = _urteil(job, task)
+        except Exception as e:
+            # Was hier ankommt, ist kein Urteil über den eingereichten Code:
+            # ein Fehler der Umgebung, eine unbrauchbare Aufgabe oder ein
+            # Fehler im Worker selbst. Gekürzt, weil pymongo bei einem
+            # Verbindungsfehler die ganze Topologie in die Meldung schreibt.
+            status = "SYSTEM_ERROR"
+            text = f"{type(e).__name__}: {e}"[:MELDUNG_MAX]
+            print(f"Einreichung {sub_id}: {text}")
 
-        # Ergebnis in MongoDB aktualisieren
-        final_status = "SUCCESS" if all_passed else "FAILED"
-        result_text = "Alle Tests bestanden!" if all_passed else error_message
-
-        db.submissions.update_one(
-            {"_id": ObjectId(sub_id)},
-            {
-                "$set": {
-                    "status": final_status,
-                    "result": result_text,
-                    "updated_at": time.time(),
-                }
-            },
-        )
-        print(f"Submission {sub_id} verarbeitet: {final_status}")
+        _ergebnis_schreiben(sub_id, status, text)
+        print(f"Einreichung {sub_id} verarbeitet: {status}")
 
 
 if __name__ == "__main__":

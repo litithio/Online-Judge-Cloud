@@ -19,6 +19,9 @@ clouds.yaml
 ansible/inventory/generated-inventory.yml
 # Enthält den TSIG-Key der eigenen DNS-Zone; Vorlage ist die .example-Datei.
 ansible/dns-credentials.yaml
+# Enthält die Auth-Secrets (Keycloak, OIDC-Plugin, Test-Benutzer); Vorlage ist
+# die .example-Datei.
+ansible/auth-credentials.yaml
 # Von der Rolle geschrieben, enthält die Cluster-Zugangsdaten.
 ansible/kubeconfig-generated.yaml
 

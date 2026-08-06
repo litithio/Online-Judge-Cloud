@@ -1,0 +1,58 @@
+{
+  "realm": "{{ keycloak_realm }}",
+  "enabled": true,
+  "sslRequired": "external",
+  "loginWithEmailAllowed": true,
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "{{ oidc_client_id }}",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "{{ oidc_client_secret }}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://{{ app_host }}/oidc/callback"
+      ],
+      "webOrigins": [
+        "https://{{ app_host }}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "aud-mapper-{{ oidc_client_id }}",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "{{ oidc_client_id }}",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "{{ test_user_username }}",
+      "enabled": true,
+      "email": "{{ test_user_email }}",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "Student",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "{{ test_user_password }}",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

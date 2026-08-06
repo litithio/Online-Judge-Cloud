@@ -5,7 +5,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 import redis
 
-from auth import verify_jwt
+from auth import get_current_user
 
 app = FastAPI()
 
@@ -22,13 +22,13 @@ def parse_json(data):
 
 
 @app.get("/tasks")
-def get_tasks(user=Depends(verify_jwt)):
+def get_tasks(user=Depends(get_current_user)):
     tasks = list(db.tasks.find({}, {"test_cases": 0}))  # Testcases verbergen
     return [parse_json(t) for t in tasks]
 
 
 @app.get("/tasks/{task_id}")
-def get_task(task_id: str, user=Depends(verify_jwt)):
+def get_task(task_id: str, user=Depends(get_current_user)):
     task = db.tasks.find_one({"_id": ObjectId(task_id)}, {"test_cases": 0})
     if not task:
         raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
@@ -36,7 +36,7 @@ def get_task(task_id: str, user=Depends(verify_jwt)):
 
 
 @app.post("/submit")
-def submit_code(payload: dict, user=Depends(verify_jwt)):
+def submit_code(payload: dict, user=Depends(get_current_user)):
     task_id = payload.get("task_id")
     code = payload.get("code")
 
@@ -59,7 +59,7 @@ def submit_code(payload: dict, user=Depends(verify_jwt)):
 
 
 @app.get("/submission/{sub_id}")
-def get_submission_status(sub_id: str, user=Depends(verify_jwt)):
+def get_submission_status(sub_id: str, user=Depends(get_current_user)):
     sub = db.submissions.find_one({"_id": ObjectId(sub_id)})
     if not sub:
         raise HTTPException(status_code=404, detail="Submission nicht gefunden")

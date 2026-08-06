@@ -1,0 +1,6 @@
+# Muster wie im Helm-Standard: nichts davon gehört ins Paket.
+.DS_Store
+.git/
+.gitignore
+*.tmproj
+.vscode/

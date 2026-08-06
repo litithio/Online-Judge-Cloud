@@ -1,7 +1,11 @@
 # Bringt den k3s-Cluster auf die Nodes aus dem Terraform-Inventory. Aufruf:
 #
-#   ansible-galaxy install -r requirements.yml
+#   ansible-galaxy install -r requirements.yml --force
 #   ansible-playbook -i inventory/generated-inventory.yml -i dns-credentials.yaml deploy.yaml
+#
+# --force, weil ansible-galaxy eine bereits installierte Rolle sonst stehen
+# lässt, auch wenn in requirements.yml eine andere Version steht. Ohne das
+# Flag läuft das Playbook gegen den alten Stand und meldet trotzdem Erfolg.
 #
 # VPN dabei aus: die Nodes sind über ihr öffentliches IPv6 erreichbar, der
 # Full-Tunnel würde genau das kappen.
@@ -20,14 +24,7 @@
   tags: [k3s]
   become: true
   roles:
-    # Die Rolle stellt external-dns auf v0.19.0. Dort beendet ein einzelner
-    # fehlgeschlagener AXFR den Prozess und der Pod startet neu, siehe
-    # kubernetes-sigs/external-dns#6219. Ab v0.21.0 gilt der Fehler als weich.
-    # Damit fällt der Neustart als Warnsignal weg: ein anhaltender Ausfall
-    # hinterlässt dann einen laufenden Pod, der still nichts mehr abgleicht.
     - role: k3s-dhbw-cloud-role
-      vars:
-        external_dns_version: "v0.21.0"
 
 # Nur auf den Agents, der Server führt keine Einreichungen aus.
 - name: Sandbox-Laufzeit gVisor auf den Judge-Nodes einrichten

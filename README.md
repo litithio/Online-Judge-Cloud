@@ -84,7 +84,7 @@ Cluster hochbringen:
 cd terraform && terraform init && terraform apply
 
 # VPN aus
-cd ../ansible && ansible-galaxy install -r requirements.yml
+cd ../ansible && ansible-galaxy install -r requirements.yml --force
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml
 kubectl get nodes

@@ -26,10 +26,15 @@
   roles:
     - role: k3s-dhbw-cloud-role
   tasks:
+    # always, damit der Fact auch bei einem Lauf mit --tags entsteht. Ohne das
+    # Tag erbt die Aufgabe k3s vom Play, und ein Aufruf mit --tags mongodb
+    # überspringt sie. tasks/mongodb.yaml bricht dann mit
+    # "'kubeconfig_root' is undefined" ab.
     - name: Kubeconfig_root für spätere Plays merken
       ansible.builtin.set_fact:
         kubeconfig_root: "{{ kubeconfig_root }}"
       when: k3s_role == 'server'
+      tags: always
 
 # Nur auf den Agents, der Server führt keine Einreichungen aus.
 - name: Sandbox-Laufzeit gVisor auf den Judge-Nodes einrichten

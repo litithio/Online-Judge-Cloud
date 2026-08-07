@@ -21,6 +21,8 @@ ansible/inventory/generated-inventory.yml
 ansible/dns-credentials.yaml
 # Von der Rolle geschrieben, enthält die Cluster-Zugangsdaten.
 ansible/kubeconfig-generated.yaml
+# Enthält das echte MongoDB-Passwort; Vorlage ist die .example-Datei.
+ansible/files/mongodb-password.yaml
 
 # Python
 __pycache__/

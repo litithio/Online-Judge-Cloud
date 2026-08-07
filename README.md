@@ -70,10 +70,11 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 cp ansible/dns-credentials.yaml.example ansible/dns-credentials.yaml
+cp ansible/files/mongodb-password.yaml.example ansible/files/mongodb-password.yaml
 direnv allow
 ```
 
-Beide Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+Die drei Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
 Ohne direnv stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die
 Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
 

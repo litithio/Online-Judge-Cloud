@@ -25,6 +25,11 @@
   become: true
   roles:
     - role: k3s-dhbw-cloud-role
+  tasks:
+    - name: Kubeconfig_root für spätere Plays merken
+      ansible.builtin.set_fact:
+        kubeconfig_root: "{{ kubeconfig_root }}"
+      when: k3s_role == 'server'
 
 # Nur auf den Agents, der Server führt keine Einreichungen aus.
 - name: Sandbox-Laufzeit gVisor auf den Judge-Nodes einrichten
@@ -70,3 +75,12 @@
           metadata:
             name: gvisor
           handler: runsc
+
+# MongoDB
+- name: MongoDB ausrollen
+  hosts: judge_k3s_server
+  tags: [mongodb]
+  become: true
+  tasks:
+    - name: MongoDB Operator und Instanz einrichten
+      ansible.builtin.import_tasks: tasks/mongodb.yaml

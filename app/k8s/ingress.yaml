@@ -1,0 +1,36 @@
+# Der Host steht als Platzhalter drin, weil jede Person eine eigene DNS-Zone
+# hat. Die Zone steht in ansible/dns-credentials.yaml unter rfc2136_zone.
+# Ausrollen:
+#
+#   JUDGE_HOST=$(grep rfc2136_zone ansible/dns-credentials.yaml | awk '{print $2}')
+#   sed "s|__JUDGE_HOST__|$JUDGE_HOST|g" app/k8s/ingress.yaml | kubectl apply -f -
+#
+# Mit dem Chart aus #15 wird aus dem Platzhalter ein Feld in values.yaml.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend
+  annotations:
+    # Der ClusterIssuer zeigt auf den ACME-Server certificates.dhbw.cloud und
+    # kennt nur einen dns01-Solver. cert-manager schreibt den Nachweis deshalb
+    # als TXT-Record über denselben TSIG-Key in dieselbe Zone.
+    cert-manager.io/cluster-issuer: certificate-cluster-issuer
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: __JUDGE_HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+  tls:
+    - hosts:
+        - __JUDGE_HOST__
+      # external-dns leitet den AAAA-Record aus den Hosts unter rules ab, nicht
+      # aus diesem Block. Beide müssen deshalb denselben Namen tragen.
+      secretName: backend-tls

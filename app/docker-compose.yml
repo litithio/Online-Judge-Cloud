@@ -73,6 +73,10 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Das Compose-Netz ist IPv4, die Portfreigabe oben leitet dorthin. Der
+      # Cluster vergibt dagegen nur IPv6, deshalb bindet das Image ohne diesen
+      # Wert auf ::.
+      BIND_HOST: 0.0.0.0
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080

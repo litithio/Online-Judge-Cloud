@@ -28,15 +28,17 @@ services:
     networks:
       - coding_net
 
-  # #26 nennt für die Queue Valkey. Der Wechsel steht noch aus.
-  redis:
-    image: redis:7-alpine
-    container_name: coding_platform_redis
+  # Wechsel von Redis auf Valkey (#26). REDIS_URI heißt weiter so, das
+  # Protokoll ist kompatibel und der Name zieht sich sonst durch Backend,
+  # Worker und beide docker-compose- und k8s-Manifeste.
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: coding_platform_valkey
     restart: always
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - valkey_data:/data
     networks:
       - coding_net
 
@@ -78,12 +80,12 @@ services:
       # Wert auf ::.
       BIND_HOST: 0.0.0.0
       MONGO_URI: mongodb://mongodb:27017
-      REDIS_URI: redis://redis:6379
+      REDIS_URI: redis://valkey:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_REALM: master
     depends_on:
       - mongodb
-      - redis
+      - valkey
       - keycloak
     networks:
       - coding_net
@@ -104,10 +106,10 @@ services:
     mem_limit: 512m
     environment:
       MONGO_URI: mongodb://mongodb:27017
-      REDIS_URI: redis://redis:6379
+      REDIS_URI: redis://valkey:6379
     depends_on:
       - mongodb
-      - redis
+      - valkey
     networks:
       - coding_net
 
@@ -152,4 +154,4 @@ networks:
 
 volumes:
   mongo_data:
-  redis_data:
+  valkey_data:

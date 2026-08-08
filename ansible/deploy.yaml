@@ -89,3 +89,12 @@
   tasks:
     - name: MongoDB Operator und Instanz einrichten
       ansible.builtin.import_tasks: tasks/mongodb.yaml
+
+# Valkey
+- name: Valkey ausrollen
+  hosts: judge_k3s_server
+  tags: [valkey]
+  become: true
+  tasks:
+    - name: Valkey Deployment und Service einrichten
+      ansible.builtin.import_tasks: tasks/valkey.yaml

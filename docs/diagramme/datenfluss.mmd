@@ -24,22 +24,27 @@ sequenceDiagram
     participant W as ⚖️ Judge-Worker
     participant B as 📦 Sandbox
     participant M as 🗄️ MongoDB
+    participant D as 🔁 Durchlauf
 
     S->>T: Einreichung<br/>abgeben (HTTPS)
     T->>K: ForwardAuth,<br/>Anmeldung prüfen
     K-->>T: Identität bestätigt
     T->>A: Anfrage mit<br/>geprüfter Identität
-    A->>M: Einreichung anlegen, Status wartend
-    A->>V: XADD auf den<br/>Einreichungs-Stream
+    A->>M: Einreichung anlegen,<br/>Status PENDING
+    A->>V: RPUSH judge:python,<br/>nur die Einreichungs-ID
     A-->>S: angenommen, Einreichungs-ID
-    W->>V: XREADGROUP,<br/>nächste Einreichung
-    W->>+B: Testfälle ausführen, Zeit-<br/>und Speicherlimit je Lauf
-    B-->>-W: Ergebnis<br/>je Testfall
-    W->>M: Ergebnisse schreiben
-    W->>V: XACK, Einreichung<br/>abgeschlossen
-    loop bis das Ergebnis vorliegt
-        S->>A: Ergebnis abfragen (Polling)
-        A->>M: Ergebnis lesen
+    loop parallel, bis das Ergebnis vorliegt
+        S->>A: Stand abfragen (Polling)
+        A->>M: Stand lesen
+        A-->>S: Status, am Ende mit Urteil
     end
-    A-->>S: Ergebnis je Testfall
-    Note over V,B: Stirbt ein Worker vor dem XACK, bleibt die Einreichung<br/>als pending im Stream. Ein anderer Worker holt sie per<br/>XAUTOCLAIM nach Ablauf der Min-Idle-Time zurück.
+    W->>V: BLPOP judge:python
+    W->>M: PENDING auf RUNNING,<br/>mit Token und Frist
+    M-->>W: Einreichung mit Code
+    W->>M: Aufgabe mit<br/>Testfällen lesen
+    W->>+B: Testfälle nacheinander, Zeit-<br/>und Speicherlimit je Lauf
+    B-->>-W: Ausgabe je Lauf
+    W->>M: Urteil schreiben,<br/>nur mit gültigem Token
+    D->>M: RUNNING mit<br/>abgelaufener Frist suchen
+    D->>V: erneut einreihen
+    Note over V,D: Stirbt ein Worker nach der Übernahme, bleibt die Einreichung auf<br/>RUNNING stehen. Der Durchlauf setzt sie zurück auf PENDING und reiht<br/>sie erneut ein, nach MAX_VERSUCHE Versuchen auf einen Endzustand.

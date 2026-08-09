@@ -1,4 +1,3 @@
-import json
 import os
 import pathlib
 import pwd
@@ -8,10 +7,12 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
 
 import redis
 from bson import ObjectId
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 
 # Grenzen je Lauf. Sie stehen hier und nicht nur am Pod, weil ein Pod-Limit für
 # alle Läufe zusammen gilt: Eine speicherhungrige Einreichung würde sonst den
@@ -33,6 +34,18 @@ SANDBOX_PROZESSE = 64  # RLIMIT_NPROC gegen Fork-Bomben
 MELDUNG_MAX = 2000  # so viel Fehlerausgabe übernimmt das Feld result der Einreichung
 REST_FRIST = 1.0  # Sekunden, die das Aufräumen auf beendete Prozesse wartet
 QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwortet
+
+# Dieser Worker bedient nur die Liste seiner eigenen Sprache (#82). Mehrere
+# Sprachen heißt mehrere Worker-Deployments, je mit eigenem WORKER_SPRACHE und
+# eigenem Image, nicht ein Worker, der mehrere Listen abfragt.
+WORKER_SPRACHE = os.getenv("WORKER_SPRACHE", "python")
+QUEUE_KEY = f"judge:{WORKER_SPRACHE}"
+
+# Deckelt, wie lange eine Einreichung als RUNNING gilt, bevor der Durchlauf aus
+# #82 sie für hängengeblieben hält und erneut einreiht. Muss über der Summe
+# aller Testfälle einer Aufgabe bei GRENZE_ZEIT_MAX liegen, sonst nimmt sich
+# eine langsame, aber gesunde Einreichung ihre eigene Frist weg.
+CLAIM_FRIST_SEKUNDEN = int(os.getenv("CLAIM_FRIST_SEKUNDEN", "300"))
 
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine
 # Aufgabe das Zeitlimit praktisch abschalten oder mehr Speicher erlauben, als der
@@ -417,29 +430,46 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
                 print(f"{verzeichnis} nicht entfernt: {e}")
 
 
-def _job_lesen(item):
-    """Liest den Auftrag aus der Queue und gibt die ID der Einreichung dazu.
+def _sub_id_lesen(item):
+    """Liest die ID der Einreichung aus der Queue.
 
-    Eigene Funktion, weil hier eine Grenze verläuft: Scheitert etwas in ihr,
-    gibt es noch keine Einreichung, an die ein Fehler zu schreiben wäre. Alles
-    danach lässt sich beschriften.
+    Seit #82 trägt die Liste nur noch die ID, keinen Auftrag mehr. Eigene
+    Funktion, weil hier eine Grenze verläuft: Scheitert etwas in ihr, gibt es
+    noch keine Einreichung, an die ein Fehler zu schreiben wäre. Alles danach
+    lässt sich beschriften.
     """
-    job = json.loads(item)
-    sub_id = job["submission_id"]
-    # Ohne diese Prüfung erzeugt ObjectId(None) eine frische ID, statt zu
-    # scheitern. Das Ergebnis würde dann an ein Document gehen, das es nicht gibt.
-    if not isinstance(sub_id, str):
-        raise TypeError(
-            f"submission_id ist {type(sub_id).__name__}, keine Zeichenkette"
-        )
-    return ObjectId(sub_id), job
+    roh = item.decode("utf-8") if isinstance(item, bytes) else item
+    return ObjectId(roh)
 
 
-def _urteil(job, task):
+def _uebernehmen(sub_id):
+    """Übernimmt eine Einreichung mit einem bedingten Update von PENDING auf
+    RUNNING (#82): eigenes Token für diesen Versuch, Versuchszähler hoch,
+    Frist neu gesetzt.
+
+    Gibt das aktualisierte Document zurück, oder None, wenn die Übernahme
+    nicht griff. Das ist kein Fehler: Ein anderer Worker oder der Durchlauf
+    kann schneller gewesen sein, oder dieselbe ID steht kurzzeitig doppelt in
+    der Queue. Erst nach der Übernahme werden Code und Aufgabe gelesen, aus
+    dem Document selbst, nicht mehr aus der Queue.
+    """
+    token = uuid.uuid4().hex
+    frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_SEKUNDEN)
+    return db.submissions.find_one_and_update(
+        {"_id": sub_id, "status": "PENDING"},
+        {
+            "$set": {"status": "RUNNING", "run_token": token, "frist": frist},
+            "$inc": {"versuche": 1},
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+def _urteil(submission, task):
     """Führt die Testfälle der Aufgabe aus und gibt Status und Ergebnistext."""
     zeit, speicher = grenzen_der_aufgabe(task)
     for case in task.get("test_cases", []):
-        ausgabe = run_code_in_sandbox(job["code"], case["input"], zeit, speicher)
+        ausgabe = run_code_in_sandbox(submission["code"], case["input"], zeit, speicher)
         erwartet = str(case["expected_output"]).strip()
         if ausgabe != erwartet:
             return "FAILED", (
@@ -449,25 +479,34 @@ def _urteil(job, task):
     return "SUCCESS", "Alle Tests bestanden!"
 
 
-def _ergebnis_schreiben(sub_id, status, text):
-    """Schreibt Status und Ergebnistext an die Einreichung.
+def _ergebnis_schreiben(sub_id, token, status, text):
+    """Schreibt das Urteil, aber nur mit noch gültigem Token (#82).
 
-    Eigenes try/except, weil einer der Gründe für SYSTEM_ERROR gerade die
-    nicht erreichbare Datenbank ist. Ohne dieses try/except würde die
-    Exception den Fehlerpfad verlassen und den Worker doch beenden. Die Einreichung
-    bleibt dann auf PENDING stehen, und genau die nimmt der Durchlauf aus #82
-    später wieder auf.
+    Der Filter auf status RUNNING und das eigene run_token verhindert, dass
+    ein Worker, dessen Frist bereits ablief und dessen Einreichung der
+    Durchlauf schon an einen neuen Versuch vergeben hat, das frischere
+    Ergebnis nachträglich mit seinem eigenen, veralteten überschreibt.
+    Eigenes try/except, weil einer der Gründe für einen scheiternden Schreib-
+    zugriff gerade die nicht erreichbare Datenbank ist. Ohne dieses
+    try/except würde die Exception den Fehlerpfad verlassen und den Worker
+    doch beenden. Die Einreichung bleibt dann auf RUNNING stehen, und genau
+    die nimmt der Durchlauf nach Ablauf ihrer Frist wieder auf.
     """
     try:
         ergebnis = db.submissions.update_one(
-            {"_id": sub_id},
-            {"$set": {"status": status, "result": text, "updated_at": time.time()}},
+            {"_id": sub_id, "status": "RUNNING", "run_token": token},
+            {
+                "$set": {
+                    "status": status,
+                    "result": text,
+                    "run_token": None,
+                    "frist": None,
+                    "updated_at": time.time(),
+                }
+            },
         )
-        # update_one scheitert nicht, wenn kein Document zur ID passt. Ohne
-        # diese Prüfung würde process_queue die Einreichung als verarbeitet
-        # melden, obwohl das Ergebnis nirgends steht.
         if ergebnis.matched_count == 0:
-            print(f"Einreichung {sub_id}: kein Document getroffen")
+            print(f"Einreichung {sub_id}: Token nicht mehr gültig, Ergebnis verworfen")
     except Exception as e:
         print(f"Einreichung {sub_id}: nicht geschrieben, {type(e).__name__}: {e}")
 
@@ -479,12 +518,12 @@ def process_queue():
             "erreicht MongoDB und die Queue direkt. Im Cluster greift die Trennung, "
             "lokal blockiert das seccomp-Profil von Docker den nötigen Aufruf."
         )
-    print("Worker gestartet, warte auf Tasks...")
+    print(f"Worker gestartet ({WORKER_SPRACHE}), warte auf {QUEUE_KEY}...")
     while True:
         try:
-            _, item = redis_client.blpop("code_queue")
+            _, item = redis_client.blpop(QUEUE_KEY)
         except Exception as e:
-            # Hier gibt es keinen Job, dem etwas anzulasten wäre. Sich zu
+            # Hier gibt es keine Einreichung, der etwas anzulasten wäre. Sich zu
             # beenden würde nichts bringen: Der Neustart landet an derselben Stelle,
             # solange Valkey weg ist, und der Container geht in den Backoff.
             print(f"Queue nicht erreichbar: {type(e).__name__}: {e}")
@@ -492,38 +531,51 @@ def process_queue():
             continue
 
         try:
-            sub_id, job = _job_lesen(item)
+            sub_id = _sub_id_lesen(item)
         except Exception as e:
-            # Ohne brauchbare submission_id gibt es kein Document, an das ein
-            # Status zu schreiben wäre. Bleibt das Protokoll, mit dem rohen
-            # Inhalt, weil sonst niemand nachvollziehen kann, was ankam.
-            # Bytes, solange decode_responses nicht gesetzt ist. Über REDIS_URI
-            # lässt sich das umschalten, und ein AttributeError ausgerechnet in
-            # diesem except-Zweig würde den Worker beenden.
+            # Ohne brauchbare ID gibt es kein Document, an das ein Status zu
+            # schreiben wäre. Bleibt das Protokoll, mit dem rohen Inhalt, weil
+            # sonst niemand nachvollziehen kann, was ankam. Bytes, solange
+            # decode_responses nicht gesetzt ist. Über REDIS_URI lässt sich
+            # das umschalten, und ein AttributeError ausgerechnet in diesem
+            # except-Zweig würde den Worker beenden.
             roh = item[:MELDUNG_MAX]
             inhalt = (
                 roh.decode("utf-8", errors="replace") if isinstance(roh, bytes) else roh
             )
-            print(f"Job übersprungen: {type(e).__name__}: {e}, Inhalt: {inhalt}")
+            print(f"Eintrag übersprungen: {type(e).__name__}: {e}, Inhalt: {inhalt}")
             continue
 
+        submission = _uebernehmen(sub_id)
+        if submission is None:
+            print(f"Einreichung {sub_id}: nicht übernommen, übersprungen")
+            continue
+        token = submission["run_token"]
+
         try:
-            task = db.tasks.find_one({"_id": ObjectId(job["task_id"])})
+            task = db.tasks.find_one({"_id": ObjectId(submission["task_id"])})
             if task is None:
-                # Ohne diesen Zweig würde die Schleife still weiterspringen und
-                # die Einreichung dauerhaft auf PENDING stehen bleiben.
-                raise Umgebungsfehler(f"Aufgabe {job['task_id']} steht nicht in tasks")
-            status, text = _urteil(job, task)
+                raise Umgebungsfehler(
+                    f"Aufgabe {submission['task_id']} steht nicht in tasks"
+                )
+            status, text = _urteil(submission, task)
         except Exception as e:
             # Was hier ankommt, ist kein Urteil über den eingereichten Code:
             # ein Fehler der Umgebung, eine unbrauchbare Aufgabe oder ein
-            # Fehler im Worker selbst. Gekürzt, weil pymongo bei einem
+            # Fehler im Worker selbst. Der Worker wiederholt so etwas nicht von
+            # sich aus (#78, #52): er schreibt hier absichtlich kein Ergebnis,
+            # die Einreichung bleibt auf RUNNING stehen. Erst wenn ihre Frist
+            # abläuft, nimmt der Durchlauf sie zurück auf PENDING und reiht
+            # sie erneut ein, oder legt sie nach genug Versuchen als nicht
+            # beurteilt ab (#81). Gekürzt, weil pymongo bei einem
             # Verbindungsfehler die ganze Topologie in die Meldung schreibt.
-            status = "SYSTEM_ERROR"
             text = f"{type(e).__name__}: {e}"[:MELDUNG_MAX]
-            print(f"Einreichung {sub_id}: {text}")
+            print(
+                f"Einreichung {sub_id}: Umgebungsfehler, wartet auf den Durchlauf: {text}"
+            )
+            continue
 
-        _ergebnis_schreiben(sub_id, status, text)
+        _ergebnis_schreiben(sub_id, token, status, text)
         print(f"Einreichung {sub_id} verarbeitet: {status}")
 
 

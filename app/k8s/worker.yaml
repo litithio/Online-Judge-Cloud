@@ -31,6 +31,11 @@ spec:
               key: connectionString.standard
         - name: REDIS_URI
           value: "redis://valkey:6379"
+        # Bestimmt, welche Liste dieser Worker abfragt (judge:<sprache>, #82)
+        # und worauf sein ScaledObject zielt, siehe
+        # app/k8s/keda-scaledobject-python.yaml.
+        - name: WORKER_SPRACHE
+          value: "python"
         # Der eingereichte Code bekommt hier einen eigenen Netz-Namespace, anders
         # als im lokalen Compose-Stand. Ohne diesen Schalter würde die Trennung
         # stillschweigend wegfallen, sobald der Aufruf einmal nicht mehr

@@ -107,9 +107,38 @@ services:
     environment:
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://valkey:6379
+      # Bestimmt, welche Liste dieser Worker abfragt (judge:<sprache>, #82).
+      # Im Cluster bekäme jede Sprache ihr eigenes Deployment mit eigenem Wert.
+      WORKER_SPRACHE: python
     depends_on:
       - mongodb
       - valkey
+    networks:
+      - coding_net
+
+  # Durchlauf aus #82 (app/worker/durchlauf.py): nimmt Einreichungen zurück,
+  # deren Frist ohne Ergebnis verstrichen ist. Im Cluster ein CronJob
+  # (app/k8s/durchlauf-cronjob.yaml) mit eigenem Zeitplan; hier stattdessen
+  # ein einzelner Lauf auf Abruf, damit ein Testlauf nicht zufällig mitten in
+  # einen Timer platzt. profiles hält ihn aus einem gewöhnlichen
+  # `docker compose up` heraus:
+  #   docker compose --profile durchlauf run --rm durchlauf
+  durchlauf:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    image: judge-worker:local
+    container_name: coding_platform_durchlauf
+    restart: "no"
+    profiles: ["durchlauf"]
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      REDIS_URI: redis://valkey:6379
+      MAX_VERSUCHE: "3"
+    depends_on:
+      - mongodb
+      - valkey
+    command: ["python3", "durchlauf.py"]
     networks:
       - coding_net
 

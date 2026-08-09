@@ -98,3 +98,12 @@
   tasks:
     - name: Valkey Deployment und Service einrichten
       ansible.builtin.import_tasks: tasks/valkey.yaml
+
+# KEDA
+- name: KEDA ausrollen
+  hosts: judge_k3s_server
+  tags: [keda]
+  become: true
+  tasks:
+    - name: KEDA Operator einrichten
+      ansible.builtin.import_tasks: tasks/keda.yaml

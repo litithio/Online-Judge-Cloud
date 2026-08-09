@@ -1,5 +1,4 @@
 import os
-import json
 from fastapi import FastAPI, Depends, HTTPException
 from pymongo import MongoClient
 from bson import ObjectId
@@ -13,6 +12,14 @@ app = FastAPI()
 mongo_client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
 db = mongo_client["coding_platform"]
 redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:6379"))
+
+# Trägt sowohl den Durchlauf aus #82 (RUNNING mit abgelaufener Frist finden)
+# als auch dessen Requeue-Vergleich. Ohne ihn liefe die Suche über alle
+# Einreichungen, nicht nur über die wartenden.
+db.submissions.create_index([("status", 1), ("frist", 1)])
+
+SPRACHEN = ("python", "java", "cpp", "rust")
+STANDARD_SPRACHE = "python"
 
 
 def parse_json(data):
@@ -39,21 +46,31 @@ def get_task(task_id: str, user=Depends(verify_jwt)):
 def submit_code(payload: dict, user=Depends(verify_jwt)):
     task_id = payload.get("task_id")
     code = payload.get("code")
+    sprache = payload.get("sprache", STANDARD_SPRACHE)
+    if sprache not in SPRACHEN:
+        raise HTTPException(status_code=400, detail=f"Unbekannte Sprache: {sprache}")
 
-    # 1. Submission in MongoDB erstellen
+    # 1. Submission in MongoDB erstellen, mit den Feldern aus #82: sprache für
+    # die Queue-Auswahl des Durchlaufs, versuche/run_token/frist für die
+    # bedingte Übernahme im Worker. Die API selbst besetzt nur versuche mit 0
+    # und die anderen beiden mit None, der Worker füllt sie beim Claim.
     submission = {
         "user_id": user.get("sub"),
         "username": user.get("preferred_username", "Unknown"),
         "task_id": task_id,
         "code": code,
+        "sprache": sprache,
         "status": "PENDING",
         "result": None,
+        "versuche": 0,
+        "run_token": None,
+        "frist": None,
     }
     sub_id = db.submissions.insert_one(submission).inserted_id
 
-    # 2. In die Queue schreiben
-    job_data = {"submission_id": str(sub_id), "task_id": task_id, "code": code}
-    redis_client.rpush("code_queue", json.dumps(job_data))
+    # 2. Nur die ID in die Queue der Sprache schreiben. Code und Aufgabe liest
+    # der Worker erst nach der Übernahme aus MongoDB, siehe worker.py.
+    redis_client.rpush(f"judge:{sprache}", str(sub_id))
 
     return {"submission_id": str(sub_id), "status": "PENDING"}
 

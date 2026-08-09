@@ -156,5 +156,15 @@ Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Meng
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe
 mehr aus. Der Speicher des Workers bleibt davon unberührt, die Schreiblast auf
 dem Node nicht.
+
+Außerhalb der Sandbox liegt eine Grenze bei der Verfügbarkeit der API. Die
+readinessProbe fragt `/readyz`, und dieser Endpunkt prüft MongoDB. Fällt die
+Datenbank aus, haben alle Replicas dieselbe Ursache und werden nach etwa 15
+Sekunden gemeinsam aus dem Service genommen, bei `periodSeconds` 5 und
+`failureThreshold` 3. Der Aufrufer bekommt dann die Standardseite von Traefik
+statt einer Meldung der Anwendung. Der Tausch ist bewusst: Ohne MongoDB kann ein
+Pod weder eine Aufgabe ausliefern noch eine Einreichung annehmen. Valkey prüft
+die Probe nicht, denn ohne die Queue scheitert allein `/submit`, während
+`/tasks` und `/submission` weiter antworten.
 ## Bonus
 Nur falls Sie Bonuspunkte beanspruchen, sonst weglassen

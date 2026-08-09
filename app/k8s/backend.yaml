@@ -30,6 +30,31 @@ spec:
           value: "redis://redis:6379"
         - name: KEYCLOAK_URL
           value: "http://keycloak.default.svc.cluster.local:8080"
+        # /healthz hängt an keinem anderen Dienst, /readyz prüft MongoDB.
+        # Deshalb startet ein Datenbankausfall keine Pods neu, er nimmt sie nur
+        # aus dem Service.
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        # Häufiger als die liveness: ein Pod, der die Datenbank wieder erreicht,
+        # soll schnell zurück in den Service.
+        #
+        # timeoutSeconds 3, nicht 2: Bei nicht erreichbarer MongoDB antwortet
+        # /readyz gemessen nach 2,5 Sekunden mit 503. Mit einem Limit von 2
+        # liefe die Probe in ihr eigenes Zeitlimit und der Grund stünde nirgends.
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service

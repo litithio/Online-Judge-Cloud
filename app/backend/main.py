@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, Depends, HTTPException
 from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 from bson import ObjectId
 import redis
 
@@ -8,10 +9,30 @@ from auth import verify_jwt
 
 app = FastAPI()
 
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+
 # DB Connections
-mongo_client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["coding_platform"]
 redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:6379"))
+
+# Eigene Verbindung nur für /readyz, mit kurzen Zeitlimits.
+#
+# Der Client oben behält die Vorgabe von 30 Sekunden. MongoDB läuft als
+# ReplicaSet, und während einer Neuwahl des Primary ist für einige Sekunden kein
+# Server wählbar. Mit 2 Sekunden würden die fachlichen Routen in dieser Zeit
+# scheitern, statt die Wahl abzuwarten.
+#
+# socketTimeoutMS und connectTimeoutMS zusätzlich zu serverSelectionTimeoutMS:
+# Letzteres begrenzt nur die Suche nach einem Server. Antwortet ein gewählter
+# Server danach nicht mehr, wartet der Aufruf ohne die beiden anderen Werte
+# unbegrenzt, und die Aufrufe von /readyz liefen sich im Threadpool auf.
+health_client = MongoClient(
+    MONGO_URI,
+    serverSelectionTimeoutMS=2000,
+    connectTimeoutMS=2000,
+    socketTimeoutMS=2000,
+)
 
 # Trägt sowohl den Durchlauf aus #82 (RUNNING mit abgelaufener Frist finden)
 # als auch dessen Requeue-Vergleich. Ohne ihn liefe die Suche über alle
@@ -26,6 +47,40 @@ def parse_json(data):
     data["id"] = str(data["_id"])
     del data["_id"]
     return data
+
+
+# Die beiden Endpunkte für die Probes tragen bewusst kein Depends(verify_jwt).
+# Das kubelet schickt kein Token; eine geschützte Probe schlüge dauerhaft fehl.
+@app.get("/healthz")
+async def healthz():
+    """Läuft der Prozess noch? Hängt an keinem anderen Dienst.
+
+    Die livenessProbe startet den Pod neu, wenn hier nichts mehr kommt. Eine
+    Prüfung von MongoDB gehört deshalb nicht hierher: ein Ausfall der Datenbank
+    würde sonst reihum alle Pods neu starten, ohne dass ein Neustart hilft.
+
+    async, damit die Antwort im Eventloop entsteht. Die übrigen Endpunkte sind
+    synchron und laufen im Threadpool. Wäre /healthz auch dort, könnten
+    blockierte Aufrufe es mit ausbremsen und einen Neustart auslösen.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz():
+    """Kann der Pod Anfragen beantworten?
+
+    Geprüft wird MongoDB, weil jede Route sie braucht. Valkey bleibt außen vor:
+    ohne die Queue scheitert /submit, während /tasks und /submission weiter
+    antworten. Ein Pod ohne Valkey ist also mehr wert als gar kein Pod.
+    """
+    try:
+        health_client.admin.command("ping")
+    except PyMongoError as fehler:
+        raise HTTPException(
+            status_code=503, detail=f"MongoDB nicht erreichbar: {fehler}"
+        )
+    return {"status": "ok"}
 
 
 @app.get("/tasks")

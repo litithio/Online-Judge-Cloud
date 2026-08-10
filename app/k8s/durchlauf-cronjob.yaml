@@ -1,0 +1,45 @@
+# Durchlauf aus #82: nimmt Einreichungen zurück, deren Frist ohne Ergebnis
+# verstrichen ist, siehe app/worker/durchlauf.py. Ein CronJob für alle
+# Sprachen, das Skript selbst braucht nur MongoDB und Valkey, keine eigene
+# Laufzeitumgebung wie der Worker.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: durchlauf
+spec:
+  # Unter CLAIM_FRIST_SEKUNDEN aus worker.py (Standard 300s), sonst liegt eine
+  # abgelaufene Einreichung zwischen zwei Läufen unnötig lange. Nicht enger,
+  # jeder Lauf fragt MongoDB über alle Sprachen ab.
+  schedule: "*/2 * * * *"
+  # Zwei sich überschneidende Läufe sähen dieselben abgelaufenen Einreichungen;
+  # der bedingte Update in durchlauf.py ließe nur den ersten gewinnen, der
+  # zweite liefe für nichts.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: durchlauf
+            # Dasselbe Image wie code-worker (app/k8s/worker.yaml): durchlauf.py
+            # liegt neben worker.py und teilt dessen Abhängigkeiten.
+            image: ghcr.io/litithio/online-judge-worker:0.2.3
+            # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
+            # COPY . . legt durchlauf.py dorthin, neben worker.py. command:
+            # ersetzt nur das Dockerfile-CMD, nicht das WORKDIR, ein relativer
+            # Pfad ginge also auch, absolut ist unabhängig davon richtig.
+            command: ["python3", "/app/durchlauf.py"]
+            env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-coding-platform-app
+                  key: connectionString.standard
+            - name: REDIS_URI
+              value: "redis://valkey:6379"
+            - name: MAX_VERSUCHE
+              value: "3"

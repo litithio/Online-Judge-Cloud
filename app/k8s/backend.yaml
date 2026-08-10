@@ -27,7 +27,7 @@ spec:
               name: mongodb-coding-platform-app
               key: connectionString.standard
         - name: REDIS_URI
-          value: "redis://redis:6379"
+          value: "redis://valkey:6379"
         - name: KEYCLOAK_URL
           value: "http://keycloak.default.svc.cluster.local:8080"
         # /healthz hängt an keinem anderen Dienst, /readyz prüft MongoDB.

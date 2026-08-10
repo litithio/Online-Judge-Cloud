@@ -1,0 +1,15 @@
+# Übersteht einen Neustart des Valkey-Pods. Geht der Inhalt trotzdem
+# verloren, etwa weil der Claim mit dem Pod neu entsteht, findet der
+# wiederkehrende Durchlauf über MongoDB die betroffenen Einreichungen anhand
+# ihres Status und reiht sie erneut ein (#82). Der Claim ist darum eine
+# Optimierung gegen unnötige Zweitläufe, keine Voraussetzung für Korrektheit.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valkey-data
+  namespace: default
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

@@ -37,17 +37,23 @@ durch.
 ![Aufbau von der VM bis zum Pod](docs/diagramme/aufbau.svg)
 
 Die dicken Pfeile sind der Weg einer Einreichung, die gestrichelten
-sind Provisionierung und Umgebung. Terraform und Ansible laufen von
-außen und sind zur Laufzeit nicht beteiligt.
+sind alles darum herum: Provisionierung, Anmeldung, Skalierung und
+Rückholung. Terraform und Ansible laufen von außen und sind zur
+Laufzeit nicht beteiligt.
 
 ### Datenfluss einer Einreichung
 
 ![Datenfluss einer Einreichung](docs/diagramme/datenfluss.svg)
 
-Der heikle Punkt des Flusses ist die Übergabe an den Worker. Das XACK
-kommt erst, nachdem das Ergebnis in MongoDB steht. Eine Einreichung
-geht darum beim Verlust eines Worker-Pods nicht verloren, sie wird
-schlimmstenfalls ein zweites Mal ausgeführt.
+Bei der Übergabe an den Worker entscheidet sich, ob eine Einreichung
+verloren gehen kann. Der Worker übernimmt sie mit einem bedingten
+Update, das Token und Frist setzt, und schreibt das Urteil nur mit
+gültigem Token. Stirbt ein Worker-Pod nach der Übernahme, läuft die
+Frist ab und der Durchlauf reiht die Einreichung erneut ein, bis
+MAX_VERSUCHE erreicht ist. Sie läuft dann schlimmstenfalls mehrfach.
+Stirbt der Pod zwischen dem Lesen aus der Liste und der Übernahme,
+bleibt die Einreichung auf PENDING liegen. Diese Lücke ist offen und
+liegt bei #85.
 
 ## Betrieb
 

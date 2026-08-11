@@ -1,4 +1,6 @@
 import os
+from datetime import datetime, timezone
+
 from fastapi import FastAPI, Depends, HTTPException
 from pymongo import MongoClient
 from bson import ObjectId
@@ -18,7 +20,9 @@ redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:63
 # Einreichungen, nicht nur über die wartenden.
 db.submissions.create_index([("status", 1), ("frist", 1)])
 
-SPRACHEN = ("python", "java", "cpp", "rust")
+# Nur Python ist bis #6 tatsächlich wählbar, der Worker führt keine andere
+# Sprache aus. Weitere Einträge kommen mit den jeweiligen Worker-Images.
+SPRACHEN = ("python",)
 STANDARD_SPRACHE = "python"
 
 
@@ -62,9 +66,15 @@ def submit_code(payload: dict, user=Depends(verify_jwt)):
         "sprache": sprache,
         "status": "PENDING",
         "result": None,
+        "test_results": None,
         "versuche": 0,
         "run_token": None,
         "frist": None,
+        "worker_id": None,
+        # Einzige Stelle, die die Anlage selbst festhält; der Worker schreibt
+        # danach nur noch updated_at. Ohne created_at ließe sich nicht sagen,
+        # wie lange eine Einreichung schon in der Warteschlange steht.
+        "created_at": datetime.now(timezone.utc),
     }
     sub_id = db.submissions.insert_one(submission).inserted_id
 

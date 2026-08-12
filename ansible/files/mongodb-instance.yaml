@@ -1,0 +1,58 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mongodb
+  namespace: default
+spec:
+  members: 3
+  type: ReplicaSet
+  version: "8.0.14"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: app
+      db: coding_platform
+      passwordSecretRef:
+        name: mongodb-app-password
+      roles:
+        - name: readWrite
+          db: coding_platform
+      scramCredentialsSecretName: mongodb-app-scram
+  additionalMongodConfig:
+    storage.wiredTiger.engineConfig.cacheSizeGB: 0.25
+    # Pods sind dual-stack mit IPv6 zuerst (DHBWV6, siehe terraform/variables.tf).
+    # Der Operator-Default bindIp 0.0.0.0 ist IPv4-only, mongod ignoriert IPv6
+    # komplett ohne net.ipv6, jede IPv6-Verbindung wird abgewiesen. bindIp statt
+    # bindIpAll überschreiben, sonst Startfehler "can't specify both bindIp and
+    # bindIpAll".
+    net.ipv6: true
+    net.bindIp: "::,0.0.0.0"
+  statefulSet:
+    spec:
+      template:
+        spec:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app: mongodb-svc
+          containers:
+            - name: mongod
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "1Gi"
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi

@@ -37,17 +37,23 @@ durch.
 ![Aufbau von der VM bis zum Pod](docs/diagramme/aufbau.svg)
 
 Die dicken Pfeile sind der Weg einer Einreichung, die gestrichelten
-sind Provisionierung und Umgebung. Terraform und Ansible laufen von
-außen und sind zur Laufzeit nicht beteiligt.
+sind alles darum herum: Provisionierung, Anmeldung, Skalierung und
+Rückholung. Terraform und Ansible laufen von außen und sind zur
+Laufzeit nicht beteiligt.
 
 ### Datenfluss einer Einreichung
 
 ![Datenfluss einer Einreichung](docs/diagramme/datenfluss.svg)
 
-Der heikle Punkt des Flusses ist die Übergabe an den Worker. Das XACK
-kommt erst, nachdem das Ergebnis in MongoDB steht. Eine Einreichung
-geht darum beim Verlust eines Worker-Pods nicht verloren, sie wird
-schlimmstenfalls ein zweites Mal ausgeführt.
+Bei der Übergabe an den Worker entscheidet sich, ob eine Einreichung
+verloren gehen kann. Der Worker übernimmt sie mit einem bedingten
+Update, das Token und Frist setzt, und schreibt das Urteil nur mit
+gültigem Token. Stirbt ein Worker-Pod nach der Übernahme, läuft die
+Frist ab und der Durchlauf reiht die Einreichung erneut ein, bis
+MAX_VERSUCHE erreicht ist. Sie läuft dann schlimmstenfalls mehrfach.
+Stirbt der Pod zwischen dem Lesen aus der Liste und der Übernahme,
+bleibt die Einreichung auf PENDING liegen. Diese Lücke ist offen und
+liegt bei #85.
 
 ## Betrieb
 
@@ -79,6 +85,13 @@ Alle drei Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
 OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
 stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
 KUBECONFIG relativ zum aktuellen Verzeichnis.
+cp ansible/files/mongodb-password.yaml.example ansible/files/mongodb-password.yaml
+direnv allow
+```
+
+Die drei Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+Ohne direnv stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die
+Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
 
 Cluster hochbringen:
 
@@ -87,7 +100,7 @@ Cluster hochbringen:
 cd terraform && terraform init && terraform apply
 
 # VPN aus
-cd ../ansible && ansible-galaxy install -r requirements.yml
+cd ../ansible && ansible-galaxy install -r requirements.yml --force
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml
 kubectl get nodes
@@ -212,5 +225,15 @@ Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Meng
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe
 mehr aus. Der Speicher des Workers bleibt davon unberührt, die Schreiblast auf
 dem Node nicht.
+
+Außerhalb der Sandbox liegt eine Grenze bei der Verfügbarkeit der API. Die
+readinessProbe fragt `/readyz`, und dieser Endpunkt prüft MongoDB. Fällt die
+Datenbank aus, haben alle Replicas dieselbe Ursache und werden nach etwa 15
+Sekunden gemeinsam aus dem Service genommen, bei `periodSeconds` 5 und
+`failureThreshold` 3. Der Aufrufer bekommt dann die Standardseite von Traefik
+statt einer Meldung der Anwendung. Der Tausch ist bewusst: Ohne MongoDB kann ein
+Pod weder eine Aufgabe ausliefern noch eine Einreichung annehmen. Valkey prüft
+die Probe nicht, denn ohne die Queue scheitert allein `/submit`, während
+`/tasks` und `/submission` weiter antworten.
 ## Bonus
 Nur falls Sie Bonuspunkte beanspruchen, sonst weglassen

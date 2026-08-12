@@ -1,0 +1,32 @@
+# === Valkey ===
+# Kein Operator wie bei MongoDB: Valkey ist hier reiner Transport für IDs,
+# ohne Anspruch auf Wahrheit, ein einzelner Pod reicht (#82).
+#
+# definition mit lookup('file', ...) statt src: src würde die Datei auf dem
+# Zielhost suchen, auf dem dieser Task läuft (judge_k3s_server), dort liegt
+# sie nicht. lookup('file', ...) liest dagegen auf dem Kontrollknoten, genau
+# wie in tasks/mongodb.yaml.
+- name: Valkey PVC anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('file', 'valkey-pvc.yaml') | from_yaml }}"
+
+- name: Valkey Deployment anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('file', 'valkey-deployment.yaml') | from_yaml }}"
+
+- name: Valkey Service anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('file', 'valkey-service.yaml') | from_yaml }}"
+
+- name: Warten, bis Valkey bereit ist
+  ansible.builtin.command:
+    argv: [kubectl, rollout, status, deployment/valkey, --timeout=300s]
+  environment:
+    KUBECONFIG: "{{ kubeconfig_root }}"
+  changed_when: false

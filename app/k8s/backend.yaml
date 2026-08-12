@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        # Feste Version statt latest, damit nachvollziehbar bleibt, welcher
+        # Stand im Cluster läuft. Gebaut wird sie von .github/workflows/images.yml
+        # bei einem Git-Tag v0.2.4.
+        image: ghcr.io/litithio/online-judge-backend:0.2.4
+        ports:
+        - containerPort: 8000
+        env:
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-coding-platform-app
+              key: connectionString.standard
+        - name: REDIS_URI
+          value: "redis://valkey:6379"
+        - name: KEYCLOAK_URL
+          value: "http://keycloak.default.svc.cluster.local:8080"
+        # /healthz hängt an keinem anderen Dienst, /readyz prüft MongoDB.
+        # Deshalb startet ein Datenbankausfall keine Pods neu, er nimmt sie nur
+        # aus dem Service.
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        # Häufiger als die liveness: ein Pod, der die Datenbank wieder erreicht,
+        # soll schnell zurück in den Service.
+        #
+        # timeoutSeconds 3, nicht 2: Bei nicht erreichbarer MongoDB antwortet
+        # /readyz gemessen nach 2,5 Sekunden mit 503. Mit einem Limit von 2
+        # liefe die Probe in ihr eigenes Zeitlimit und der Grund stünde nirgends.
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 8000
+    targetPort: 8000

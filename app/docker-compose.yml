@@ -1,0 +1,186 @@
+# Der lokale Stand der Anwendung. Jeder Dienst hier wird im Cluster zu einem
+# Deployment mit Service, die Kommentare nennen je Stelle, was an die Stelle
+# der Compose-Einstellung tritt.
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Datenbank & Queue
+  # ---------------------------------------------------------------------------
+  mongodb:
+    image: mongo:8.0
+    container_name: coding_platform_mongodb
+    restart: always
+    # Der Port liegt nur für mongosh von außen an. Im Cluster erreichen die
+    # Pods die Datenbank über den Service-Namen, ein Ingress entfällt.
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: coding_platform
+    volumes:
+      - mongo_data:/data/db
+    # Der Seed unten wartet darauf. Ohne den Healthcheck startet er, bevor die
+    # Datenbank Verbindungen annimmt.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - coding_net
+
+  # Wechsel von Redis auf Valkey (#26). REDIS_URI heißt weiter so, das
+  # Protokoll ist kompatibel und der Name zieht sich sonst durch Backend,
+  # Worker und beide docker-compose- und k8s-Manifeste.
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: coding_platform_valkey
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+    networks:
+      - coding_net
+
+  # ---------------------------------------------------------------------------
+  # 2. Keycloak (Authentifizierung)
+  # ---------------------------------------------------------------------------
+  # start-dev hält die Benutzer im Speicher und der Realm ist master. Im
+  # Cluster braucht Keycloak eine eigene Datenbank und einen eigenen Realm,
+  # sonst sind die Konten nach jedem Neustart des Pods weg.
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.1
+    container_name: coding_platform_keycloak
+    restart: always
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: start-dev
+    ports:
+      - "8080:8080"
+    networks:
+      - coding_net
+
+  # ---------------------------------------------------------------------------
+  # 3. Anwendungs-Dienste (Backend, Worker)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: coding_platform_backend
+    restart: always
+    # Im Cluster steht hier kein Port, sondern das Image aus der Registry. Von
+    # außen führt der Weg über Traefik auf den Service, siehe k8s/backend.yaml.
+    ports:
+      - "8000:8000"
+    environment:
+      # Das Compose-Netz ist IPv4, die Portfreigabe oben leitet dorthin. Der
+      # Cluster vergibt dagegen nur IPv6, deshalb bindet das Image ohne diesen
+      # Wert auf ::.
+      BIND_HOST: 0.0.0.0
+      MONGO_URI: mongodb://mongodb:27017
+      REDIS_URI: redis://valkey:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: master
+    depends_on:
+      - mongodb
+      - valkey
+      - keycloak
+    networks:
+      - coding_net
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    # Fester Name, weil der seed-Dienst unten dasselbe Image nutzt. Ohne ihn
+    # benennt Compose es nach dem Projektordner und der Bezug wäre unsichtbar.
+    image: judge-worker:local
+    container_name: coding_platform_worker
+    restart: always
+    # Der Worker begrenzt jeden einzelnen Lauf über rlimits, aber die gelten je
+    # Prozess. Eine Einreichung, die forkt, käme in Summe auf ein Vielfaches.
+    # Diese Grenze deckelt alles zusammen. Im Cluster tritt resources.limits an
+    # ihre Stelle, siehe #15.
+    mem_limit: 512m
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      REDIS_URI: redis://valkey:6379
+      # Bestimmt, welche Liste dieser Worker abfragt (judge:<sprache>, #82).
+      # Im Cluster bekäme jede Sprache ihr eigenes Deployment mit eigenem Wert.
+      WORKER_SPRACHE: python
+    depends_on:
+      - mongodb
+      - valkey
+    networks:
+      - coding_net
+
+  # Durchlauf aus #82 (app/worker/durchlauf.py): nimmt Einreichungen zurück,
+  # deren Frist ohne Ergebnis verstrichen ist. Im Cluster ein CronJob
+  # (app/k8s/durchlauf-cronjob.yaml) mit eigenem Zeitplan; hier stattdessen
+  # ein einzelner Lauf auf Abruf, damit ein Testlauf nicht zufällig mitten in
+  # einen Timer platzt. profiles hält ihn aus einem gewöhnlichen
+  # `docker compose up` heraus:
+  #   docker compose --profile durchlauf run --rm durchlauf
+  durchlauf:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    image: judge-worker:local
+    container_name: coding_platform_durchlauf
+    restart: "no"
+    profiles: ["durchlauf"]
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      REDIS_URI: redis://valkey:6379
+      MAX_VERSUCHE: "3"
+    depends_on:
+      - mongodb
+      - valkey
+    command: ["python3", "durchlauf.py"]
+    networks:
+      - coding_net
+
+  # ---------------------------------------------------------------------------
+  # 4. Beispieldaten
+  # ---------------------------------------------------------------------------
+  # Legt die Aufgaben an und beendet sich. Wiederholtes Starten ändert nichts,
+  # das Skript arbeitet mit upsert. Im Cluster dasselbe Skript als Job, der
+  # nach dem Ausrollen einmal läuft.
+  #
+  # Läuft im Worker-Image, weil pymongo dort schon liegt. Ein eigenes Image nur
+  # zum Laden wäre ein drittes, das gebaut und gepflegt werden müsste. Der
+  # build-Block steht deshalb zweimal, das Ergebnis ist dasselbe Image und der
+  # zweite Bau ein Treffer im Cache.
+  seed:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    image: judge-worker:local
+    container_name: coding_platform_seed
+    restart: "no"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./aufgaben:/aufgaben:ro
+    command: ["python3", "/aufgaben/laden.py"]
+    networks:
+      - coding_net
+
+# ---------------------------------------------------------------------------
+# Netzwerke & Volumes
+# ---------------------------------------------------------------------------
+# Im Cluster übernimmt beides Kubernetes: ein Namespace trennt die Dienste ab,
+# die Namensauflösung läuft über die Services, und aus den Volumes werden
+# PersistentVolumeClaims.
+networks:
+  coding_net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  valkey_data:

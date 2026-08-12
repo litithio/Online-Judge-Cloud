@@ -100,12 +100,15 @@ fi
 if [ ! -d ansible ]; then
   step "Ansible: kein ansible/, übersprungen"
 else
-  # Lint und Syntax-Check lösen die Rolle aus deploy.yaml auf; ohne
-  # installierte Rolle scheitern beide. In der CI fehlt sie immer, lokal ist
-  # der Aufruf ein schneller Durchlauf, weil galaxy Vorhandenes überspringt.
+  # Lint und Syntax-Check lösen die Rolle aus deploy.yaml auf, ohne
+  # installierte Rolle scheitern beide. In der CI fehlt sie immer, lokal wird
+  # sie bei jedem Lauf neu geholt, siehe --force unten.
   if [ -f ansible/requirements.yml ] && command -v ansible-galaxy >/dev/null; then
     step "ansible-galaxy install (Rolle und Collections)"
-    ansible-galaxy install -r ansible/requirements.yml >/dev/null
+    # --force, weil galaxy eine installierte Rolle sonst behält, auch wenn in
+    # requirements.yml eine andere Version steht. Ohne das Flag prüfen lint und
+    # syntax-check gegen den alten Stand und melden trotzdem Erfolg.
+    ansible-galaxy install -r ansible/requirements.yml --force >/dev/null
     result $?
   fi
 

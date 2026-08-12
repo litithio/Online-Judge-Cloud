@@ -32,9 +32,11 @@ flowchart TB
             subgraph app["Anwendung"]
                 keycloak["🔐 Keycloak<br/>Anmeldung"]
                 api["⚡ API-Service<br/>FastAPI, Jinja2 und HTMX"]
-                valkey["📨 Valkey<br/>Einreichungs-Stream"]
+                valkey["📨 Valkey<br/>eine Warteschlange je Sprache"]
                 judge["⚖️ Judge-Worker<br/>Sandbox je Testlauf"]
-                mongo[("🗄️ MongoDB<br/>StatefulSet, Longhorn-PVC")]
+                keda["📈 KEDA<br/>skaliert nach Länge der Warteschlange"]
+                durchlauf["🔁 Durchlauf<br/>CronJob alle zwei Minuten"]
+                mongo[("🗄️ MongoDB<br/>ReplicaSet mit 3 Members,<br/>Longhorn-PVC")]
             end
         end
     end
@@ -50,16 +52,21 @@ flowchart TB
     studierende ==>|"HTTPS über IPv6"| traefik
     traefik -.->|"Anmeldung prüfen"| keycloak
     traefik ==>|"mit geprüfter Identität"| api
-    api ==>|"XADD"| valkey
-    judge ==>|"XREADGROUP, XACK"| valkey
-    judge ==>|"Ergebnis je Testfall"| mongo
+    api ==>|"RPUSH judge:python,<br/>nur die Einreichungs-ID"| valkey
+    judge ==>|"BLPOP judge:python"| valkey
+    judge ==>|"übernimmt die Einreichung,<br/>liest die Aufgabe, schreibt das Urteil"| mongo
     api ==>|"legt Einreichung an,<br/>liest Ergebnis"| mongo
+    keda -.->|"liest die Länge"| valkey
+    keda -.->|"setzt die Replicas"| judge
+    durchlauf -.->|"findet abgelaufene Übernahmen"| mongo
+    durchlauf -.->|"reiht sie erneut ein"| valkey
 
     tf -.->|"provisioniert VMs und Keypair"| openstack
     ansible -.->|"installiert den Cluster"| cp
     ci -.->|"pusht nach"| ghcr
     workers -.->|"Image-Pull beim Pod-Start"| ghcr
     mongo -.->|"PVC"| longhorn
+    valkey -.->|"PVC"| longhorn
     extdns -.->|"pflegt die Einträge"| dns
     certm -.->|"Wildcard-Zertifikat, DNS-01"| ca
 
@@ -72,8 +79,8 @@ flowchart TB
 
     class studierende,dns,ca,ghcr extern
     class tf,ansible,ci werkzeug
-    class cp,traefik,certm,extdns,longhorn plattform
-    class api,judge anwendung
+    class cp,traefik,certm,extdns,longhorn,keda plattform
+    class api,judge,durchlauf anwendung
     class valkey,mongo daten
     class keycloak auth
 

@@ -1,0 +1,55 @@
+# Reiner Deployment statt Operator: Valkey hält hier nur die IDs wartender
+# Einreichungen, MongoDB bleibt die Wahrheit für Inhalt und Status (#82). Ein
+# einzelner Pod genügt deshalb, anders als beim MongoDB-Replicaset in
+# mongodb-instance.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey
+  namespace: default
+  labels:
+    app: valkey
+spec:
+  replicas: 1
+  # Recreate statt RollingUpdate: der PVC ist ReadWriteOnce, ein zweiter Pod
+  # könnte ihn während eines Rollouts nicht gleichzeitig mounten.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: valkey
+  template:
+    metadata:
+      labels:
+        app: valkey
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey:8-alpine
+          args: ["valkey-server", "--appendonly", "yes"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          readinessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: valkey-data

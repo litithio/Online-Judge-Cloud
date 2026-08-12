@@ -1,0 +1,44 @@
+# Vorgaben des Charts. Ein Deployment überlagert sie mit values-dev.yaml oder
+# values-prod.yaml; die Unterschiede stehen dort, hier das, was in beiden gilt.
+# values.schema.json prüft diese Struktur bei install und upgrade und bricht mit
+# klarer Meldung ab, wenn ein Pflichtfeld (Image-Tag) fehlt.
+#
+# Dieses Chart rollt nur die eigene API aus. MongoDB, die Redis-Queue, der
+# Judge-Worker und der Seed der Aufgaben sind Teil der Infrastruktur und stehen
+# schon im Cluster; das Chart verbindet sich mit den Datendiensten nur noch über
+# die Adressen unter externe.
+
+# Gemeinsame Herkunft der eigenen Images. Repository und Tag stehen je Dienst
+# darunter; latest ist bewusst nicht die Vorgabe, damit nachvollziehbar bleibt,
+# welcher Stand läuft (images.yml baut sha- und Versions-Tags).
+image:
+  registry: ghcr.io/litithio
+  # Muss gesetzt sein (Schema). Kein Vorgabewert, damit ein vergessener Tag beim
+  # install auffällt statt still auf latest zu fallen.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# ---------------------------------------------------------------------------
+# Vorhandene Infrastruktur
+# ---------------------------------------------------------------------------
+# Adressen der Datendienste, die schon im Cluster laufen. Das Chart legt sie
+# nicht an, es verbindet sich nur. Vorgaben sind die Service-Namen im selben
+# Namespace; liegen die Dienste woanders, hier den vollen DNS-Namen eintragen
+# (z. B. mongodb.data.svc.cluster.local).
+externe:
+  mongoUri: "mongodb://mongodb:27017"
+  redisUri: "redis://redis:6379"
+
+# ---------------------------------------------------------------------------
+# API (backend)
+# ---------------------------------------------------------------------------
+backend:
+  repository: online-judge-backend
+  replicas: 2
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"

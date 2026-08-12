@@ -125,8 +125,8 @@ SANDBOX_BASIS.mkdir(mode=0o755, exist_ok=True)
 # UID mehr: Wer die eigene UID abfragt, würde den Platzhalter-User nobody
 # bekommen.
 #
-# Dockers seccomp-Profil blockiert CLONE_NEWUSER, im Compose-Stand geht das
-# deshalb nicht. containerd im Cluster setzt kein solches Profil, dort greift es.
+# Ein gesetztes seccomp-Profil wie das Standardprofil von Docker blockiert
+# CLONE_NEWUSER; containerd im Cluster setzt keins, dort greift die Trennung.
 NETZ_BLOCK = (
     "u, g = os.getuid(), os.getgid()\n"
     "os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNET)\n"

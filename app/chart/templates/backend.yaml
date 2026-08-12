@@ -1,0 +1,51 @@
+# Die API. Tritt an die Stelle des Compose-Dienstes backend: kein Port nach
+# außen, sondern ein Service, den die geschützte Ingress der Auth-Kette
+# (ansible/tasks/traefik-auth.yaml) anspricht. Von außen führt der Weg über
+# Traefik -> Middleware -> diesen Service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+    app: backend
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        {{- include "online-judge.labels" . | nindent 8 }}
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: {{ include "online-judge.image" (dict "root" . "repo" .Values.backend.repository) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MONGO_URI
+              value: {{ include "online-judge.mongoUri" . | quote }}
+            - name: REDIS_URI
+              value: {{ include "online-judge.redisUri" . | quote }}
+            # Keine KEYCLOAK_URL: die Identität prüft das Gateway, die App liest
+            # sie aus den X-Auth-Request-*-Headern (app/backend/auth.py).
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+    app: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000

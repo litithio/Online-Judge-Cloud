@@ -1,0 +1,23 @@
+# Konfiguration des App-Deployments (Issue #15/#17). Von Hand gepflegt, keine
+# Secrets: die App liest ihre Identität aus den Gateway-Headern, und MongoDB und
+# Redis (Infrastruktur) laufen ohne Anmeldung im selben Namespace. Die Adressen
+# zu ihnen stehen als Vorgabe im Chart (values.yaml, externe).
+
+---
+# Namespace der Anwendung. default, weil die geschützte Ingress der Auth-Kette
+# (tasks/traefik-auth.yaml) den backend-Service dort erwartet.
+app_namespace: default
+
+# Welche values-Datei überlagert die Vorgaben: values-prod.yaml oder
+# values-dev.yaml. Das Deployment auf dem Kurs-Cluster ist prod.
+app_values_env: prod
+
+# Image-Tag der API (backend). Fester Stand statt latest, gebaut von
+# .github/workflows/images.yml bei einem Git-Tag. Muss gesetzt sein, das
+# Chart-Schema lehnt einen leeren Tag ab.
+app_image_tag: "0.2.4"
+
+# Auf den Server kopierter Chart. Die Helm-Module laufen dort (kubeconfig liegt
+# auf dem Server), der Chart muss also neben ihnen liegen, nicht nur auf dem
+# Steuerrechner.
+app_chart_remote: /opt/online-judge/chart

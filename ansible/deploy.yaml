@@ -81,6 +81,43 @@
             name: gvisor
           handler: runsc
 
+# Die eigene API als Helm-Release (Issue #15/#17). MongoDB, Redis, der
+# Judge-Worker und der Seed der Aufgaben sind Infrastruktur und stehen schon im
+# Cluster. Läuft auf dem Server (dort liegt die kubeconfig) und vor der
+# Auth-Kette, damit der backend-Service steht, wenn die geschützte Ingress ihn
+# referenziert. Die Konfiguration kommt aus vars/app.yaml, Secrets braucht die
+# App keine.
+- name: Anwendung ausrollen
+  hosts: judge_k3s_server
+  tags: [app]
+  become: true
+  vars_files:
+    - vars/app.yaml
+  tasks:
+    - name: Anwendung
+      ansible.builtin.import_tasks: tasks/app.yaml
+
+# Authentifizierung am Gateway (Issue #20): Keycloak und das Traefik-OIDC-Plugin
+# (traefik-oidc-auth) samt Middleware. Läuft auf dem Server, weil dort die
+# kubeconfig liegt und rfc2136_zone (aus dns-credentials.yaml) für die
+# Hostnamen gesetzt ist. Die nicht-geheime Konfiguration kommt aus
+# vars/auth.yaml, die Secrets aus auth-credentials.yaml (Vorlage: .example).
+- name: Auth-Kette ausrollen
+  hosts: judge_k3s_server
+  tags: [auth]
+  become: true
+  vars_files:
+    - vars/auth.yaml
+    - auth-credentials.yaml
+  tasks:
+    # Zuerst das Plugin aktivieren: Traefik startet dabei neu, was Zeit
+    # braucht, und die Middleware unten setzt es voraus.
+    - name: Traefik-Plugin
+      ansible.builtin.import_tasks: tasks/traefik-plugin.yaml
+    - name: Keycloak
+      ansible.builtin.import_tasks: tasks/keycloak.yaml
+    - name: Traefik-Anbindung
+      ansible.builtin.import_tasks: tasks/traefik-auth.yaml
 # MongoDB
 - name: MongoDB ausrollen
   hosts: judge_k3s_server

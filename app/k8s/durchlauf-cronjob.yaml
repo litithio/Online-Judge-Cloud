@@ -27,7 +27,7 @@ spec:
           - name: durchlauf
             # Dasselbe Image wie code-worker (app/k8s/worker.yaml): durchlauf.py
             # liegt neben worker.py und teilt dessen Abhängigkeiten.
-            image: ghcr.io/litithio/online-judge-worker:0.2.3
+            image: ghcr.io/litithio/online-judge-worker:0.2.4
             # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
             # COPY . . legt durchlauf.py dorthin, neben worker.py. command:
             # ersetzt nur das Dockerfile-CMD, nicht das WORKDIR, ein relativer

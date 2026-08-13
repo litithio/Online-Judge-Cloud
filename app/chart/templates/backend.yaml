@@ -28,7 +28,10 @@ spec:
             - containerPort: 8000
           env:
             - name: MONGO_URI
-              value: {{ include "online-judge.mongoUri" . | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externe.mongoSecret.name | quote }}
+                  key: {{ .Values.externe.mongoSecret.key | quote }}
             - name: REDIS_URI
               value: {{ include "online-judge.redisUri" . | quote }}
             # Keine KEYCLOAK_URL: die Identität prüft das Gateway, die App liest

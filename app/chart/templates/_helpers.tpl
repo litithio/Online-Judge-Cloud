@@ -23,14 +23,11 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end -}}
 
 {{/*
-Verbindungs-URLs zu den vorhandenen Datendiensten. Aus den values (externe),
-nicht fest verdrahtet: MongoDB und Redis gehören zur Infrastruktur und können in
-einem anderen Namespace liegen.
+Verbindungs-URL zur Queue. Aus den values (externe), nicht fest verdrahtet:
+Valkey gehört zur Infrastruktur und kann in einem anderen Namespace liegen.
+Die MongoDB-URI kommt nicht von hier, sie liegt samt Zugangsdaten im
+Operator-Secret und wird im Deployment per secretKeyRef gelesen.
 */}}
-{{- define "online-judge.mongoUri" -}}
-{{- .Values.externe.mongoUri -}}
-{{- end -}}
-
 {{- define "online-judge.redisUri" -}}
 {{- .Values.externe.redisUri -}}
 {{- end -}}

@@ -23,10 +23,18 @@
     },
     "externe": {
       "type": "object",
-      "required": ["mongoUri", "redisUri"],
-      "description": "Adressen der vorhandenen Datendienste. Das Chart legt sie nicht an, es verbindet sich nur.",
+      "required": ["mongoSecret", "redisUri"],
+      "description": "Anbindung der vorhandenen Datendienste. Das Chart legt sie nicht an, es verbindet sich nur.",
       "properties": {
-        "mongoUri": { "type": "string", "minLength": 1 },
+        "mongoSecret": {
+          "type": "object",
+          "required": ["name", "key"],
+          "description": "Operator-Secret mit der MongoDB-URI samt Zugangsdaten.",
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "key": { "type": "string", "minLength": 1 }
+          }
+        },
         "redisUri": { "type": "string", "minLength": 1 }
       }
     },

@@ -22,11 +22,18 @@ image:
 # Vorhandene Infrastruktur
 # ---------------------------------------------------------------------------
 # Adressen der Datendienste, die schon im Cluster laufen. Das Chart legt sie
-# nicht an, es verbindet sich nur. Vorgaben sind die Service-Namen im selben
-# Namespace; liegen die Dienste woanders, hier den vollen DNS-Namen eintragen
-# (z. B. mongodb.data.svc.cluster.local).
+# nicht an, es verbindet sich nur. Vorgabe für die Queue ist der Service-Name im
+# selben Namespace; liegt der Dienst woanders, hier den vollen DNS-Namen
+# eintragen (z. B. valkey.data.svc.cluster.local).
+#
+# MongoDB verlangt SCRAM. Die URI samt Zugangsdaten hält der Operator im Secret
+# <instanz>-<datenbank>-<benutzer> (ansible/files/mongodb-instance.yaml), das
+# Deployment liest sie per secretKeyRef von dort. Eine URI in den values würde
+# das Passwort in die Helm-Historie schreiben.
 externe:
-  mongoUri: "mongodb://mongodb:27017"
+  mongoSecret:
+    name: "mongodb-coding-platform-app"
+    key: "connectionString.standard"
   redisUri: "redis://valkey:6379"
 
 # ---------------------------------------------------------------------------

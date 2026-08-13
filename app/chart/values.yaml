@@ -27,7 +27,7 @@ image:
 # (z. B. mongodb.data.svc.cluster.local).
 externe:
   mongoUri: "mongodb://mongodb:27017"
-  redisUri: "redis://redis:6379"
+  redisUri: "redis://valkey:6379"
 
 # ---------------------------------------------------------------------------
 # API (backend)

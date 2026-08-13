@@ -37,9 +37,8 @@
     values:
       image:
         tag: "{{ app_image_tag }}"
-    # Kein wait: das Backend hat keine Health-Checks mehr, der Pod gälte sofort
-    # als bereit. Der Prozess startet zwar auch ohne die noch fehlenden
-    # Datendienste (MongoDB/Redis werden faul verbunden), aber ein wait würde
-    # hier nichts Sinnvolles mehr absichern. Helm kehrt direkt nach dem Anlegen
-    # der Objekte zurück.
+    # Kein wait: die readiness des Backends hängt an MongoDB, ein wait würde
+    # das Play bei gestörter Datenbank blockieren statt etwas abzusichern.
+    # Helm kehrt direkt nach dem Anlegen der Objekte zurück, den Rollout
+    # überwacht Kubernetes über die Probes im Chart.
     wait: false

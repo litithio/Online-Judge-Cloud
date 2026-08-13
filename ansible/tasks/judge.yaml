@@ -87,7 +87,7 @@
               - name: seed
                 # Dasselbe Image wie der Worker: pymongo liegt dort schon, ein
                 # eigenes Seed-Image wäre ein weiterer Build für ein Skript.
-                image: ghcr.io/litithio/online-judge-worker:0.2.4
+                image: ghcr.io/litithio/online-judge-worker:0.2.5
                 command: ["python", "/seed/laden.py"]
                 env:
                   - name: MONGO_URI

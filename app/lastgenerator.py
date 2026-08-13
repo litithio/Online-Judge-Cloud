@@ -10,9 +10,15 @@ Aufruf, lokal gegen den Compose-Stand:
 
     python3 lastgenerator.py --rate 5 --dauer 60
 
-Gegen den Cluster dieselben Argumente, davor den backend-Service holen:
+Gegen den Cluster läuft das Skript auf dem Server-Node, kubectl port-forward
+scheitert dort, weil das Backend nur auf :: bindet und der Forward im
+Pod-Netns localhost nicht über IPv6 erreicht:
 
-    kubectl port-forward svc/backend 8000:8000
+    tar czf - -C app lastgenerator.py aufgaben | ssh ubuntu@<server> \
+        'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
+    # Service-IP: kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
+    ssh ubuntu@<server> 'python3 /tmp/last/lastgenerator.py --rate 2 \
+        --dauer 60 --api "http://[<service-ip>]:8000"'
 
 Die Identität kommt als X-Auth-Request-Header mit, so wie das Gateway sie
 setzen würde. Der Weg über das Gateway selbst bräuchte eine Browser-Session
@@ -25,6 +31,7 @@ Standardbibliothek, damit der Aufruf keine eigene Umgebung braucht.
 import argparse
 import collections
 import concurrent.futures
+import http.client
 import json
 import math
 import os
@@ -162,6 +169,13 @@ def _einreichen(api, kopfzeilen, aufgabe, code):
         # Der Timeout kommt je nach Phase auch als URLError verpackt an.
         if isinstance(fehler.reason, TimeoutError):
             return "unbekannt"
+        return "keine_verbindung"
+    except (http.client.HTTPException, OSError):
+        # Abbruch mitten in der Antwort, etwa RemoteDisconnected. urllib
+        # verpackt nur Fehler beim Verbindungsaufbau als URLError, ein Reset
+        # während der Antwort kommt roh an. kubectl port-forward setzt unter
+        # parallelen Verbindungen gelegentlich einzelne zurück, und ein
+        # einzelner Reset darf nicht den ganzen Lauf abreißen.
         return "keine_verbindung"
 
 

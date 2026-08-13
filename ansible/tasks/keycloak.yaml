@@ -71,7 +71,15 @@
         realm.json: "{{ lookup('template', 'templates/keycloak-realm.json.j2') }}"
   no_log: true
 
+# retries, weil Helm den Chart bei jedem Lauf von github.com lädt und GitHub
+# in Wellen Verbindungen abweist (beobachtet am 12. und 13.08.2026, betrifft
+# alle Clients ohne eigene Wiederholung). Fünf Versuche mit 30 Sekunden
+# Abstand überbrücken eine kurze Welle, im Erfolgsfall ändert sich nichts.
 - name: Keycloak über Helm ausrollen
+  register: keycloak_helm
+  retries: 5
+  delay: 30
+  until: keycloak_helm is succeeded
   kubernetes.core.helm:
     name: keycloak
     chart_ref: keycloakx
@@ -89,18 +97,19 @@
       image:
         tag: "{{ keycloak_image_tag }}"
       # Produktivmodus mit Import. dev-file als DB genügt für den einzelnen Pod.
-      # Health/Metrics bewusst nicht aktiviert: die Probes des Charts sind unten
-      # abgeschaltet, der /health-Endpunkt wird also nicht gebraucht.
+      # --health-enabled lässt den /health-Endpunkt eingeschaltet. Die
+      # Chart-Probes unten sind abgeschaltet und fragen ihn nicht ab, er bleibt
+      # für Prüfungen von Hand erreichbar.
       command:
         - "/opt/keycloak/bin/kc.sh"
         - "start"
         - "--http-port=8080"
         - "--health-enabled=true"
         - "--import-realm"
-      # Keine Health-Checks: der Chart rendert startup-, liveness- und
-      # readinessProbe nur, wenn der jeweilige Wert gesetzt ist. Leere Strings
-      # schalten sie ab. Deshalb aktivieren wir im command auch --health-enabled
-      # nicht -- der /health-Endpunkt wird nicht mehr abgefragt.
+      # Keine Probes. Der Chart rendert startup-, liveness- und readinessProbe
+      # nur, wenn der jeweilige Wert gesetzt ist, leere Strings schalten sie
+      # ab. Der /health-Endpunkt aus dem command bleibt bestehen, abgefragt
+      # wird er nur von Hand.
       startupProbe: ""
       livenessProbe: ""
       readinessProbe: ""

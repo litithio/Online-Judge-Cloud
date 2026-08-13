@@ -81,12 +81,40 @@
             name: gvisor
           handler: runsc
 
-# Die eigene API als Helm-Release (Issue #15/#17). MongoDB, Redis, der
-# Judge-Worker und der Seed der Aufgaben sind Infrastruktur und stehen schon im
-# Cluster. Läuft auf dem Server (dort liegt die kubeconfig) und vor der
-# Auth-Kette, damit der backend-Service steht, wenn die geschützte Ingress ihn
-# referenziert. Die Konfiguration kommt aus vars/app.yaml, Secrets braucht die
-# App keine.
+# Die Datendienste zuerst: die App verbindet sich beim Start mit MongoDB und
+# der Queue, und das Chart liest die Mongo-URI aus dem Secret, das der Operator
+# erst nach dem Anlegen der Instanz schreibt. Beim ersten Vollauf auf leerem
+# Cluster müssen die Plays deshalb vor der Anwendung liegen.
+- name: MongoDB ausrollen
+  hosts: judge_k3s_server
+  tags: [mongodb]
+  become: true
+  tasks:
+    - name: MongoDB Operator und Instanz einrichten
+      ansible.builtin.import_tasks: tasks/mongodb.yaml
+
+- name: Valkey ausrollen
+  hosts: judge_k3s_server
+  tags: [valkey]
+  become: true
+  tasks:
+    - name: Valkey Deployment und Service einrichten
+      ansible.builtin.import_tasks: tasks/valkey.yaml
+
+- name: KEDA ausrollen
+  hosts: judge_k3s_server
+  tags: [keda]
+  become: true
+  tasks:
+    - name: KEDA Operator einrichten
+      ansible.builtin.import_tasks: tasks/keda.yaml
+
+# Die eigene API als Helm-Release (Issue #15/#17). MongoDB, die Queue, der
+# Judge-Worker und der Seed der Aufgaben sind Infrastruktur, die Datendienste
+# kommen aus den Plays davor. Läuft auf dem Server (dort liegt die kubeconfig)
+# und vor der Auth-Kette, damit der backend-Service steht, wenn die geschützte
+# Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml, Secrets
+# braucht die App keine.
 - name: Anwendung ausrollen
   hosts: judge_k3s_server
   tags: [app]
@@ -118,29 +146,3 @@
       ansible.builtin.import_tasks: tasks/keycloak.yaml
     - name: Traefik-Anbindung
       ansible.builtin.import_tasks: tasks/traefik-auth.yaml
-# MongoDB
-- name: MongoDB ausrollen
-  hosts: judge_k3s_server
-  tags: [mongodb]
-  become: true
-  tasks:
-    - name: MongoDB Operator und Instanz einrichten
-      ansible.builtin.import_tasks: tasks/mongodb.yaml
-
-# Valkey
-- name: Valkey ausrollen
-  hosts: judge_k3s_server
-  tags: [valkey]
-  become: true
-  tasks:
-    - name: Valkey Deployment und Service einrichten
-      ansible.builtin.import_tasks: tasks/valkey.yaml
-
-# KEDA
-- name: KEDA ausrollen
-  hosts: judge_k3s_server
-  tags: [keda]
-  become: true
-  tasks:
-    - name: KEDA Operator einrichten
-      ansible.builtin.import_tasks: tasks/keda.yaml

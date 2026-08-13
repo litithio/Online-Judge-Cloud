@@ -12,7 +12,10 @@ auth_namespace: auth
 # Die Hostnamen hängen unter der eigenen DNS-Zone (rfc2136_zone aus
 # dns-credentials.yaml). external-dns legt die Records für jede Ingress mit
 # einem Host unter der Zone selbst an, cert-manager liefert das Wildcard-Zert.
-keycloak_host: "keycloak.{{ rfc2136_zone }}"
+# auth statt keycloak: der Name benennt die Funktion statt des Produkts, und
+# der eigene Host hält die Login-Sitzung per Same-Origin-Policy von Skript-Code
+# der Oberfläche fern (Vorschlag in #92).
+keycloak_host: "auth.{{ rfc2136_zone }}"
 app_host: "app.{{ rfc2136_zone }}"
 
 # Realm und Client kommen als Code (templates/keycloak-realm.json.j2). Die

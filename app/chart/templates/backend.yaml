@@ -36,6 +36,46 @@ spec:
               value: {{ include "online-judge.redisUri" . | quote }}
             # Keine KEYCLOAK_URL: die Identität prüft das Gateway, die App liest
             # sie aus den X-Auth-Request-*-Headern (app/backend/auth.py).
+          # /healthz hängt an keinem anderen Dienst, /readyz prüft MongoDB.
+          # Deshalb startet ein Datenbankausfall keine Pods neu, er nimmt sie
+          # nur aus dem Service. Ohne readiness bekäme ein frischer Pod beim
+          # Rolling Update sofort Anfragen, auch wenn er MongoDB noch nicht
+          # erreicht (P5, Update ohne Ausfall).
+          #
+          # Die startupProbe gibt dem Start bis zu 120 Sekunden. main.py legt
+          # beim Import einen Index an und blockiert dabei bis zu 30 Sekunden
+          # je Versuch, wenn MongoDB nicht erreichbar ist. Ohne dieses Fenster
+          # würde die liveness den Pod töten, bevor der HTTP-Server lauscht,
+          # und der Start käme nie zum Ende.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # Häufiger als die liveness: ein Pod, der die Datenbank wieder
+          # erreicht, soll schnell zurück in den Service.
+          #
+          # timeoutSeconds 3, nicht 2: Bei nicht erreichbarer MongoDB antwortet
+          # /readyz gemessen nach 2,5 Sekunden mit 503. Mit einem Limit von 2
+          # liefe die Probe in ihr eigenes Zeitlimit und der Grund stünde
+          # nirgends.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
 ---

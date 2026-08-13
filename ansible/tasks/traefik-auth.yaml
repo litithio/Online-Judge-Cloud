@@ -76,7 +76,6 @@
         annotations:
           # <namespace>-<name>@kubernetescrd verweist auf die Middleware oben.
           traefik.ingress.kubernetes.io/router.middlewares: default-oidc-auth@kubernetescrd
-          cert-manager.io/cluster-issuer: certificate-cluster-issuer
       spec:
         rules:
           - host: "{{ app_host }}"
@@ -89,6 +88,10 @@
                       name: backend
                       port:
                         number: 8000
+        # Ohne secretName: TLS kommt aus dem Wildcard-Zertifikat, das die
+        # k3s-Rolle als Traefik-Default-TLS-Store hinterlegt, wie bei der
+        # Keycloak-Ingress. Ein eigenes Zertifikat je Ingress bräuchte es erst
+        # für Hosts außerhalb der Zone.
         tls:
           - hosts:
               - "{{ app_host }}"

@@ -109,6 +109,17 @@
     - name: KEDA Operator einrichten
       ansible.builtin.import_tasks: tasks/keda.yaml
 
+# Die Judge-Kette: Worker, Rückhol-CronJob, ScaledObject und der Seed der
+# Aufgaben. Nach KEDA (das ScaledObject braucht die CRD) und nach den
+# Datendiensten (der Seed schreibt nach MongoDB).
+- name: Judge ausrollen
+  hosts: judge_k3s_server
+  tags: [judge]
+  become: true
+  tasks:
+    - name: Judge-Kette einrichten
+      ansible.builtin.import_tasks: tasks/judge.yaml
+
 # Die eigene API als Helm-Release (Issue #15/#17). MongoDB, die Queue, der
 # Judge-Worker und der Seed der Aufgaben sind Infrastruktur, die Datendienste
 # kommen aus den Plays davor. Läuft auf dem Server (dort liegt die kubeconfig)

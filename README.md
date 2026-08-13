@@ -77,21 +77,15 @@ pip install -r requirements.txt
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 cp ansible/dns-credentials.yaml.example ansible/dns-credentials.yaml
 cp ansible/auth-credentials.yaml.example ansible/auth-credentials.yaml
-direnv allow
-```
-
-Alle drei Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
-`auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
-OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
-stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
-KUBECONFIG relativ zum aktuellen Verzeichnis.
 cp ansible/files/mongodb-password.yaml.example ansible/files/mongodb-password.yaml
 direnv allow
 ```
 
-Die drei Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
-Ohne direnv stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die
-Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
+Alle vier Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+`auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
+OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
+stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
+KUBECONFIG relativ zum aktuellen Verzeichnis.
 
 Cluster hochbringen:
 

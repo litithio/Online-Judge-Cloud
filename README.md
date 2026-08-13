@@ -173,7 +173,7 @@ er sich beheben lässt. Es prüft selbst nichts, die Einzelaufrufe bleiben
 gültig:
 
 ```bash
-./scripts/infra-check.sh   # terraform fmt und validate, ansible-lint, Syntax
+./scripts/infra-check.sh   # terraform fmt und validate, ansible-lint, Syntax, helm lint
 ruff check . && ruff format --check .
 ./scripts/diagramme.sh     # nur nach Änderung an docs/diagramme/*.mmd
 ```

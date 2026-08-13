@@ -27,9 +27,9 @@ sequenceDiagram
     participant D as 🔁 Durchlauf
 
     S->>T: Einreichung<br/>abgeben (HTTPS)
-    T->>K: ForwardAuth,<br/>Anmeldung prüfen
-    K-->>T: Identität bestätigt
-    T->>A: Anfrage mit<br/>geprüfter Identität
+    T->>K: OIDC-Anmeldung,<br/>nur ohne gültige Session
+    K-->>T: Token mit Identität
+    T->>A: Anfrage mit<br/>Identitäts-Headern
     A->>M: Einreichung anlegen,<br/>Status PENDING
     A->>V: RPUSH judge:python,<br/>nur die Einreichungs-ID
     A-->>S: angenommen, Einreichungs-ID

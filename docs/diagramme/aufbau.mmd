@@ -24,14 +24,14 @@ flowchart TB
         end
         subgraph workers["🖥️ 3 Worker-VMs, je 4 vCPU, 8 GB, Pods über die Nodes verteilt"]
             subgraph rolle["von der k3s-Rolle installiert"]
-                traefik["🚪 Traefik Ingress<br/>TLS und ForwardAuth"]
+                traefik["🚪 Traefik Ingress<br/>TLS und OIDC-Plugin"]
                 certm["cert-manager"]
                 extdns["ExternalDNS"]
                 longhorn["💾 Longhorn<br/>Node-lokaler Storage"]
             end
             subgraph app["Anwendung"]
                 keycloak["🔐 Keycloak<br/>Anmeldung"]
-                api["⚡ API-Service<br/>FastAPI, Jinja2 und HTMX"]
+                api["⚡ API-Service<br/>FastAPI"]
                 valkey["📨 Valkey<br/>eine Warteschlange je Sprache"]
                 judge["⚖️ Judge-Worker<br/>Sandbox je Testlauf"]
                 keda["📈 KEDA<br/>skaliert nach Länge der Warteschlange"]

@@ -43,27 +43,11 @@ services:
       - coding_net
 
   # ---------------------------------------------------------------------------
-  # 2. Keycloak (Authentifizierung)
+  # 2. Anwendungs-Dienste (Backend, Worker)
   # ---------------------------------------------------------------------------
-  # start-dev hält die Benutzer im Speicher und der Realm ist master. Im
-  # Cluster braucht Keycloak eine eigene Datenbank und einen eigenen Realm,
-  # sonst sind die Konten nach jedem Neustart des Pods weg.
-  keycloak:
-    image: quay.io/keycloak/keycloak:24.0.1
-    container_name: coding_platform_keycloak
-    restart: always
-    environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-    command: start-dev
-    ports:
-      - "8080:8080"
-    networks:
-      - coding_net
-
-  # ---------------------------------------------------------------------------
-  # 3. Anwendungs-Dienste (Backend, Worker)
-  # ---------------------------------------------------------------------------
+  # Kein Keycloak mehr im Compose-Stand: die Anmeldung passiert im Cluster am
+  # Gateway, die App liest nur die X-Auth-Request-Header (backend/auth.py).
+  # Lokal setzt der Aufrufer die Header selbst, so macht es lastgenerator.py.
   backend:
     build:
       context: ./backend
@@ -71,7 +55,8 @@ services:
     container_name: coding_platform_backend
     restart: always
     # Im Cluster steht hier kein Port, sondern das Image aus der Registry. Von
-    # außen führt der Weg über Traefik auf den Service, siehe k8s/backend.yaml.
+    # außen führt der Weg über Traefik auf den Service (chart und
+    # ansible/tasks/traefik-auth.yaml).
     ports:
       - "8000:8000"
     environment:
@@ -81,12 +66,9 @@ services:
       BIND_HOST: 0.0.0.0
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://valkey:6379
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: master
     depends_on:
       - mongodb
       - valkey
-      - keycloak
     networks:
       - coding_net
 
@@ -143,7 +125,7 @@ services:
       - coding_net
 
   # ---------------------------------------------------------------------------
-  # 4. Beispieldaten
+  # 3. Beispieldaten
   # ---------------------------------------------------------------------------
   # Legt die Aufgaben an und beendet sich. Wiederholtes Starten ändert nichts,
   # das Skript arbeitet mit upsert. Im Cluster dasselbe Skript als Job, der

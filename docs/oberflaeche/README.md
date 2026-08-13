@@ -5,7 +5,8 @@ sie auf und verlinkt sie untereinander; im Browser öffnen genügt.
 
 Der Entwurf ist keine Wegwerfarbeit: Aus den sieben Anwendungsseiten werden
 die Jinja2-Templates des API-Service, aus `dhbw.css` wird `static/dhbw.css`.
-Im Markup steht je Seite, welches Template daraus wird.
+Im Markup steht je Seite, welches Template daraus wird. Das ist Zielbild,
+umgesetzt ist es noch nicht, die API liefert bisher nur JSON.
 
 ## Corporate Design
 
@@ -32,7 +33,7 @@ ist bei `cd@dhbw.de` angefragt und ersetzt `logo.jpg`, sobald sie vorliegt.
 ## Was beim Umsetzen zu beachten ist
 
 `login.html` gehört **nicht** zum API-Service. Traefik leitet unangemeldete
-Anfragen per ForwardAuth zu Keycloak um, das seine eigene Seite ausliefert.
+Anfragen über das OIDC-Plugin zu Keycloak um, das seine eigene Seite ausliefert.
 Aus dem Entwurf wird ein Keycloak-Theme aus `dhbw.css` und Logo; die Felder
 kommen weiter aus Keycloaks `login.ftl`. Alle Anmelderegeln hängen deshalb an
 `.anmeldung`, damit dieselbe CSS-Datei in beiden Diensten laufen kann.

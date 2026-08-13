@@ -46,11 +46,10 @@
             # AJAX/API-Anfragen -> 401. So bleibt der Login im Browser bequem und
             # ein direkter API-Aufruf ohne Session scheitert sauber.
             UnauthenticatedBehavior: Auto
-            # Zero-Code-Anbindung: dieselben Header wie zuvor oauth2-proxy mit
-            # set-xauthrequest, hier aus den Token-Claims gefüllt. Die App
-            # (app/backend/auth.py) bleibt unverändert. Die Go-Templates des
-            # Plugins stehen in raw-Blöcken, damit Ansibles Jinja sie nicht
-            # selbst auswertet.
+            # Zero-Code-Anbindung: die Header werden aus den Token-Claims
+            # gefüllt, die App liest genau sie (app/backend/auth.py) und prüft
+            # selbst keine Tokens. Die Go-Templates des Plugins stehen in
+            # raw-Blöcken, damit Ansibles Jinja sie nicht selbst auswertet.
             Headers:
               - Name: X-Auth-Request-User
                 Value: "{% raw %}{{ .claims.sub }}{% endraw %}"

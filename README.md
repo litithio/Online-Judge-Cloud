@@ -109,10 +109,10 @@ in die tfvars eintragen.
 
 Das Chart `app/chart` rollt nur die eigene API (`backend`) aus. MongoDB, die
 Redis-Queue, der Judge-Worker und der Seed der Aufgaben gehören zur
-Infrastruktur und stehen schon im Cluster; das Chart verbindet sich mit den
-Datendiensten nur über die Adressen unter `externe` in den values (Vorgabe: die
-Service-Namen im selben Namespace). Das Play mit dem Tag `app` kopiert den Chart
-auf den Server und ruft `helm upgrade --install`:
+Infrastruktur und stehen schon im Cluster; das Chart verbindet sich nur, über
+`externe` in den values: die Queue über den Service-Namen, MongoDB über das
+Operator-Secret mit der URI samt Zugangsdaten. Das Play mit dem Tag `app`
+kopiert den Chart auf den Server und ruft `helm upgrade --install`:
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
@@ -124,9 +124,27 @@ Der ausgerollte Stand steht in `ansible/vars/app.yaml`: `app_image_tag` wählt
 den Image-Tag (gebaut von `images.yml` bei einem Git-Tag), `app_values_env`
 zwischen den Overlays `values-prod.yaml` (zwei API-Replicas) und
 `values-dev.yaml` (eine, kleinere Grenzen). `values.schema.json` bricht das
-Ausrollen ab, wenn der Image-Tag oder eine der externen Adressen fehlt.
+Ausrollen ab, wenn der Image-Tag oder die Anbindung der Datendienste fehlt.
 
 Prüfen: `kubectl get pods` zeigt `backend` als Running.
+
+### Judge
+
+Das Play mit dem Tag `judge` spielt die Manifeste aus `app/k8s` ein (Worker,
+Rückhol-CronJob, KEDA-ScaledObject) und führt den Seed der Aufgaben als Job
+aus. Der Job nutzt das Worker-Image, `laden.py` und die Aufgaben-JSONs kommen
+als ConfigMap in den Cluster:
+
+```bash
+# nach dem Cluster-Deploy, VPN aus
+ansible-playbook -i inventory/generated-inventory.yml \
+                 -i dns-credentials.yaml deploy.yaml --tags judge
+```
+
+Prüfen: `kubectl get cronjob,scaledobject` zeigt `durchlauf` und
+`code-worker-python`, und der Job `aufgaben-seed` steht auf Completed. Das
+Worker-Deployment hat ohne wartende Einreichungen null Replicas, KEDA startet
+es bei Last.
 
 ### Authentifizierung
 

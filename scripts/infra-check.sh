@@ -147,7 +147,7 @@ fi
 
 # ---------- Helm ----------
 # Der Chart der eigenen Dienste (app/chart). Geprüft wird gegen beide
-# values-Overlays, weil sie sich in Replicas und PVC-Größe unterscheiden und ein
+# values-Overlays, weil sie sich in Replicas und resources unterscheiden und ein
 # Fehler nur in einem auftreten kann. Der Image-Tag wird gesetzt: values.yaml
 # lässt ihn leer, und das Schema lehnt einen leeren Tag ab -- ohne --set schlüge
 # lint deshalb schon an dieser Vorgabe fehl statt an einem echten Fehler.

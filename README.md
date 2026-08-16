@@ -52,8 +52,11 @@ gültigem Token. Stirbt ein Worker-Pod nach der Übernahme, läuft die
 Frist ab und der Durchlauf reiht die Einreichung erneut ein, bis
 MAX_VERSUCHE erreicht ist. Sie läuft dann schlimmstenfalls mehrfach.
 Stirbt der Pod zwischen dem Lesen aus der Liste und der Übernahme,
-bleibt die Einreichung auf PENDING liegen. Diese Lücke ist offen und
-liegt bei #85.
+bleibt die Einreichung auf PENDING liegen, ohne dass je eine Frist zu
+laufen beginnt (#85). Der Durchlauf holt auch das zurück: Bleibt eine
+PENDING-Einreichung länger als REENQUEUE_AFTER_SECONDS ohne neuen
+Queue-Eintrag, reiht er sie erneut ein, bis MAX_VERSUCHE erreicht ist
+(#113).
 
 ## Betrieb
 

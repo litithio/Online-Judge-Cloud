@@ -22,4 +22,4 @@ spec:
         address: valkey.default.svc.cluster.local:6379
         listName: judge:python
         listLength: "5"
-        activationListLength: "1"
+        activationListLength: "0"

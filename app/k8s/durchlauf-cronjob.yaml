@@ -7,7 +7,7 @@ kind: CronJob
 metadata:
   name: durchlauf
 spec:
-  # Unter CLAIM_FRIST_SEKUNDEN aus worker.py (Standard 300s), sonst liegt eine
+  # Unter CLAIM_FRIST_SEKUNDEN aus worker.py (Standard 60s), sonst liegt eine
   # abgelaufene Einreichung zwischen zwei Läufen unnötig lange. Nicht enger,
   # jeder Lauf fragt MongoDB über alle Sprachen ab.
   schedule: "*/2 * * * *"
@@ -43,3 +43,9 @@ spec:
               value: "redis://valkey:6379"
             - name: MAX_VERSUCHE
               value: "3"
+            # Aus #113: PENDING ohne frischen Queue-Eintrag, siehe
+            # durchlauf.py. Über der normalen Wartezeit auf einen KEDA-
+            # skalierten Worker-Pod, sonst reiht der Durchlauf gesunde
+            # Einreichungen ein zweites Mal ein.
+            - name: REENQUEUE_AFTER_SECONDS
+              value: "180"

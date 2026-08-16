@@ -63,7 +63,7 @@ WORKER_ID = f"worker-{socket.gethostname()}"
 # #82 sie für hängengeblieben hält und erneut einreiht. Muss über der Summe
 # aller Testfälle einer Aufgabe bei GRENZE_ZEIT_MAX liegen, sonst nimmt sich
 # eine langsame, aber gesunde Einreichung ihre eigene Frist weg.
-CLAIM_FRIST_SEKUNDEN = int(os.getenv("CLAIM_FRIST_SEKUNDEN", "300"))
+CLAIM_FRIST_SEKUNDEN = int(os.getenv("CLAIM_FRIST_SEKUNDEN", "60"))
 
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine
 # Aufgabe das Zeitlimit praktisch abschalten oder mehr Speicher erlauben, als der
@@ -296,16 +296,24 @@ def _reste_beenden():
         time.sleep(0.02)
 
 
-def _urteil_nach_signal(signalnummer, zeit):
+def _urteil_nach_signal(signalnummer, zeit, rusage):
     """Bildet ein Signal, an dem der Prozess gestorben ist, auf ein
     Verdict-Kürzel und einen Meldungstext ab."""
     if signalnummer == signal.SIGXCPU:
         return "TLE", f"Rechenzeit von {zeit} Sekunden überschritten"
     if signalnummer == signal.SIGXFSZ:
         return "OLE", f"mehr als {SANDBOX_AUSGABE_BYTES // 1024} KiB ausgegeben"
-    # Nicht pauschal als Zeitüberschreitung: Eine Einreichung kann sich selbst
-    # per SIGKILL beenden, und der OOM-Killer trifft ebenso. Dass ein Kill vom
-    # Zeitlimit kam, weiß nur der Pfad, der ihn selbst gesendet hat.
+    # SIGXCPU trifft nur beim Soft-Limit, und die Einreichung kann sich dafür
+    # per signal.signal einen eigenen Handler setzen: Die Warnung verpufft
+    # dann, der Prozess rechnet weiter, bis ihn das Hard-Limit (zeit + 1)
+    # stattdessen per SIGKILL beendet. Ob ein SIGKILL vom Zeitlimit kam oder
+    # von woanders (Selbst-Kill, OOM-Killer), zeigt die rusage aus dem
+    # eigenen wait4 oben: Steht dem Prozess bis zum Kill schon mindestens so
+    # viel CPU-Zeit wie das Limit zu Buche, war das Limit die Ursache, ganz
+    # gleich, wer das Signal geschickt hat. Ein Selbst-Kill oder der
+    # OOM-Killer träfen früher, bei weniger CPU-Zeit als dem Limit.
+    if signalnummer == signal.SIGKILL and rusage.ru_utime + rusage.ru_stime >= zeit:
+        return "TLE", f"Rechenzeit von {zeit} Sekunden überschritten"
     # signal.Signals kennt die Echtzeitsignale oberhalb von SIGRTMIN nicht und
     # wirft dafür ValueError. Ungefangen würde der als Umgebungsfehler
     # herauskommen,
@@ -379,7 +387,19 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             prefix="eingabe-", dir=SANDBOX_BASIS
         )
         deskriptoren.append(eingabe_fd)
-        os.write(eingabe_fd, test_input.encode("utf-8"))
+        # os.write ist der rohe Systemaufruf: Er schreibt bis zu so viele
+        # Bytes wie übergeben und meldet im Rückgabewert, wie viele es
+        # tatsächlich wurden. Läuft das Volume mitten im Schreiben voll,
+        # bliebe eine gekürzte Eingabedatei sonst unbemerkt, die Lösung liest
+        # dann eine andere als die erwartete Eingabe und die Einreichung
+        # bekäme dafür ein WA, ein Endurteil für einen Fehler der
+        # Infrastruktur. Läuft das Volume tatsächlich voll, wirft der nächste
+        # Durchgang OSError, das except unten macht daraus den
+        # Umgebungsfehler, und die Einreichung bleibt auf RUNNING.
+        eingabe_bytes = test_input.encode("utf-8")
+        geschrieben = 0
+        while geschrieben < len(eingabe_bytes):
+            geschrieben += os.write(eingabe_fd, eingabe_bytes[geschrieben:])
         os.lseek(eingabe_fd, 0, os.SEEK_SET)
 
         if SANDBOX_UID is not None:
@@ -453,7 +473,7 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             prozess.returncode = os.WEXITSTATUS(status)
 
         if prozess.returncode < 0:
-            verdict, meldung = _urteil_nach_signal(-prozess.returncode, zeit)
+            verdict, meldung = _urteil_nach_signal(-prozess.returncode, zeit, rusage)
             return verdict, meldung, dauer_ms, speicher_kb
 
         # Die Grenze meldet der Kernel je nach Zeitpunkt als Signal (oben, über

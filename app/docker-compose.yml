@@ -117,6 +117,7 @@ services:
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://valkey:6379
       MAX_VERSUCHE: "3"
+      REENQUEUE_AFTER_SECONDS: "180"
     depends_on:
       - mongodb
       - valkey

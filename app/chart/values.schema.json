@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "online-judge values",
+  "description": "Prüft die values bei install und upgrade. Fehlt ein Pflichtfeld, bricht Helm sofort mit klarer Meldung ab, statt still mit einem falschen Bild zu deployen.",
+  "type": "object",
+  "required": ["image", "externe"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["registry", "tag"],
+      "properties": {
+        "registry": { "type": "string", "minLength": 1 },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Image-Tag der eigenen Dienste. Bewusst ohne Vorgabe, damit ein vergessener Tag hier auffällt statt still auf latest zu fallen."
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
+      }
+    },
+    "externe": {
+      "type": "object",
+      "required": ["mongoSecret", "redisUri"],
+      "description": "Anbindung der vorhandenen Datendienste. Das Chart legt sie nicht an, es verbindet sich nur.",
+      "properties": {
+        "mongoSecret": {
+          "type": "object",
+          "required": ["name", "key"],
+          "description": "Operator-Secret mit der MongoDB-URI samt Zugangsdaten.",
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "key": { "type": "string", "minLength": 1 }
+          }
+        },
+        "redisUri": { "type": "string", "minLength": 1 }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "resources": { "type": "object" }
+      }
+    }
+  }
+}

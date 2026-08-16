@@ -1,0 +1,15 @@
+# dev: klein iterieren. Eine API-Replica, halbierte requests/limits. Gleich zu
+# prod bleibt bewusst der Image-Tag (dev prüft denselben Stand, den prod
+# ausliefert). MongoDB, Redis und der Worker gehören zur Infrastruktur und stehen
+# nicht mehr hier. Der Tag wird beim Aufruf gesetzt: -f values-dev.yaml
+# --set image.tag=<version>.
+
+backend:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"

@@ -1,0 +1,44 @@
+---
+# Rollt die eigene API als Helm-Release in den Cluster aus (Issue #15/#17).
+# MongoDB, die Redis-Queue, der Judge-Worker und der Seed der Aufgaben gehören
+# zur Infrastruktur und stehen schon im Cluster; das Chart verbindet sich mit den
+# Datendiensten nur über die Adressen aus values.
+#
+# Läuft auf dem Server, weil dort die kubeconfig liegt. Der Chart steht im Repo
+# unter app/chart; die Helm-Module laufen aber auf dem Server, deshalb wird er
+# zuerst dorthin kopiert.
+
+- name: Verzeichnis für den Chart auf dem Server
+  ansible.builtin.file:
+    path: "{{ app_chart_remote }}"
+    state: directory
+    mode: "0755"
+
+# Der ganze Chart-Ordner. delete unused, damit eine im Repo gelöschte Vorlage
+# auch auf dem Server verschwindet und ein alter Stand nicht mit ausgerollt wird.
+- name: Chart auf den Server kopieren
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../app/chart/"
+    dest: "{{ app_chart_remote }}/"
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: Anwendung über Helm ausrollen
+  kubernetes.core.helm:
+    name: online-judge
+    chart_ref: "{{ app_chart_remote }}"
+    release_namespace: "{{ app_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    # Die Vorgaben aus values.yaml, überlagert von der Umgebung (prod/dev), und
+    # der Image-Tag als Einzelwert. So steht der laufende Stand an einer Stelle
+    # (vars/app.yaml) und nicht in der eingecheckten values-Datei.
+    values_files:
+      - "{{ app_chart_remote }}/values-{{ app_values_env }}.yaml"
+    values:
+      image:
+        tag: "{{ app_image_tag }}"
+    # Kein wait: die readiness des Backends hängt an MongoDB, ein wait würde
+    # das Play bei gestörter Datenbank blockieren statt etwas abzusichern.
+    # Helm kehrt direkt nach dem Anlegen der Objekte zurück, den Rollout
+    # überwacht Kubernetes über die Probes im Chart.
+    wait: false

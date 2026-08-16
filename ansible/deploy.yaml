@@ -81,7 +81,10 @@
             name: gvisor
           handler: runsc
 
-# MongoDB
+# Die Datendienste zuerst: die App verbindet sich beim Start mit MongoDB und
+# der Queue, und das Chart liest die Mongo-URI aus dem Secret, das der Operator
+# erst nach dem Anlegen der Instanz schreibt. Beim ersten Vollauf auf leerem
+# Cluster müssen die Plays deshalb vor der Anwendung liegen.
 - name: MongoDB ausrollen
   hosts: judge_k3s_server
   tags: [mongodb]
@@ -90,7 +93,6 @@
     - name: MongoDB Operator und Instanz einrichten
       ansible.builtin.import_tasks: tasks/mongodb.yaml
 
-# Valkey
 - name: Valkey ausrollen
   hosts: judge_k3s_server
   tags: [valkey]
@@ -99,7 +101,6 @@
     - name: Valkey Deployment und Service einrichten
       ansible.builtin.import_tasks: tasks/valkey.yaml
 
-# KEDA
 - name: KEDA ausrollen
   hosts: judge_k3s_server
   tags: [keda]
@@ -107,3 +108,52 @@
   tasks:
     - name: KEDA Operator einrichten
       ansible.builtin.import_tasks: tasks/keda.yaml
+
+# Die Judge-Kette: Worker, Rückhol-CronJob, ScaledObject und der Seed der
+# Aufgaben. Nach KEDA (das ScaledObject braucht die CRD) und nach den
+# Datendiensten (der Seed schreibt nach MongoDB).
+- name: Judge ausrollen
+  hosts: judge_k3s_server
+  tags: [judge]
+  become: true
+  tasks:
+    - name: Judge-Kette einrichten
+      ansible.builtin.import_tasks: tasks/judge.yaml
+
+# Die eigene API als Helm-Release (Issue #15/#17). MongoDB, die Queue, der
+# Judge-Worker und der Seed der Aufgaben sind Infrastruktur, die Datendienste
+# kommen aus den Plays davor. Läuft auf dem Server (dort liegt die kubeconfig)
+# und vor der Auth-Kette, damit der backend-Service steht, wenn die geschützte
+# Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml, Secrets
+# braucht die App keine.
+- name: Anwendung ausrollen
+  hosts: judge_k3s_server
+  tags: [app]
+  become: true
+  vars_files:
+    - vars/app.yaml
+  tasks:
+    - name: Anwendung
+      ansible.builtin.import_tasks: tasks/app.yaml
+
+# Authentifizierung am Gateway (Issue #20): Keycloak und das Traefik-OIDC-Plugin
+# (traefik-oidc-auth) samt Middleware. Läuft auf dem Server, weil dort die
+# kubeconfig liegt und rfc2136_zone (aus dns-credentials.yaml) für die
+# Hostnamen gesetzt ist. Die nicht-geheime Konfiguration kommt aus
+# vars/auth.yaml, die Secrets aus auth-credentials.yaml (Vorlage: .example).
+- name: Auth-Kette ausrollen
+  hosts: judge_k3s_server
+  tags: [auth]
+  become: true
+  vars_files:
+    - vars/auth.yaml
+    - auth-credentials.yaml
+  tasks:
+    # Zuerst das Plugin aktivieren: Traefik startet dabei neu, was Zeit
+    # braucht, und die Middleware unten setzt es voraus.
+    - name: Traefik-Plugin
+      ansible.builtin.import_tasks: tasks/traefik-plugin.yaml
+    - name: Keycloak
+      ansible.builtin.import_tasks: tasks/keycloak.yaml
+    - name: Traefik-Anbindung
+      ansible.builtin.import_tasks: tasks/traefik-auth.yaml

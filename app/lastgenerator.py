@@ -10,14 +10,28 @@ Aufruf, lokal gegen den Compose-Stand:
 
     python3 lastgenerator.py --rate 5 --dauer 60
 
-Gegen den Cluster dieselben Argumente plus --api und die Keycloak-Variablen
-aus der Umgebung. Nur Standardbibliothek, damit der Aufruf keine eigene
-Umgebung braucht.
+Gegen den Cluster läuft das Skript auf dem Server-Node, kubectl port-forward
+scheitert dort, weil das Backend nur auf :: bindet und der Forward im
+Pod-Netns localhost nicht über IPv6 erreicht:
+
+    tar czf - -C app lastgenerator.py aufgaben | ssh ubuntu@<server> \
+        'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
+    # Service-IP: kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
+    ssh ubuntu@<server> 'python3 /tmp/last/lastgenerator.py --rate 2 \
+        --dauer 60 --api "http://[<service-ip>]:8000"'
+
+Die Identität kommt als X-Auth-Request-Header mit, so wie das Gateway sie
+setzen würde. Der Weg über das Gateway selbst bräuchte eine Browser-Session
+des OIDC-Plugins, und die Last soll die Judge-Kette messen, nicht die
+Anmeldung. Der backend-Service nimmt die Header direkt an (app/backend/auth.py
+liest sie ungeprüft, erreichbar ist der Service nur im Cluster). Nur
+Standardbibliothek, damit der Aufruf keine eigene Umgebung braucht.
 """
 
 import argparse
 import collections
 import concurrent.futures
+import http.client
 import json
 import math
 import os
@@ -26,7 +40,6 @@ import random
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 # Nur python: Die API nimmt vier Sprachen an, Worker gibt es nur für Python,
@@ -55,40 +68,21 @@ ERGEBNISSE = (
     "keine_verbindung",
 )
 
-# So viele Sekunden vor dem Ablauf wird das Token erneuert. Größer als die
-# zehn Sekunden Timeout je Anfrage, damit kein schon abgeschicktes, altes
-# Token während seiner Anfrage abläuft.
-TOKEN_RESERVE = 15
 
+def _kopfzeilen(nutzer):
+    """Die Identitäts-Header, wie das Gateway sie setzen würde.
 
-def _token_holen(keycloak_url, realm, nutzer, passwort):
-    """Holt ein Token über den Password Grant, Client admin-cli.
-
-    admin-cli, weil der Compose-Stand Keycloak ohne eigenen Client startet
-    und dieser eingebaute Client den Password Grant im Realm master erlaubt.
-
-    Gibt auch die Gültigkeit in Sekunden zurück: Sie liegt unter der Dauer
-    eines längeren Laufs, das Token muss also währenddessen erneuert werden.
-    Sonst zählte der Rest des Laufs lauter 401 als abgelehnt.
+    Dieselben Namen wie im Headers-Block der Middleware
+    (ansible/tasks/traefik-auth.yaml), gelesen von app/backend/auth.py.
     """
-    daten = urllib.parse.urlencode(
-        {
-            "grant_type": "password",
-            "client_id": "admin-cli",
-            "username": nutzer,
-            "password": passwort,
-        }
-    ).encode()
-    url = f"{keycloak_url}/realms/{realm}/protocol/openid-connect/token"
-    with urllib.request.urlopen(urllib.request.Request(url, data=daten)) as antwort:
-        inhalt = json.load(antwort)
-    return inhalt["access_token"], inhalt["expires_in"]
+    return {
+        "X-Auth-Request-User": nutzer,
+        "X-Auth-Request-Preferred-Username": nutzer,
+    }
 
 
-def _aufgaben_holen(api, token):
-    anfrage = urllib.request.Request(
-        f"{api}/tasks", headers={"Authorization": f"Bearer {token}"}
-    )
+def _aufgaben_holen(api, kopfzeilen):
+    anfrage = urllib.request.Request(f"{api}/tasks", headers=kopfzeilen)
     with urllib.request.urlopen(anfrage) as antwort:
         return json.load(antwort)
 
@@ -155,17 +149,14 @@ def _plan_bauen(aufgaben, mix, anzahl):
     return [random.choice(quellen[sorte]) + (sorte,) for sorte in sorten]
 
 
-def _einreichen(api, token, aufgabe, code):
+def _einreichen(api, kopfzeilen, aufgabe, code):
     daten = json.dumps(
         {"task_id": aufgabe["id"], "code": code, "sprache": SPRACHE}
     ).encode()
     anfrage = urllib.request.Request(
         f"{api}/submit",
         data=daten,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        headers={**kopfzeilen, "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(anfrage, timeout=10):
@@ -178,6 +169,13 @@ def _einreichen(api, token, aufgabe, code):
         # Der Timeout kommt je nach Phase auch als URLError verpackt an.
         if isinstance(fehler.reason, TimeoutError):
             return "unbekannt"
+        return "keine_verbindung"
+    except (http.client.HTTPException, OSError):
+        # Abbruch mitten in der Antwort, etwa RemoteDisconnected. urllib
+        # verpackt nur Fehler beim Verbindungsaufbau als URLError, ein Reset
+        # während der Antwort kommt roh an. kubectl port-forward setzt unter
+        # parallelen Verbindungen gelegentlich einzelne zurück, und ein
+        # einzelner Reset darf nicht den ganzen Lauf abreißen.
         return "keine_verbindung"
 
 
@@ -219,20 +217,11 @@ def lauf(argv=None):
         if not math.isfinite(wert) or wert <= 0:
             parser.error(f"{name} muss über 0 liegen, ist {wert}")
 
-    keycloak = (
-        os.getenv("KEYCLOAK_URL", "http://localhost:8080"),
-        os.getenv("KEYCLOAK_REALM", "master"),
-        os.getenv("KEYCLOAK_NUTZER", "admin"),
-        os.getenv("KEYCLOAK_PASSWORT", "admin"),
-    )
-    if os.getenv("TOKEN"):
-        # Ein fest übergebenes Token lässt sich nicht erneuern. Der Lauf muss
-        # dann in dessen Gültigkeit passen.
-        token, erneuern_ab = os.environ["TOKEN"], None
-    else:
-        token, gilt = _token_holen(*keycloak)
-        erneuern_ab = time.monotonic() + gilt - TOKEN_RESERVE
-    aufgaben = _aufgaben_holen(args.api, token)
+    # Ein fester Name genügt: Die Einreichungen sollen einem Benutzer gehören,
+    # welcher, ist für die Last gleich. LAST_NUTZER, falls die Einreichungen im
+    # Screencast unter dem Test-Benutzer erscheinen sollen.
+    kopfzeilen = _kopfzeilen(os.getenv("LAST_NUTZER", "lastgenerator"))
+    aufgaben = _aufgaben_holen(args.api, kopfzeilen)
     if not aufgaben:
         raise SystemExit("Die API kennt keine Aufgaben, erst laden.py ausführen")
 
@@ -252,10 +241,7 @@ def lauf(argv=None):
             pause = start + i / args.rate - time.monotonic()
             if pause > 0:
                 time.sleep(pause)
-            if erneuern_ab is not None and time.monotonic() >= erneuern_ab:
-                token, gilt = _token_holen(*keycloak)
-                erneuern_ab = time.monotonic() + gilt - TOKEN_RESERVE
-            offen.append(pool.submit(_einreichen, args.api, token, aufgabe, code))
+            offen.append(pool.submit(_einreichen, args.api, kopfzeilen, aufgabe, code))
         for fertig in concurrent.futures.as_completed(offen):
             zaehler[fertig.result()] += 1
 

@@ -1,0 +1,36 @@
+# Nicht-geheime Konfiguration der Auth-Kette. Die Secrets liegen daneben in
+# auth-credentials.yaml (siehe .example), beide werden von den Auth-Plays über
+# vars_files geladen.
+#
+# Versionen sind gepinnt wie in requirements.yml: einmal grün gelaufen, dann
+# eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht.
+
+---
+# Eigener Namespace für die Auth-Dienste, getrennt von der Anwendung in default.
+auth_namespace: auth
+
+# Die Hostnamen hängen unter der eigenen DNS-Zone (rfc2136_zone aus
+# dns-credentials.yaml). external-dns legt die Records für jede Ingress mit
+# einem Host unter der Zone selbst an, cert-manager liefert das Wildcard-Zert.
+# auth statt keycloak: der Name benennt die Funktion statt des Produkts, und
+# der eigene Host hält die Login-Sitzung per Same-Origin-Policy von Skript-Code
+# der Oberfläche fern (Vorschlag in #92).
+keycloak_host: "auth.{{ rfc2136_zone }}"
+app_host: "app.{{ rfc2136_zone }}"
+
+# Realm und Client kommen als Code (templates/keycloak-realm.json.j2). Die
+# client-id ist frei gewählt; sie identifiziert das Gateway (Traefik-Plugin)
+# gegenüber Keycloak.
+keycloak_realm: judge
+oidc_client_id: judge-gateway
+
+# Keycloak: keycloakx-Chart (codecentric), einzelner Pod, H2 auf einem PVC.
+keycloak_chart_repo: https://codecentric.github.io/helm-charts
+keycloak_chart_version: "7.2.2"
+keycloak_image_tag: "26.6.4"
+keycloak_pvc_size: 1Gi
+
+# OIDC am Gateway läuft über das Traefik-Plugin traefik-oidc-auth, nicht über
+# einen eigenen oauth2-proxy-Pod. Traefik lädt das Plugin beim Start aus dem
+# Plugin-Katalog; die Version wird in tasks/traefik-plugin.yaml eingetragen.
+traefik_oidc_plugin_version: "v0.21.0"

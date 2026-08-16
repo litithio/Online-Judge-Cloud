@@ -57,11 +57,11 @@ liegt bei #85.
 
 ## Betrieb
 
-Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster. Das Ausrollen
-der Anwendung in den Cluster fehlt noch: es entsteht mit dem Chart (#15) und
-dem Deployment-Ablauf (#17). Die Images baut `images.yml` bereits nach
-ghcr.io, sie sind öffentlich und lassen sich ohne Zugangsdaten ziehen.
-Solange läuft die Anwendung lokal über `app/docker-compose.yml`.
+Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster samt der
+Datendienste (MongoDB, Redis), dem Judge-Worker und dem Seed der Aufgaben und
+rollt die eigene API als Helm-Release aus (`app/chart`). Die Images baut
+`images.yml` nach ghcr.io, sie sind öffentlich und lassen sich ohne Zugangsdaten
+ziehen.
 
 VPN an für Terraform, VPN aus für alles andere. Terraform spricht mit der
 OpenStack-API und braucht den Tunnel. SSH, Ansible und kubectl erreichen die
@@ -76,13 +76,16 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 cp ansible/dns-credentials.yaml.example ansible/dns-credentials.yaml
+cp ansible/auth-credentials.yaml.example ansible/auth-credentials.yaml
 cp ansible/files/mongodb-password.yaml.example ansible/files/mongodb-password.yaml
 direnv allow
 ```
 
-Die drei Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
-Ohne direnv stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die
-Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
+Alle vier Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+`auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
+OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
+stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
+KUBECONFIG relativ zum aktuellen Verzeichnis.
 
 Cluster hochbringen:
 
@@ -102,6 +105,80 @@ das Playbook legt die kubeconfig daneben. Wird das Ubuntu-Image auf newstack
 neu hochgeladen, bekommt es eine neue ID: den Wert aus `openstack image list`
 in die tfvars eintragen.
 
+### Anwendung
+
+Das Chart `app/chart` rollt nur die eigene API (`backend`) aus. MongoDB, die
+Redis-Queue, der Judge-Worker und der Seed der Aufgaben gehören zur
+Infrastruktur und stehen schon im Cluster; das Chart verbindet sich nur, über
+`externe` in den values: die Queue über den Service-Namen, MongoDB über das
+Operator-Secret mit der URI samt Zugangsdaten. Das Play mit dem Tag `app`
+kopiert den Chart auf den Server und ruft `helm upgrade --install`:
+
+```bash
+# nach dem Cluster-Deploy, VPN aus
+ansible-playbook -i inventory/generated-inventory.yml \
+                 -i dns-credentials.yaml deploy.yaml --tags app
+```
+
+Der ausgerollte Stand steht in `ansible/vars/app.yaml`: `app_image_tag` wählt
+den Image-Tag (gebaut von `images.yml` bei einem Git-Tag), `app_values_env`
+zwischen den Overlays `values-prod.yaml` (zwei API-Replicas) und
+`values-dev.yaml` (eine, kleinere Grenzen). `values.schema.json` bricht das
+Ausrollen ab, wenn der Image-Tag oder die Anbindung der Datendienste fehlt.
+
+Prüfen: `kubectl get pods` zeigt `backend` als Running.
+
+### Judge
+
+Das Play mit dem Tag `judge` spielt die Manifeste aus `app/k8s` ein (Worker,
+Rückhol-CronJob, KEDA-ScaledObject) und führt den Seed der Aufgaben als Job
+aus. Der Job nutzt das Worker-Image, `laden.py` und die Aufgaben-JSONs kommen
+als ConfigMap in den Cluster:
+
+```bash
+# nach dem Cluster-Deploy, VPN aus
+ansible-playbook -i inventory/generated-inventory.yml \
+                 -i dns-credentials.yaml deploy.yaml --tags judge
+```
+
+Prüfen: `kubectl get cronjob,scaledobject` zeigt `durchlauf` und
+`code-worker-python`, und der Job `aufgaben-seed` steht auf Completed. Das
+Worker-Deployment hat ohne wartende Einreichungen null Replicas, KEDA startet
+es bei Last.
+
+### Authentifizierung
+
+Die Anmeldung passiert am Gateway, nicht in der Anwendung (Issue #20). Eine
+Anfrage an `app.<zone>` läuft durch Traefik, das den OIDC-Flow über das Plugin
+[traefik-oidc-auth](https://github.com/sevensolutions/traefik-oidc-auth) selbst
+ausführt -- ohne zweiten Dienst. Ohne gültige Session leitet das Plugin zur
+Keycloak-Anmeldung um; nach der Anmeldung füllt es die Identität aus den
+Token-Claims in `X-Auth-Request-*`-Header, die es an die API weiterreicht. Die
+API prüft keine Tokens mehr, sie liest nur diese Header (`app/backend/auth.py`)
+und weist eine Anfrage ohne sie mit 401 ab. Damit bleibt die Anwendung frei von
+Login-Seite und Token-Austausch (zero-code).
+
+Keycloak läuft als einzelner Pod mit einem PVC auf `/opt/keycloak/data`, sodass
+Realm und Benutzer einen Pod-Neustart überleben. Realm, OIDC-Client und ein
+Test-Benutzer kommen als Code über `--import-realm`; die Vorlage liegt in
+`ansible/templates/keycloak-realm.json.j2`, von Hand in der Konsole geklickte
+Änderungen überschreibt der nächste Import. Das Plugin wird in der statischen
+Traefik-Konfiguration aktiviert (`tasks/traefik-plugin.yaml`, per
+`HelmChartConfig`), wobei Traefik einmal neu startet. Keycloak und die
+Traefik-Anbindung (Middleware + Ingress) rollt das Play mit dem Tag `auth` aus:
+
+```bash
+# nach dem Cluster-Deploy, VPN aus
+ansible-playbook -i inventory/generated-inventory.yml \
+                 -i dns-credentials.yaml deploy.yaml --tags auth
+```
+
+Prüfen: `https://keycloak.<zone>` zeigt den Realm `judge`, ein Aufruf von
+`https://app.<zone>` leitet unangemeldet zur Anmeldung um, und nach der
+Anmeldung mit dem Test-Benutzer aus `auth-credentials.yaml` ist die API
+erreichbar. Ein direkter Aufruf des `backend`-Service im Cluster (ohne
+Gateway-Header) endet mit 401.
+
 Vor dem Push:
 
 ```bash
@@ -114,7 +191,7 @@ er sich beheben lässt. Es prüft selbst nichts, die Einzelaufrufe bleiben
 gültig:
 
 ```bash
-./scripts/infra-check.sh   # terraform fmt und validate, ansible-lint, Syntax
+./scripts/infra-check.sh   # terraform fmt und validate, ansible-lint, Syntax, helm lint
 ruff check . && ruff format --check .
 ./scripts/diagramme.sh     # nur nach Änderung an docs/diagramme/*.mmd
 ```
@@ -134,21 +211,19 @@ Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
 User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
 Prozesszahl. Drei Lücken bleiben.
 
-Im Cluster bekommt der eingereichte Code einen eigenen Netz-Namespace und damit
-kein Netz. Lokal im Compose-Stand greift das nicht, weil Dockers seccomp-Profil
-den nötigen Aufruf blockiert. Dort teilt er das Netz des Workers und erreicht
-MongoDB und Redis direkt, kann also die erwarteten Ausgaben lesen und Ergebnisse
-verändern, solange die Dienste keine Anmeldung verlangen. Der Worker schreibt
-diesen Zustand beim Start ins Log.
-
-Für den Cluster heißt das: Ein grüner lokaler Lauf sagt über diesen Punkt
-nichts. Und wo der Namespace nicht zustande kommt, etwa weil jemand ein
-seccomp-Profil setzt, bleibt nur die NetworkPolicy als Begrenzung.
+Im Cluster bekommt der eingereichte Code über einen User-Namespace ein eigenes,
+leeres Netz. Das setzt voraus, dass die Laufzeit den Aufruf `unshare` mit
+`CLONE_NEWUSER` zulässt -- containerd tut das, ein gesetztes seccomp-Profil
+(wie Dockers Standard) blockiert ihn. `SANDBOX_NETZ_ERZWINGEN=1` am Worker lässt
+ihn gar nicht erst starten, wenn die Trennung nicht zustande kommt, statt sie
+still wegfallen zu lassen. Wo sie ausfiele, bliebe nur eine NetworkPolicy als
+Begrenzung.
 
 Die Speichergrenze von 128 MiB gilt für jeden Prozess einzeln. Startet eine
 Einreichung weitere Prozesse, bekommt jeder von ihnen erneut 128 MiB. Bei den
-erlaubten 64 Prozessen sind das zusammen 8 GiB. Lokal deckelt das Speicherlimit
-des Containers diese Summe, im Kubernetes-Manifest fehlt die Grenze bisher.
+erlaubten 64 Prozessen sind das zusammen 8 GiB. Das Speicherlimit des
+Worker-Containers (`resources.limits.memory`) deckelt diese Summe: wird sie
+überschritten, trifft der OOM-Killer den Pod.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
 Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, etwa in

@@ -1,0 +1,172 @@
+---
+# Keycloak als einzelner Pod mit persistentem H2-Datenspeicher. Der Realm samt
+# Gateway-Client und Test-Benutzer kommt als Code über --import-realm.
+#
+# H2 (database.vendor dev-file) statt einer externen Datenbank: ein zweiter Pod
+# ist nicht vorgesehen, und die H2-Datei liegt auf einem PVC unter
+# /opt/keycloak/data, überlebt den Pod-Neustart also (Abnahmepunkt 6). Eine
+# externe Datenbank wäre erst ab dem zweiten Keycloak-Pod nötig.
+
+- name: Namespace für die Auth-Dienste
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ auth_namespace }}"
+
+# Bootstrap-Admin nur für die Admin-Konsole. no_log, damit das Passwort nicht
+# im Ansible-Protokoll steht.
+- name: Secret mit dem Keycloak-Admin-Passwort
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: keycloak-admin
+        namespace: "{{ auth_namespace }}"
+      type: Opaque
+      stringData:
+        KC_BOOTSTRAP_ADMIN_USERNAME: admin
+        KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ keycloak_admin_password }}"
+  no_log: true
+
+# H2 liegt hier. Ohne PVC legt Keycloak die Datei ins Container-Dateisystem und
+# verliert Realm und Benutzer beim Ersetzen des Pods. StorageClass bleibt offen:
+# die Rolle setzt auf dem Mehr-Node-Cluster Longhorn als Standard.
+- name: PVC für den Keycloak-Datenspeicher
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: keycloak-data
+        namespace: "{{ auth_namespace }}"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: "{{ keycloak_pvc_size }}"
+
+# Der gerenderte Realm. Keycloak importiert beim Start alles aus
+# data/import; die ConfigMap wird unten in genau dieses Verzeichnis gemountet.
+- name: ConfigMap mit dem Realm-Import
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: keycloak-realm-import
+        namespace: "{{ auth_namespace }}"
+      data:
+        realm.json: "{{ lookup('template', 'templates/keycloak-realm.json.j2') }}"
+  no_log: true
+
+# retries, weil Helm den Chart bei jedem Lauf von github.com lädt und GitHub
+# in Wellen Verbindungen abweist (beobachtet am 12. und 13.08.2026, betrifft
+# alle Clients ohne eigene Wiederholung). Fünf Versuche mit 30 Sekunden
+# Abstand überbrücken eine kurze Welle, im Erfolgsfall ändert sich nichts.
+- name: Keycloak über Helm ausrollen
+  register: keycloak_helm
+  retries: 5
+  delay: 30
+  until: keycloak_helm is succeeded
+  kubernetes.core.helm:
+    name: keycloak
+    chart_ref: keycloakx
+    chart_repo_url: "{{ keycloak_chart_repo }}"
+    chart_version: "{{ keycloak_chart_version }}"
+    release_namespace: "{{ auth_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    # Ohne Readiness-Probe gilt der Pod schon als bereit, sobald der Container
+    # läuft -- wait wartet also nicht mehr auf den fertigen Realm-Import, sondern
+    # nur darauf, dass der Pod planbar ist und startet.
+    wait: false
+    timeout: 15m0s
+    values:
+      replicas: 1
+      image:
+        tag: "{{ keycloak_image_tag }}"
+      # Produktivmodus mit Import. dev-file als DB genügt für den einzelnen Pod.
+      # --health-enabled lässt den /health-Endpunkt eingeschaltet. Die
+      # Chart-Probes unten sind abgeschaltet und fragen ihn nicht ab, er bleibt
+      # für Prüfungen von Hand erreichbar.
+      command:
+        - "/opt/keycloak/bin/kc.sh"
+        - "start"
+        - "--http-port=8080"
+        - "--health-enabled=true"
+        - "--import-realm"
+      # Keine Probes. Der Chart rendert startup-, liveness- und readinessProbe
+      # nur, wenn der jeweilige Wert gesetzt ist, leere Strings schalten sie
+      # ab. Der /health-Endpunkt aus dem command bleibt bestehen, abgefragt
+      # wird er nur von Hand.
+      startupProbe: ""
+      livenessProbe: ""
+      readinessProbe: ""
+      database:
+        vendor: dev-file
+      # Setzt KC_PROXY_HEADERS=forwarded und KC_HTTP_ENABLED=true, damit Keycloak
+      # hinter Traefik die richtigen URLs bildet und intern über HTTP spricht.
+      proxy:
+        enabled: true
+        mode: forwarded
+        http:
+          enabled: true
+      # Ohne führenden /auth: der Issuer lautet dann
+      # https://<host>/realms/<realm>, wie das Traefik-OIDC-Plugin ihn erwartet.
+      http:
+        relativePath: "/"
+      # Feste öffentliche Adresse für die Token-Issuer-URL; hostname-strict aus,
+      # damit interne Health-Checks über die Service-IP nicht daran scheitern.
+      extraEnv: |
+        - name: KC_HOSTNAME
+          value: "https://{{ keycloak_host }}"
+        - name: KC_HOSTNAME_STRICT
+          value: "false"
+      extraEnvFrom: |
+        - secretRef:
+            name: keycloak-admin
+      # PVC auf data, die Realm-ConfigMap überlagert nur das Unterverzeichnis
+      # import. Kubernetes erlaubt den verschachtelten Mount.
+      extraVolumes: |
+        - name: data
+          persistentVolumeClaim:
+            claimName: keycloak-data
+        - name: realm-import
+          configMap:
+            name: keycloak-realm-import
+      extraVolumeMounts: |
+        - name: data
+          mountPath: /opt/keycloak/data
+        - name: realm-import
+          mountPath: /opt/keycloak/data/import
+          readOnly: true
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "512Mi"
+        limits:
+          cpu: "1000m"
+          memory: "1024Mi"
+      # DNS und Wildcard-TLS kommen automatisch von external-dns und cert-manager
+      # der Rolle, sobald der Host unter der eigenen Zone liegt.
+      ingress:
+        enabled: true
+        rules:
+          - host: "{{ keycloak_host }}"
+            paths:
+              - path: "/"
+                pathType: Prefix
+        tls:
+          - hosts:
+              - "{{ keycloak_host }}"

@@ -1,0 +1,97 @@
+---
+# Verdrahtet die Auth-Kette am Traefik aus dem k3s-Bundle: eine OIDC-Middleware
+# (Plugin traefik-oidc-auth) und eine geschützte Ingress auf die App. Das Plugin
+# führt den kompletten OIDC-Flow im Traefik-Prozess aus, es gibt also keinen
+# oauth2-proxy-Pod und keine zweite Ingress für Callback-Pfade mehr.
+#
+# Voraussetzung: tasks/traefik-plugin.yaml hat das Plugin aktiviert und der
+# Traefik-Pod ist neu gestartet.
+#
+# Kein zweiter Traefik: die Rolle bringt ihn samt external-dns und cert-manager
+# mit. Ingress statt IngressRoute, damit external-dns den DNS-Record und
+# cert-manager das Wildcard-Zert automatisch liefern, wie bei jeder App unter
+# der eigenen Zone.
+
+# Die Middleware liegt im selben Namespace wie die App-Ingress (default). Der
+# gesamte OIDC-Flow steckt in der Plugin-Konfiguration. no_log, weil Secret und
+# ClientSecret darin stehen.
+- name: OIDC-Auth-Middleware (Plugin)
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: oidc-auth
+        namespace: default
+      spec:
+        plugin:
+          traefik-oidc-auth:
+            # 32-Zeichen-Schlüssel, mit dem das Plugin das Session-Cookie
+            # verschlüsselt. Gegenstück zum cookie-secret von oauth2-proxy.
+            Secret: "{{ oidc_plugin_secret }}"
+            CallbackUri: "https://{{ app_host }}/oidc/callback"
+            Provider:
+              # Issuer wie ihn Keycloak ohne /auth ausgibt.
+              Url: "https://{{ keycloak_host }}/realms/{{ keycloak_realm }}"
+              ClientId: "{{ oidc_client_id }}"
+              ClientSecret: "{{ oidc_client_secret }}"
+              UsePkce: true
+            Scopes:
+              - openid
+              - profile
+              - email
+            # HTML-Anfragen ohne Session -> Redirect zur Keycloak-Anmeldung,
+            # AJAX/API-Anfragen -> 401. So bleibt der Login im Browser bequem und
+            # ein direkter API-Aufruf ohne Session scheitert sauber.
+            UnauthenticatedBehavior: Auto
+            # Zero-Code-Anbindung: die Header werden aus den Token-Claims
+            # gefüllt, die App liest genau sie (app/backend/auth.py) und prüft
+            # selbst keine Tokens. Die Go-Templates des Plugins stehen in
+            # raw-Blöcken, damit Ansibles Jinja sie nicht selbst auswertet.
+            Headers:
+              - Name: X-Auth-Request-User
+                Value: "{% raw %}{{ .claims.sub }}{% endraw %}"
+              - Name: X-Auth-Request-Email
+                Value: "{% raw %}{{ .claims.email }}{% endraw %}"
+              - Name: X-Auth-Request-Preferred-Username
+                Value: "{% raw %}{{ .claims.preferred_username }}{% endraw %}"
+  no_log: true
+
+# App-Ingress: Host app_host, geschützt durch die Middleware. Verweist auf den
+# vorhandenen backend-Service (Port 8000) im Namespace default. Den Callback-Pfad
+# /oidc/callback und /logout fängt das Plugin selbst auf dieser Route ab, eine
+# zweite Ingress ist nicht nötig.
+- name: Geschützte Ingress auf die App
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: app
+        namespace: default
+        annotations:
+          # <namespace>-<name>@kubernetescrd verweist auf die Middleware oben.
+          traefik.ingress.kubernetes.io/router.middlewares: default-oidc-auth@kubernetescrd
+      spec:
+        rules:
+          - host: "{{ app_host }}"
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: backend
+                      port:
+                        number: 8000
+        # Ohne secretName: TLS kommt aus dem Wildcard-Zertifikat, das die
+        # k3s-Rolle als Traefik-Default-TLS-Store hinterlegt, wie bei der
+        # Keycloak-Ingress. Ein eigenes Zertifikat je Ingress bräuchte es erst
+        # für Hosts außerhalb der Zone.
+        tls:
+          - hosts:
+              - "{{ app_host }}"

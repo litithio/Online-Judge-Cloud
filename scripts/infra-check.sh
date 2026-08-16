@@ -125,9 +125,14 @@ else
 
   playbooks=$(find ansible -maxdepth 2 -name '*.y*ml' \
               -not -path '*/roles/*' -not -path '*/group_vars/*' \
-              -not -path '*/host_vars/*' 2>/dev/null)
+              -not -path '*/host_vars/*' -not -path '*/tasks/*' 2>/dev/null)
   for pb in $playbooks; do
-    # Nur echte Playbooks prüfen; Variablendateien haben weder hosts noch import_playbook.
+    # Nur echte Playbooks prüfen; Variablendateien haben weder hosts noch
+    # import_playbook. tasks/ ist ausgenommen: das sind Includes, keine
+    # Playbooks, und --syntax-check scheitert an ihnen mangels Play. Ein hosts:
+    # in einer Ingress-TLS-Sektion würde die Heuristik unten sonst täuschen.
+    # Geprüft werden sie ohnehin über das Playbook, das sie per import_tasks
+    # einbindet (deploy.yaml).
     grep -qE '^\s*-?\s*(hosts|import_playbook):' "$pb" || continue
     step "ansible-playbook --syntax-check ($pb)"
     # Geprüft wird ohne Inventory: das schreibt Terraform, es liegt nicht im
@@ -136,6 +141,29 @@ else
     # Check trotzdem auf, ein Fehler darin fällt weiterhin auf.
     ANSIBLE_LOCALHOST_WARNING=False ANSIBLE_INVENTORY_UNPARSED_WARNING=False \
       ansible-playbook --syntax-check "$pb"
+    result $?
+  done
+fi
+
+# ---------- Helm ----------
+# Der Chart der eigenen Dienste (app/chart). Geprüft wird gegen beide
+# values-Overlays, weil sie sich in Replicas und resources unterscheiden und ein
+# Fehler nur in einem auftreten kann. Der Image-Tag wird gesetzt: values.yaml
+# lässt ihn leer, und das Schema lehnt einen leeren Tag ab -- ohne --set schlüge
+# lint deshalb schon an dieser Vorgabe fehl statt an einem echten Fehler.
+if [ ! -d app/chart ]; then
+  step "Helm: kein app/chart, übersprungen"
+elif ! command -v helm >/dev/null; then
+  echo "helm nicht gefunden" >&2
+  echo "         Abhilfe: https://helm.sh/docs/intro/install/" >&2
+  fail=1
+else
+  for env in dev prod; do
+    step "helm lint app/chart (values-$env.yaml)"
+    # --strict: auch Warnungen gelten als Fehler, damit eine schludrige Vorlage
+    # nicht durchrutscht. Der Tag ist ein Prüfwert, nicht der ausgelieferte.
+    helm lint app/chart --strict \
+      -f "app/chart/values-$env.yaml" --set image.tag=pruef
     result $?
   done
 fi

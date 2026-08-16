@@ -71,7 +71,7 @@ a { color: var(--grau); }
 .nutzer { font-size: 13px; color: var(--grau-80); text-align: right; }
 .nutzer strong { color: var(--grau); font-weight: bold; display: block; }
 
-/* Die Anmeldung erledigt Traefik per ForwardAuth gegen Keycloak (W6).
+/* Die Anmeldung erledigt Traefik über das OIDC-Plugin gegen Keycloak (W6).
    Die Seite hat darum kein Login-Formular, sie ist immer eingeloggt. */
 
 /* ---------- Navigation ---------- */
@@ -237,7 +237,7 @@ tr.offen td, tr.offen td.num { color: var(--grau-50); }
    Alle Regeln hängen an .anmeldung, damit sie die Anwendung nicht
    beeinflussen. Im Keycloak-Theme trägt das body-Element diese Klasse.
    Die Seite gehört nicht zum API-Service: Traefik leitet unangemeldete
-   Anfragen per ForwardAuth zu Keycloak um, das diese Seite ausliefert. */
+   Anfragen über das OIDC-Plugin zu Keycloak um, das diese Seite ausliefert. */
 .anmeldung { min-height: 76vh; display: flex; align-items: center; justify-content: center; padding: 60px 28px; }
 .anmeldung .karte { width: 100%; max-width: 380px; }
 .anmeldung .logo-bild { margin: 0 auto 52px; }

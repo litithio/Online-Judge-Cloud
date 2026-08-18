@@ -1,12 +1,14 @@
-# Chart der eigenen API (backend), Issue #15. MongoDB, Redis, der Judge-Worker
-# und der Seed der Aufgaben gehören zur Infrastruktur und stehen schon im
-# Cluster; das Chart verbindet sich mit den Datendiensten nur über die Adressen
-# aus values. Keycloak und die Traefik-Anbindung bleiben ebenfalls außerhalb: sie
-# gehören zur Auth-Kette (Issue #20) und rollt Ansible getrennt aus
-# (ansible/tasks/), damit ihre Secrets nicht durch die App-values laufen.
+# Chart der eigenen Dienste, Issue #15. Es rollt die API (backend) und die
+# Judge-Kette aus, also die Worker je Sprache, ihre ScaledObjects und den
+# Rückhol-CronJob. MongoDB, Valkey und der Seed der Aufgaben stehen als
+# Infrastruktur schon im Cluster, das Chart verbindet sich mit den
+# Datendiensten nur über die Adressen aus values. Keycloak und die
+# Traefik-Anbindung bleiben ebenfalls außerhalb, sie gehören zur Auth-Kette
+# (Issue #20) und Ansible rollt sie getrennt aus, damit ihre Secrets nicht
+# durch die App-values laufen.
 apiVersion: v2
 name: online-judge
-description: Die API des Online Judge
+description: Die eigenen Dienste des Online Judge, API und Judge-Kette
 type: application
 # version ist die Chart-Version, appVersion der Stand der Anwendung. Beide von
 # Hand gepflegt; der laufende Image-Tag steht in values (image.tag), nicht hier.

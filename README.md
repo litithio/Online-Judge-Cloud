@@ -107,12 +107,13 @@ in die tfvars eintragen.
 
 ### Anwendung
 
-Das Chart `app/chart` rollt nur die eigene API (`backend`) aus. MongoDB, die
-Redis-Queue, der Judge-Worker und der Seed der Aufgaben gehören zur
-Infrastruktur und stehen schon im Cluster; das Chart verbindet sich nur, über
-`externe` in den values: die Queue über den Service-Namen, MongoDB über das
-Operator-Secret mit der URI samt Zugangsdaten. Das Play mit dem Tag `app`
-kopiert den Chart auf den Server und ruft `helm upgrade --install`:
+Das Chart `app/chart` rollt die eigenen Dienste aus, die API (`backend`) und
+die Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob. MongoDB, Valkey
+und der Seed der Aufgaben gehören zur Infrastruktur und stehen schon im
+Cluster. Das Chart verbindet sich mit ihnen über `externe` in den values, mit
+der Queue über den Service-Namen und mit MongoDB über das Operator-Secret, das
+die URI samt Zugangsdaten hält. Das Play mit dem Tag `app` kopiert den Chart
+auf den Server und ruft `helm upgrade --install`.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
@@ -120,31 +121,45 @@ ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags app
 ```
 
-Der ausgerollte Stand steht in `ansible/vars/app.yaml`: `app_image_tag` wählt
-den Image-Tag (gebaut von `images.yml` bei einem Git-Tag), `app_values_env`
-zwischen den Overlays `values-prod.yaml` (zwei API-Replicas) und
-`values-dev.yaml` (eine, kleinere Grenzen). `values.schema.json` bricht das
-Ausrollen ab, wenn der Image-Tag oder die Anbindung der Datendienste fehlt.
+Einmalig beim Umstieg auf diesen Stand, nur auf einem Cluster, der den alten
+schon gefahren hat. Worker, Rückhol-CronJob und ScaledObject kamen vorher aus
+Ansible und gehören damit nicht Helm. `helm upgrade` übernimmt keine fremden
+Objekte und bricht mit `invalid ownership metadata` ab, sie müssen deshalb
+vorher weg. Helm legt sie sofort neu an.
 
-Prüfen: `kubectl get pods` zeigt `backend` als Running.
+```bash
+kubectl delete deployment code-worker cronjob durchlauf scaledobject code-worker-python
+```
 
-### Judge
+Der ausgerollte Stand steht in `ansible/vars/app.yaml`. `app_image_tag` wählt
+den Image-Tag, gebaut von `images.yml` bei einem Git-Tag, und `app_values_env`
+wählt zwischen den Overlays `values-prod.yaml` mit zwei API-Replicas und
+`values-dev.yaml` mit einer, kleineren Grenzen und höchstens zwei Workern.
+`values.schema.json` bricht das Ausrollen ab, wenn der Image-Tag, die Anbindung
+der Datendienste oder ein Eintrag unter `judge` fehlt.
 
-Das Play mit dem Tag `judge` spielt die Manifeste aus `app/k8s` ein (Worker,
-Rückhol-CronJob, KEDA-ScaledObject) und führt den Seed der Aufgaben als Job
-aus. Der Job nutzt das Worker-Image, `laden.py` und die Aufgaben-JSONs kommen
-als ConfigMap in den Cluster:
+Eine weitere Sprache ist ein Eintrag unter `judge.sprachen` in den values, samt
+eigenem Worker-Image. Das Chart erzeugt daraus Deployment und ScaledObject.
+
+Prüfen mit `kubectl get pods`, dort steht `backend` auf Running. `kubectl get
+cronjob,scaledobject` zeigt `durchlauf` und `code-worker-python`. Das
+Worker-Deployment hat ohne wartende Einreichungen null Replicas, KEDA startet
+es bei Last.
+
+### Aufgaben laden
+
+Das Play mit dem Tag `seed` führt den Seed der Aufgaben als Job aus. Der Job
+nutzt das Worker-Image, `laden.py` und die Aufgaben-JSONs kommen als ConfigMap
+in den Cluster. Der Seed bleibt in Ansible, weil er Dateien aus dem Repo
+braucht.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
 ansible-playbook -i inventory/generated-inventory.yml \
-                 -i dns-credentials.yaml deploy.yaml --tags judge
+                 -i dns-credentials.yaml deploy.yaml --tags seed
 ```
 
-Prüfen: `kubectl get cronjob,scaledobject` zeigt `durchlauf` und
-`code-worker-python`, und der Job `aufgaben-seed` steht auf Completed. Das
-Worker-Deployment hat ohne wartende Einreichungen null Replicas, KEDA startet
-es bei Last.
+Prüfen mit `kubectl get jobs`, dort steht `aufgaben-seed` auf Completed.
 
 ### Authentifizierung
 

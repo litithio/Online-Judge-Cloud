@@ -1,8 +1,8 @@
 ---
-# Rollt die eigene API als Helm-Release in den Cluster aus (Issue #15/#17).
-# MongoDB, die Redis-Queue, der Judge-Worker und der Seed der Aufgaben gehören
-# zur Infrastruktur und stehen schon im Cluster; das Chart verbindet sich mit den
-# Datendiensten nur über die Adressen aus values.
+# Rollt die eigenen Dienste als Helm-Release in den Cluster aus (Issue #15/#17),
+# also die API und die Judge-Kette. MongoDB, Valkey und der Seed der Aufgaben
+# gehören zur Infrastruktur und stehen schon im Cluster, das Chart verbindet
+# sich mit den Datendiensten nur über die Adressen aus values.
 #
 # Läuft auf dem Server, weil dort die kubeconfig liegt. Der Chart steht im Repo
 # unter app/chart; die Helm-Module laufen aber auf dem Server, deshalb wird er

@@ -121,6 +121,16 @@ ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags app
 ```
 
+Einmalig beim Umstieg auf diesen Stand, nur auf einem Cluster, der den alten
+schon gefahren hat. Worker, Rückhol-CronJob und ScaledObject kamen vorher aus
+Ansible und gehören damit nicht Helm. `helm upgrade` übernimmt keine fremden
+Objekte und bricht mit `invalid ownership metadata` ab, sie müssen deshalb
+vorher weg. Helm legt sie sofort neu an.
+
+```bash
+kubectl delete deployment code-worker cronjob durchlauf scaledobject code-worker-python
+```
+
 Der ausgerollte Stand steht in `ansible/vars/app.yaml`. `app_image_tag` wählt
 den Image-Tag, gebaut von `images.yml` bei einem Git-Tag, und `app_values_env`
 wählt zwischen den Overlays `values-prod.yaml` mit zwei API-Replicas und

@@ -109,20 +109,22 @@
     - name: KEDA Operator einrichten
       ansible.builtin.import_tasks: tasks/keda.yaml
 
-# Die Judge-Kette: Worker, Rückhol-CronJob, ScaledObject und der Seed der
-# Aufgaben. Nach KEDA (das ScaledObject braucht die CRD) und nach den
-# Datendiensten (der Seed schreibt nach MongoDB).
-- name: Judge ausrollen
+# Der Seed der Aufgaben. Nach den Datendiensten, weil er nach MongoDB
+# schreibt. Worker, Rückhol-CronJob und ScaledObject kommen aus dem Chart und
+# damit aus dem Play darunter.
+- name: Aufgaben laden
   hosts: judge_k3s_server
-  tags: [judge]
+  tags: [seed]
   become: true
+  vars_files:
+    - vars/app.yaml
   tasks:
-    - name: Judge-Kette einrichten
-      ansible.builtin.import_tasks: tasks/judge.yaml
+    - name: Seed der Aufgaben
+      ansible.builtin.import_tasks: tasks/seed.yaml
 
-# Die eigene API als Helm-Release (Issue #15/#17). MongoDB, die Queue, der
-# Judge-Worker und der Seed der Aufgaben sind Infrastruktur, die Datendienste
-# kommen aus den Plays davor. Läuft auf dem Server (dort liegt die kubeconfig)
+# Die eigenen Dienste als Helm-Release (Issue #15/#17), also die API und die
+# Judge-Kette. MongoDB, Valkey und der Seed sind Infrastruktur und kommen aus
+# den Plays davor, ebenso die KEDA-CRD, die das ScaledObject braucht. Läuft auf dem Server (dort liegt die kubeconfig)
 # und vor der Auth-Kette, damit der backend-Service steht, wenn die geschützte
 # Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml, Secrets
 # braucht die App keine.

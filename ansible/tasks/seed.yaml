@@ -1,36 +1,12 @@
 ---
-# Die Judge-Kette aus app/k8s: Worker-Deployment, Rückhol-CronJob und das
-# KEDA-ScaledObject. Die Manifeste bleiben in app/k8s neben dem Code, das Play
-# spielt sie unverändert ein, damit Hand-Aufruf (kubectl apply) und Vollauf
-# denselben Stand erzeugen.
+# Der Seed der Aufgaben. Worker, Rückhol-CronJob und ScaledObject liegen seit
+# dem Umzug im Chart (app/chart/templates/judge.yaml) und kommen mit dem Tag
+# app. Hier bleibt, was Dateien aus dem Repo braucht. laden.py und die
+# Aufgaben-JSONs liegen nicht im Worker-Image, der Build-Kontext ist
+# app/worker, deshalb gehen sie als ConfigMap in den Cluster und ein Job führt
+# das Skript aus dem Mount aus. laden.py liest die JSONs aus seinem eigenen
+# Verzeichnis, der Mount unter /seed genügt also.
 
-# namespace am Modul, nicht im Manifest: worker.yaml und durchlauf-cronjob.yaml
-# tragen keinen, bei kubectl apply nimmt der Kontext den default, das Modul
-# verlangt ihn ausdrücklich.
-- name: Worker-Deployment anlegen
-  kubernetes.core.k8s:
-    state: present
-    namespace: default
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-    definition: "{{ lookup('file', playbook_dir ~ '/../app/k8s/worker.yaml') | from_yaml }}"
-
-- name: Durchlauf-CronJob anlegen
-  kubernetes.core.k8s:
-    state: present
-    namespace: default
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-    definition: "{{ lookup('file', playbook_dir ~ '/../app/k8s/durchlauf-cronjob.yaml') | from_yaml }}"
-
-- name: ScaledObject für den Python-Worker anlegen
-  kubernetes.core.k8s:
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-    definition: "{{ lookup('file', playbook_dir ~ '/../app/k8s/keda-scaledobject-python.yaml') | from_yaml }}"
-
-# Der Seed. laden.py und die Aufgaben-JSONs liegen nicht im Worker-Image
-# (Build-Kontext ist app/worker), deshalb kommen sie als ConfigMap in den
-# Cluster und ein Job führt das Skript aus dem Mount aus. laden.py liest die
-# JSONs aus seinem eigenen Verzeichnis, der Mount unter /seed genügt also.
 - name: Aufgaben und Seed-Skript einsammeln
   ansible.builtin.set_fact:
     seed_daten: "{{ (seed_daten | default({})) | combine({item | basename: lookup('file', item)}) }}"
@@ -85,9 +61,11 @@
             restartPolicy: Never
             containers:
               - name: seed
-                # Dasselbe Image wie der Worker: pymongo liegt dort schon, ein
-                # eigenes Seed-Image wäre ein weiterer Build für ein Skript.
-                image: ghcr.io/litithio/online-judge-worker:0.2.5
+                # Dasselbe Image wie der Worker, pymongo liegt dort schon.
+                # Ein eigenes Seed-Image wäre ein weiterer Build für ein
+                # Skript. Der Tag kommt aus vars/app.yaml, damit Seed und
+                # Worker denselben Stand fahren.
+                image: "ghcr.io/litithio/online-judge-worker:{{ app_image_tag }}"
                 command: ["python", "/seed/laden.py"]
                 env:
                   - name: MONGO_URI

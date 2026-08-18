@@ -8,7 +8,7 @@ Worker-Pod, der gestorben ist oder hängt, ohne den XACK-losen Fall zu melden.
 Beides bleibt als RUNNING ohne Ergebnis stehen, bis die Frist abläuft.
 
 Läuft einmal und beendet sich. Im Cluster als CronJob
-(app/k8s/durchlauf-cronjob.yaml), lokal von Hand über
+(app/chart/templates/judge.yaml), lokal von Hand über
 `docker compose run --rm worker python3 durchlauf.py`.
 """
 

@@ -3,13 +3,23 @@
   "title": "online-judge values",
   "description": "Prüft die values bei install und upgrade. Fehlt ein Pflichtfeld, bricht Helm sofort mit klarer Meldung ab, statt still mit einem falschen Bild zu deployen.",
   "type": "object",
-  "required": ["image", "externe"],
+  "required": [
+    "image",
+    "externe",
+    "judge"
+  ],
   "properties": {
     "image": {
       "type": "object",
-      "required": ["registry", "tag"],
+      "required": [
+        "registry",
+        "tag"
+      ],
       "properties": {
-        "registry": { "type": "string", "minLength": 1 },
+        "registry": {
+          "type": "string",
+          "minLength": 1
+        },
         "tag": {
           "type": "string",
           "minLength": 1,
@@ -17,33 +27,156 @@
         },
         "pullPolicy": {
           "type": "string",
-          "enum": ["Always", "IfNotPresent", "Never"]
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
         }
       }
     },
     "externe": {
       "type": "object",
-      "required": ["mongoSecret", "redisUri"],
+      "required": [
+        "mongoSecret",
+        "redisUri",
+        "redisKedaAdresse"
+      ],
       "description": "Anbindung der vorhandenen Datendienste. Das Chart legt sie nicht an, es verbindet sich nur.",
       "properties": {
         "mongoSecret": {
           "type": "object",
-          "required": ["name", "key"],
+          "required": [
+            "name",
+            "key"
+          ],
           "description": "Operator-Secret mit der MongoDB-URI samt Zugangsdaten.",
           "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "key": { "type": "string", "minLength": 1 }
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
-        "redisUri": { "type": "string", "minLength": 1 }
+        "redisUri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "redisKedaAdresse": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Queue als host:port mit vollem DNS-Namen. Der KEDA-Operator läuft in einem anderen Namespace, ein kurzer Name würde dort aufgelöst."
+        }
       }
     },
     "backend": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "replicas": { "type": "integer", "minimum": 1 },
-        "resources": { "type": "object" }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "judge": {
+      "type": "object",
+      "required": [
+        "runtimeClass",
+        "sprachen",
+        "durchlauf"
+      ],
+      "description": "Worker, ScaledObject und Rückhol-CronJob. Der Seed der Aufgaben läuft aus Ansible.",
+      "properties": {
+        "runtimeClass": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sprachen": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Je Eintrag ein Worker-Deployment und ein ScaledObject. Leer wäre ein Judge ohne Worker, deshalb minItems 1.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "repository",
+              "keda"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "repository": {
+                "type": "string",
+                "minLength": 1
+              },
+              "resources": {
+                "type": "object"
+              },
+              "keda": {
+                "type": "object",
+                "required": [
+                  "min",
+                  "max",
+                  "listLength",
+                  "activationListLength"
+                ],
+                "properties": {
+                  "min": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "max": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "listLength": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "activationListLength": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "durchlauf": {
+          "type": "object",
+          "required": [
+            "repository",
+            "schedule",
+            "maxVersuche"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "schedule": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxVersuche": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
       }
     }
   }

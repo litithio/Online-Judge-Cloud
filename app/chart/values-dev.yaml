@@ -13,3 +13,15 @@ backend:
     limits:
       cpu: "250m"
       memory: "128Mi"
+
+# Der Judge fährt in dev höchstens zwei Worker. Die Liste muss dabei vollständig
+# stehen: Helm ersetzt eine Liste aus values.yaml, es mischt sie nicht.
+judge:
+  sprachen:
+    - name: python
+      repository: online-judge-worker
+      keda:
+        min: 0
+        max: 2
+        listLength: 5
+        activationListLength: 1

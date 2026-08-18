@@ -3,10 +3,10 @@
 # values.schema.json prüft diese Struktur bei install und upgrade und bricht mit
 # klarer Meldung ab, wenn ein Pflichtfeld (Image-Tag) fehlt.
 #
-# Dieses Chart rollt nur die eigene API aus. MongoDB, die Redis-Queue, der
-# Judge-Worker und der Seed der Aufgaben sind Teil der Infrastruktur und stehen
-# schon im Cluster; das Chart verbindet sich mit den Datendiensten nur noch über
-# die Adressen unter externe.
+# Dieses Chart rollt die API und die Judge-Kette aus. MongoDB, Valkey und der
+# Seed der Aufgaben sind Teil der Infrastruktur und stehen schon im Cluster,
+# das Chart verbindet sich mit den Datendiensten nur über die Adressen unter
+# externe.
 
 # Gemeinsame Herkunft der eigenen Images. Repository und Tag stehen je Dienst
 # darunter; latest ist bewusst nicht die Vorgabe, damit nachvollziehbar bleibt,
@@ -35,6 +35,10 @@ externe:
     name: "mongodb-coding-platform-app"
     key: "connectionString.standard"
   redisUri: "redis://valkey:6379"
+  # Dieselbe Queue für KEDA, aber als host:port und mit vollem DNS-Namen. Der
+  # KEDA-Operator läuft im Namespace keda, ein kurzer Name würde dort aufgelöst
+  # und ginge ins Leere.
+  redisKedaAdresse: "valkey.default.svc.cluster.local:6379"
 
 # ---------------------------------------------------------------------------
 # API (backend)
@@ -49,3 +53,36 @@ backend:
     limits:
       cpu: "500m"
       memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# Judge
+# ---------------------------------------------------------------------------
+# Worker, ScaledObject und Rückhol-CronJob. Der Seed der Aufgaben gehört nicht
+# hierher, er braucht laden.py und die Aufgaben-JSONs als ConfigMap und läuft
+# deshalb weiter aus Ansible.
+judge:
+  # Sandbox-Laufzeit der Worker-Pods. Angelegt wird die RuntimeClass in
+  # ansible/deploy.yaml, das Chart verweist nur darauf.
+  runtimeClass: gvisor
+
+  # Je Eintrag ein Worker-Deployment und ein ScaledObject. name bildet den
+  # Namen des Deployments (code-worker-<name>), den Wert von WORKER_SPRACHE und
+  # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache
+  # braucht ein eigenes Image und einen Eintrag hier, keine weitere Datei.
+  sprachen:
+    - name: python
+      repository: online-judge-worker
+      keda:
+        # 0, damit ohne Einreichungen kein Pod steht.
+        min: 0
+        max: 5
+        # Ab dieser Länge je Replica skaliert KEDA hoch, ab
+        # activationListLength überhaupt von null weg.
+        listLength: 5
+        activationListLength: 1
+
+  durchlauf:
+    repository: online-judge-worker
+    # Unter CLAIM_FRIST_SEKUNDEN aus worker.py, siehe Kommentar im Template.
+    schedule: "*/2 * * * *"
+    maxVersuche: 3

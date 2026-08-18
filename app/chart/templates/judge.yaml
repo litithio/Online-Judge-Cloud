@@ -1,0 +1,122 @@
+# Die Judge-Kette. Je Sprache ein Worker-Deployment mit dem passenden
+# ScaledObject, dazu der Rückhol-CronJob für alle Sprachen. Im Chart statt in
+# eigenen Manifesten, damit die Image-Tags an derselben Stelle stehen wie die
+# der API und eine zweite Sprache ein Eintrag in values ist statt einer
+# weiteren Datei.
+{{- range .Values.judge.sprachen }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-worker-{{ .name }}
+  labels:
+    {{- include "online-judge.labels" $ | nindent 4 }}
+    app: code-worker-{{ .name }}
+spec:
+  # Ohne replicas, die Zahl gehört dem ScaledObject unten. Stünde sie hier,
+  # setzte jedes helm upgrade den Stand zurück, den KEDA gerade eingestellt hat.
+  selector:
+    matchLabels:
+      app: code-worker-{{ .name }}
+  template:
+    metadata:
+      labels:
+        {{- include "online-judge.labels" $ | nindent 8 }}
+        app: code-worker-{{ .name }}
+    spec:
+      # Der eingereichte Code läuft als Subprozess im Worker, nicht in einem
+      # eigenen Container. Die Isolation kommt deshalb von der Laufzeit des
+      # Worker-Pods selbst. runsc liegt auf den Agent-Nodes, die RuntimeClass
+      # legt ansible/deploy.yaml an.
+      runtimeClassName: {{ $.Values.judge.runtimeClass }}
+      containers:
+        - name: worker
+          image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.externe.mongoSecret.name | quote }}
+                  key: {{ $.Values.externe.mongoSecret.key | quote }}
+            - name: REDIS_URI
+              value: {{ include "online-judge.redisUri" $ | quote }}
+            # Bestimmt, welche Liste dieser Worker abfragt (judge:<sprache>)
+            # und worauf sein ScaledObject unten zielt.
+            - name: WORKER_SPRACHE
+              value: {{ .name | quote }}
+            # Der eingereichte Code bekommt hier einen eigenen Netz-Namespace,
+            # anders als im lokalen Compose-Stand. Ohne diesen Schalter würde
+            # die Trennung stillschweigend wegfallen, sobald der Aufruf einmal
+            # nicht mehr durchgeht, und Einreichungen erreichten wieder die
+            # Datenbank.
+            - name: SANDBOX_NETZ_ERZWINGEN
+              value: "1"
+---
+# minReplicaCount steht auf 0, weil die Last stoßweise ist und zwischen
+# Prüfungsterminen nahe null. Ohne Einreichungen soll kein Worker-Pod stehen
+# und Ressourcen im gemeinsamen Kursprojekt belegen.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: code-worker-{{ .name }}
+  labels:
+    {{- include "online-judge.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: code-worker-{{ .name }}
+  minReplicaCount: {{ .keda.min }}
+  maxReplicaCount: {{ .keda.max }}
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ $.Values.externe.redisKedaAdresse | quote }}
+        listName: judge:{{ .name }}
+        listLength: {{ .keda.listLength | quote }}
+        activationListLength: {{ .keda.activationListLength | quote }}
+---
+{{- end }}
+# Nimmt Einreichungen zurück, deren Frist ohne Ergebnis verstrichen ist, siehe
+# app/worker/durchlauf.py. Ein CronJob für alle Sprachen, das Skript selbst
+# braucht nur MongoDB und Valkey, keine eigene Laufzeitumgebung wie der Worker.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: durchlauf
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  # Unter CLAIM_FRIST_SEKUNDEN aus worker.py, sonst liegt eine abgelaufene
+  # Einreichung zwischen zwei Läufen unnötig lange. Nicht enger, jeder Lauf
+  # fragt MongoDB über alle Sprachen ab.
+  schedule: {{ .Values.judge.durchlauf.schedule | quote }}
+  # Zwei sich überschneidende Läufe sähen dieselben abgelaufenen Einreichungen.
+  # Der bedingte Update in durchlauf.py ließe nur den ersten gewinnen, der
+  # zweite liefe für nichts.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: durchlauf
+              # Dasselbe Image wie die Worker: durchlauf.py liegt neben
+              # worker.py und teilt dessen Abhängigkeiten.
+              image: {{ include "online-judge.image" (dict "root" . "repo" .Values.judge.durchlauf.repository) }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
+              # COPY . . legt durchlauf.py dorthin, neben worker.py.
+              command: ["python3", "/app/durchlauf.py"]
+              env:
+                - name: MONGO_URI
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.externe.mongoSecret.name | quote }}
+                      key: {{ .Values.externe.mongoSecret.key | quote }}
+                - name: REDIS_URI
+                  value: {{ include "online-judge.redisUri" . | quote }}
+                - name: MAX_VERSUCHE
+                  value: {{ .Values.judge.durchlauf.maxVersuche | quote }}

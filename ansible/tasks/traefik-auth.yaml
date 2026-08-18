@@ -77,6 +77,10 @@
           # <namespace>-<name>@kubernetescrd verweist auf die Middleware oben.
           traefik.ingress.kubernetes.io/router.middlewares: default-oidc-auth@kubernetescrd
       spec:
+        # Ausgeschrieben, obwohl die IngressClass traefik im k3s-Bundle als
+        # Default markiert ist. Der API-Server trägt sie sonst selbst ein, und
+        # das Manifest ließe offen, welcher Controller die Route bedient.
+        ingressClassName: traefik
         rules:
           - host: "{{ app_host }}"
             http:

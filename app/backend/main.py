@@ -49,8 +49,10 @@ def parse_json(data):
     return data
 
 
-# Die beiden Endpunkte für die Probes tragen bewusst kein Depends(verify_jwt).
-# Das kubelet schickt kein Token; eine geschützte Probe schlüge dauerhaft fehl.
+# Die beiden Endpunkte für die Probes tragen bewusst kein
+# Depends(get_current_user). Das kubelet ruft den Pod direkt auf, an der
+# Auth-Kette vorbei, und schickt deshalb keine Gateway-Header. Eine geschützte
+# Probe schlüge dauerhaft fehl.
 @app.get("/healthz")
 async def healthz():
     """Läuft der Prozess noch? Hängt an keinem anderen Dienst.

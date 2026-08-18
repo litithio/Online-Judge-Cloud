@@ -76,10 +76,13 @@ judge:
         # 0, damit ohne Einreichungen kein Pod steht.
         min: 0
         max: 5
-        # Ab dieser Länge je Replica skaliert KEDA hoch, ab
-        # activationListLength überhaupt von null weg.
+        # Ab dieser Länge je Replica skaliert KEDA hoch.
         listLength: 5
-        activationListLength: 1
+        # KEDA aktiviert, sobald die Länge über diesem Wert liegt. Bei 1 bliebe
+        # eine einzelne wartende Einreichung liegen, bis eine zweite dazukommt,
+        # und der Rückhol-CronJob holt sie nicht, er greift nur bei RUNNING mit
+        # abgelaufener Frist.
+        activationListLength: 0
 
   durchlauf:
     repository: online-judge-worker

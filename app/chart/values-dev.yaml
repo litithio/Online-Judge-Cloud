@@ -24,4 +24,4 @@ judge:
         min: 0
         max: 2
         listLength: 5
-        activationListLength: 1
+        activationListLength: 0

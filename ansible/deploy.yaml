@@ -70,6 +70,30 @@
   tags: [gvisor]
   become: true
   tasks:
+    # Das Label sagt aus, dass runsc auf diesem Node liegt. Es benennt damit
+    # die Laufzeit und nicht die Rolle des Nodes, die Aufteilung zwischen
+    # Judge und Diensten entscheidet #88 getrennt davon. Der Name des Nodes
+    # ist sein Hostname, k3s übernimmt ihn unverändert.
+    - name: Agent-Nodes als Sandbox-Nodes kennzeichnen
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kind: Node
+        name: "{{ hostvars[item]['ansible_hostname'] }}"
+        definition:
+          metadata:
+            labels:
+              online-judge/sandbox: runsc
+      loop: "{{ groups['judge_k3s_agent'] }}"
+      loop_control:
+        label: "{{ hostvars[item]['ansible_hostname'] }}"
+
+    # scheduling.nodeSelector bindet jeden Pod mit dieser RuntimeClass an die
+    # gekennzeichneten Nodes. Der Weg über die RuntimeClass statt über jedes
+    # Deployment hält die Bindung an einer Stelle. Wer runsc anfordert, kann
+    # damit gar nicht erst auf einem Node landen, auf dem runsc fehlt. Ohne sie
+    # nimmt der k3s-Server den Pod an, dort liegt runsc aber nicht, weil das
+    # gvisor-Play nur auf den Agents läuft.
     - name: RuntimeClass gvisor
       kubernetes.core.k8s:
         state: present
@@ -80,6 +104,9 @@
           metadata:
             name: gvisor
           handler: runsc
+          scheduling:
+            nodeSelector:
+              online-judge/sandbox: runsc
 
 # Die Datendienste zuerst: die App verbindet sich beim Start mit MongoDB und
 # der Queue, und das Chart liest die Mongo-URI aus dem Secret, das der Operator

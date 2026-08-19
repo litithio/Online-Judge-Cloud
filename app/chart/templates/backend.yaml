@@ -1,7 +1,21 @@
-# Die API. Tritt an die Stelle des Compose-Dienstes backend: kein Port nach
+# Die API. Tritt an die Stelle des Compose-Dienstes backend, kein Port nach
 # außen, sondern ein Service, den die geschützte Ingress der Auth-Kette
 # (ansible/tasks/traefik-auth.yaml) anspricht. Von außen führt der Weg über
 # Traefik -> Middleware -> diesen Service.
+#
+# Die nicht geheime Konfiguration steht in einer eigenen ConfigMap je
+# Komponente. Eine gemeinsame würde jedem Workload die Werte der anderen
+# unterschieben.
+{{- $daten := dict "REDIS_URI" (include "online-judge.redisUri" .) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+data:
+  {{- toYaml $daten | nindent 2 }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,6 +30,11 @@ spec:
       app: backend
   template:
     metadata:
+      annotations:
+        # Prüfsumme über die Daten der ConfigMap. envFrom liest sie beim Start
+        # des Pods, ohne diese Annotation liefe ein geänderter Wert erst beim
+        # nächsten Neustart an, und niemand sähe warum.
+        checksum/config: {{ toYaml $daten | sha256sum }}
       labels:
         {{- include "online-judge.labels" . | nindent 8 }}
         app: backend
@@ -26,15 +45,18 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: backend
           env:
+            # Getrennt von der ConfigMap, weil die URI das Passwort enthält.
+            # Der Operator schreibt sie in das Secret.
             - name: MONGO_URI
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.externe.mongoSecret.name | quote }}
                   key: {{ .Values.externe.mongoSecret.key | quote }}
-            - name: REDIS_URI
-              value: {{ include "online-judge.redisUri" . | quote }}
-            # Keine KEYCLOAK_URL: die Identität prüft das Gateway, die App liest
+            # Keine KEYCLOAK_URL. Die Identität prüft das Gateway, die App liest
             # sie aus den X-Auth-Request-*-Headern (app/backend/auth.py).
           # /healthz hängt an keinem anderen Dienst, /readyz prüft MongoDB.
           # Deshalb startet ein Datenbankausfall keine Pods neu, er nimmt sie

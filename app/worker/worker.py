@@ -41,11 +41,14 @@ QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwo
 
 # Wall-Clock-Frist über RLIMIT_CPU: Die Aufgabe begrenzt die Rechenzeit über
 # RLIMIT_CPU (_starter), diese Frist fängt zusätzlich, was wartet statt zu
-# rechnen, denn RLIMIT_CPU zählt nur CPU-Zeit. Muss über dem harten
-# RLIMIT_CPU-Limit (zeit + 1) liegen, sonst konkurrieren beide Mechanismen um
+# rechnen, denn RLIMIT_CPU zählt nur CPU-Zeit. Der Puffer liegt auf dem harten
+# RLIMIT_CPU-Limit (zeit + 1), nicht auf zeit selbst: Nur so bleibt er ein
+# kleiner Abstand zum tatsächlichen Konkurrenten und bläht nicht nebenbei die
+# Frist für schlafende oder blockierende Einreichungen auf, die RLIMIT_CPU nie
+# sieht. Muss über null liegen, sonst konkurrieren beide Mechanismen um
 # dieselbe Grenze, und welcher zuerst greift, entscheidet der Zufall statt der
 # Zeit.
-ZEITFRIST_PUFFER = 2
+ZEITFRIST_PUFFER = 0.5
 
 # Dieser Worker bedient nur die Liste seiner eigenen Sprache (#82). Mehrere
 # Sprachen heißt mehrere Worker-Deployments, je mit eigenem WORKER_SPRACHE und
@@ -59,11 +62,22 @@ QUEUE_KEY = f"judge:{WORKER_SPRACHE}"
 # Downward API.
 WORKER_ID = f"worker-{socket.gethostname()}"
 
-# Deckelt, wie lange eine Einreichung als RUNNING gilt, bevor der Durchlauf aus
-# #82 sie für hängengeblieben hält und erneut einreiht. Muss über der Summe
-# aller Testfälle einer Aufgabe bei GRENZE_ZEIT_MAX liegen, sonst nimmt sich
-# eine langsame, aber gesunde Einreichung ihre eigene Frist weg.
-CLAIM_FRIST_SEKUNDEN = int(os.getenv("CLAIM_FRIST_SEKUNDEN", "60"))
+# Marge, wie lange eine Einreichung über ihre eigentliche Obergrenze hinaus
+# als RUNNING gilt, bevor der Durchlauf aus #82 sie für hängengeblieben hält
+# und erneut einreiht. Gilt in zwei Rollen: als Frist ab der Übernahme
+# (_uebernehmen), solange die Aufgabe noch nicht gelesen ist, und danach als
+# Marge über der tatsächlichen Obergrenze der Aufgabe (_urteil), sobald die
+# feststeht. Eine feste Zahl als Frist selbst könnte über der Summe aller
+# Testfälle einer Aufgabe nie zuverlässig liegen, die Zahl der Testfälle ist
+# nicht gedeckelt; als Marge auf die aus der Aufgabe berechnete Summe
+# angewendet, bleibt sie das unabhängig von deren Zahl.
+#
+# 90 hält den in durchlauf-cronjob.yaml dokumentierten Takt (60s, die
+# feinste Auflösung, die ein CronJob kennt) mit 50 % Marge ein. Nur diese
+# Bedingung, Marge > Takt, ist hart; 90 selbst ist keine berechnete Zahl,
+# nur eine runde Wahl mit reichlich Abstand. 75 (25 % Marge) hielte dieselbe
+# Bedingung ebenso ein, dann aber knapper.
+CLAIM_FRIST_PUFFER_SEKUNDEN = int(os.getenv("CLAIM_FRIST_PUFFER_SEKUNDEN", "90"))
 
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine
 # Aufgabe das Zeitlimit praktisch abschalten oder mehr Speicher erlauben, als der
@@ -444,7 +458,7 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
         # den Spitzenspeicher des Kindes, auch für einen Lauf, der per SIGKILL
         # gestorben ist. WNOHANG bis zur Frist, damit die Schleife Zeit und
         # Speicher weiter zusammenhält, ohne blockierend auf das Kind zu warten.
-        frist = start + zeit + ZEITFRIST_PUFFER
+        frist = start + zeit + 1 + ZEITFRIST_PUFFER
         while True:
             pid, status, rusage = os.wait4(prozess.pid, os.WNOHANG)
             if pid != 0:
@@ -572,9 +586,13 @@ def _uebernehmen(sub_id):
     kann schneller gewesen sein, oder dieselbe ID steht kurzzeitig doppelt in
     der Queue. Erst nach der Übernahme werden Code und Aufgabe gelesen, aus
     dem Document selbst, nicht mehr aus der Queue.
+
+    Die Frist hier ist nur der Platzhalter für die Zeit bis dahin: Die Aufgabe
+    ist an dieser Stelle noch nicht gelesen, ihre echte Obergrenze also noch
+    nicht bekannt. _urteil ersetzt sie, sobald die Aufgabe vorliegt.
     """
     token = uuid.uuid4().hex
-    frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_SEKUNDEN)
+    frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_PUFFER_SEKUNDEN)
     return db.submissions.find_one_and_update(
         {"_id": sub_id, "status": "PENDING"},
         {
@@ -600,6 +618,23 @@ def _urteil(sub_id, token, submission, task):
     """
     zeit, speicher = grenzen_der_aufgabe(task)
     test_cases = task.get("test_cases", [])
+
+    # Löst die Frist von der Übernahme (_uebernehmen) ab, sobald die Aufgabe
+    # feststeht: zeit gilt je Testfall, die Summe über alle Testfälle ist die
+    # tatsächliche Obergrenze dieses Laufs, unabhängig von ihrer Zahl. Der
+    # bedingte Update lässt einen inzwischen erschöpften run_token in Ruhe,
+    # wie jeder andere Schreibzugriff hier.
+    db.submissions.update_one(
+        {"_id": sub_id, "status": "RUNNING", "run_token": token},
+        {
+            "$set": {
+                "frist": datetime.now(timezone.utc)
+                + timedelta(
+                    seconds=zeit * len(test_cases) + CLAIM_FRIST_PUFFER_SEKUNDEN
+                )
+            }
+        },
+    )
 
     # Platzhalter für alle Fälle, bevor der erste läuft. Damit trägt der
     # Fortschritt "2 von 5 erledigt" schon während des Laufs, nicht erst am

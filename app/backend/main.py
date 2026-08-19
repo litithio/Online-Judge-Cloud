@@ -142,6 +142,13 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
         "result": None,
         "test_results": None,
         "versuche": 0,
+        # Eigener Zähler statt versuche: versuche steigt nur bei einer
+        # tatsächlichen Übernahme (worker.py, _uebernehmen), ein Queue-Eintrag,
+        # der verlorenging, bevor ihn ein Worker zog, rührt ihn nie an. Ohne
+        # requeue_versuche griffe MAX_VERSUCHE in durchlauf.py für #113 also
+        # nie, und eine dauerhaft verlorene Einreichung würde unbegrenzt oft
+        # erneut eingereiht.
+        "requeue_versuche": 0,
         "run_token": None,
         "frist": None,
         "worker_id": None,

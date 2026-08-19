@@ -103,3 +103,47 @@
               - name: seed
                 configMap:
                   name: aufgaben-seed
+
+# Einmalige Migration für #113 (app/worker/nachtrag_113.py). Anders als der
+# Seed kein ConfigMap-Umweg nötig: das Skript liegt schon im Worker-Image
+# (COPY . . in app/worker/Dockerfile), der Job ruft es direkt unter /app auf.
+- name: Alten Nachtrag-Job entfernen
+  kubernetes.core.k8s:
+    state: absent
+    api_version: batch/v1
+    kind: Job
+    name: nachtrag-113
+    namespace: default
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    wait: true
+
+- name: "Nachtrag-Job für #113 ausführen"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    wait: true
+    wait_condition:
+      type: Complete
+      status: "True"
+    wait_timeout: 300
+    definition:
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: nachtrag-113
+        namespace: default
+      spec:
+        backoffLimit: 2
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: nachtrag-113
+                image: ghcr.io/litithio/online-judge-worker:0.2.5
+                command: ["python", "/app/nachtrag_113.py"]
+                env:
+                  - name: MONGO_URI
+                    valueFrom:
+                      secretKeyRef:
+                        name: mongodb-coding-platform-app
+                        key: connectionString.standard

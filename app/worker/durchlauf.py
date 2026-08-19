@@ -13,7 +13,10 @@ Das deckt drei Fälle ab, die für die Queue gleich aussehen:
   dem Insert und dem RPUSH stirbt, oder weil ein Worker den Eintrag per BLPOP
   schon zog, aber vor der bedingten Übernahme in MongoDB starb (#85). Ohne
   Queue-Eintrag bleibt so eine Einreichung sonst für immer auf PENDING stehen,
-  ohne dass je eine Frist zu laufen beginnt.
+  ohne dass je eine Frist zu laufen beginnt. last_enqueued_at allein kann das
+  nicht von einer Einreichung unterscheiden, die nur hinter einem Rückstau
+  wartet, ihr Eintrag steht dabei ja noch in Valkey; erst LPOS gegen die
+  jeweilige Liste unten trennt beide Fälle.
 
 Läuft einmal und beendet sich. Im Cluster als CronJob
 (app/k8s/durchlauf-cronjob.yaml), lokal von Hand über
@@ -31,11 +34,18 @@ REDIS_URI = os.getenv("REDIS_URI", "redis://localhost:6379")
 
 # n aus der Beschlusslage zu #82: wie viele Versuche eine Einreichung
 # bekommt, bevor sie als nicht beurteilt gilt statt erneut eingereiht zu
-# werden. versuche zählt Claims, nicht Durchlauf-Läufe, siehe worker.py.
+# werden. Gilt für zwei eigene Zähler, nicht denselben: versuche (worker.py)
+# zählt tatsächliche Übernahmen für _abgelaufene_uebernahmen unten,
+# requeue_versuche zählt Requeues durch _verwaiste_pending für #113. Ein
+# Queue-Eintrag, der verlorenging, bevor ihn ein Worker zog, erreicht nie
+# eine Übernahme, versuche bliebe für ihn also für immer 0 und MAX_VERSUCHE
+# griffe nie.
 MAX_VERSUCHE = int(os.getenv("MAX_VERSUCHE", "3"))
 
-# Aus #113: wie lange eine Einreichung ohne frischen Queue-Eintrag auf
-# PENDING liegen darf, bevor der Durchlauf sie erneut einreiht. Muss über der
+# Aus #113: wie lange eine Einreichung auf PENDING liegen darf, bevor der
+# Durchlauf sie als Kandidatin für einen verlorenen Queue-Eintrag prüft (den
+# eigentlichen Verlust stellt erst der LPOS-Check gegen Valkey fest, siehe
+# unten). Muss über der
 # normalen Wartezeit einer gesunden Einreichung liegen, sonst reiht der
 # Durchlauf sie ein zweites Mal ein, während sie nur auf ihren Worker wartet:
 # KEDA pollt die Queue ohne eigenes pollingInterval alle 30 Sekunden
@@ -61,13 +71,15 @@ def _abgelaufene_uebernahmen(db, jetzt):
 
 def _verwaiste_pending(db, schwelle):
     """Findet Kandidaten für #113: PENDING, deren Queue-Eintrag seit
-    REENQUEUE_AFTER_SECONDS nicht erneuert wurde. Wie bei
-    _abgelaufene_uebernahmen entscheidet der bedingte Update unten je
+    REENQUEUE_AFTER_SECONDS nicht erneuert wurde. Nur Kandidaten, noch keine
+    Entscheidung: Rückstau sieht hier genauso aus wie Verlust, das trennt erst
+    der LPOS-Check gegen Valkey in durchlauf() unten. Wie bei
+    _abgelaufene_uebernahmen entscheidet der bedingte Update dort je
     Einreichung erneut, gegen denselben Zeitpunkt schwelle: Ein Worker kann
     zwischen diesem find und dem Update noch übernommen haben."""
     return db.submissions.find(
         {"status": "PENDING", "last_enqueued_at": {"$lt": schwelle}},
-        {"_id": 1, "sprache": 1, "versuche": 1},
+        {"_id": 1, "sprache": 1, "requeue_versuche": 1},
     )
 
 
@@ -137,7 +149,18 @@ def durchlauf():
     for eintrag in list(_verwaiste_pending(db, schwelle)):
         sub_id = eintrag["_id"]
 
-        if eintrag["versuche"] >= MAX_VERSUCHE:
+        # last_enqueued_at allein sagt nur "seit wann PENDING", nicht ob der
+        # Eintrag noch aussteht oder verloren ist: Ein Rückstau vor ihm sieht
+        # genauso alt aus wie ein Verlust. LPOS fragt stattdessen Valkey
+        # selbst, ob die ID noch in der Liste steht. MongoDB bleibt dabei die
+        # einzige Quelle für den Zustand der Einreichung, das hier ist nur eine
+        # Anfrage an die Warteschlange nach ihrem eigenen Inhalt, kein zweiter
+        # Ort für diesen Zustand. Noch in der Liste: nichts zu tun, auch nicht
+        # an requeue_versuche, der nächste Lauf prüft erneut.
+        if redis_client.lpos(f"judge:{eintrag['sprache']}", str(sub_id)) is not None:
+            continue
+
+        if eintrag["requeue_versuche"] >= MAX_VERSUCHE:
             ergebnis = db.submissions.find_one_and_update(
                 {
                     "_id": sub_id,
@@ -149,14 +172,17 @@ def durchlauf():
             if ergebnis is not None:
                 aufgegeben += 1
                 print(
-                    f"Einreichung {sub_id}: {eintrag['versuche']} Versuche "
+                    f"Einreichung {sub_id}: {eintrag['requeue_versuche']} Requeues "
                     f"ausgeschöpft, nie aus der Queue übernommen, {ENDZUSTAND_ERSCHOEPFT}"
                 )
             continue
 
         ergebnis = db.submissions.find_one_and_update(
             {"_id": sub_id, "status": "PENDING", "last_enqueued_at": {"$lt": schwelle}},
-            {"$set": {"last_enqueued_at": jetzt}},
+            {
+                "$set": {"last_enqueued_at": jetzt},
+                "$inc": {"requeue_versuche": 1},
+            },
             return_document=ReturnDocument.AFTER,
         )
         if ergebnis is None:
@@ -169,7 +195,8 @@ def durchlauf():
         erneut_eingereiht += 1
         print(
             f"Einreichung {sub_id}: seit über {REENQUEUE_AFTER_SECONDS}s PENDING ohne "
-            f"Queue-Eintrag, erneut in judge:{ergebnis['sprache']} eingereiht"
+            f"Queue-Eintrag, erneut in judge:{ergebnis['sprache']} eingereiht "
+            f"(Requeue {ergebnis['requeue_versuche']} von {MAX_VERSUCHE})"
         )
 
     print(

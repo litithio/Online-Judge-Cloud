@@ -7,10 +7,12 @@ kind: CronJob
 metadata:
   name: durchlauf
 spec:
-  # Unter CLAIM_FRIST_SEKUNDEN aus worker.py (Standard 60s), sonst liegt eine
-  # abgelaufene Einreichung zwischen zwei Läufen unnötig lange. Nicht enger,
-  # jeder Lauf fragt MongoDB über alle Sprachen ab.
-  schedule: "*/2 * * * *"
+  # Unter CLAIM_FRIST_PUFFER_SEKUNDEN aus worker.py (Standard 90s), sonst liegt eine
+  # abgelaufene Einreichung zwischen zwei Läufen unnötig lange. CronJob kennt
+  # keine feinere Auflösung als eine Minute, jede volle Minute ist hier also
+  # bereits der engste Takt, den es gibt, mit 30s Marge zu den 90s. Nicht
+  # enger als nötig gewählt, jeder Lauf fragt MongoDB über alle Sprachen ab.
+  schedule: "* * * * *"
   # Zwei sich überschneidende Läufe sähen dieselben abgelaufenen Einreichungen;
   # der bedingte Update in durchlauf.py ließe nur den ersten gewinnen, der
   # zweite liefe für nichts.

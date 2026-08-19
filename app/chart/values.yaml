@@ -46,10 +46,19 @@ externe:
 backend:
   repository: online-judge-backend
   replicas: 2
+  # Der CPU-Request folgt dem Start, nicht der Last. Gemessen sind im Leerlauf
+  # 3m und unter Last 8m bis 9m je Pod, beim Start dagegen 54m bis 55m für rund
+  # 15 Sekunden, weil main.py beim Import den Index anlegt. Läge der Request
+  # darunter, würde ausgerechnet der Start gedrosselt und das Fenster der
+  # startupProbe liefe langsamer ab.
+  #
+  # Der Speicher liegt konstant bei 46 MiB, im Leerlauf wie unter Last wie beim
+  # Start. Das Limit lässt Luft für größere Antworten, etwa wenn die Oberfläche
+  # aus #56 dazukommt.
   resources:
     requests:
       cpu: "100m"
-      memory: "128Mi"
+      memory: "64Mi"
     limits:
       cpu: "500m"
       memory: "256Mi"

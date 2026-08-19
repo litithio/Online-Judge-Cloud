@@ -241,6 +241,20 @@ dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und 44 bis 48 MiB je
 Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die eine Aufgabe für
 den Kindprozess fordern darf.
 
+### Ressourcen der API
+
+Die API bekommt 100m CPU und 64Mi Speicher als Request, dazu 500m und 256Mi als
+Limit. Die Alternative war ein CPU-Request an der Last, also 10m bis 20m. Der
+reserviert ein Fünftel und lässt die Spitzen vom Limit auffangen.
+
+Den Ausschlag gibt hier der Start und nicht der Betrieb. Im Leerlauf braucht die
+API 3m, unter Last 8m bis 9m, beim Start dagegen rund 55m für etwa 15 Sekunden,
+weil sie dabei den Index in MongoDB anlegt. Ein Request unterhalb dieses Werts
+drosselt genau die Startphase. Das Startfenster der Probe liefe damit langsamer
+ab, und beim Rolling Update fehlte eine Replica länger. Der Preis sind 100m je
+Replica, also 200m für die beiden, die im Betrieb fast nie gebraucht werden. Der
+Speicher steht bei 46 MiB, konstant im Leerlauf, unter Last und beim Start.
+
 ## Grenzen
 Was die Lösung nicht kann und was Sie unter echter Last erwarten
 

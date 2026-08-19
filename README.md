@@ -110,12 +110,13 @@ in die tfvars eintragen.
 
 ### Anwendung
 
-Das Chart `app/chart` rollt nur die eigene API (`backend`) aus. MongoDB, die
-Redis-Queue, der Judge-Worker und der Seed der Aufgaben gehören zur
-Infrastruktur und stehen schon im Cluster; das Chart verbindet sich nur, über
-`externe` in den values: die Queue über den Service-Namen, MongoDB über das
-Operator-Secret mit der URI samt Zugangsdaten. Das Play mit dem Tag `app`
-kopiert den Chart auf den Server und ruft `helm upgrade --install`:
+Das Chart `app/chart` rollt die eigenen Dienste aus, die API (`backend`) und
+die Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob. MongoDB, Valkey
+und der Seed der Aufgaben gehören zur Infrastruktur und stehen schon im
+Cluster. Das Chart verbindet sich mit ihnen über `externe` in den values, mit
+der Queue über den Service-Namen und mit MongoDB über das Operator-Secret, das
+die URI samt Zugangsdaten hält. Das Play mit dem Tag `app` kopiert den Chart
+auf den Server und ruft `helm upgrade --install`.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
@@ -123,31 +124,45 @@ ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags app
 ```
 
-Der ausgerollte Stand steht in `ansible/vars/app.yaml`: `app_image_tag` wählt
-den Image-Tag (gebaut von `images.yml` bei einem Git-Tag), `app_values_env`
-zwischen den Overlays `values-prod.yaml` (zwei API-Replicas) und
-`values-dev.yaml` (eine, kleinere Grenzen). `values.schema.json` bricht das
-Ausrollen ab, wenn der Image-Tag oder die Anbindung der Datendienste fehlt.
+Einmalig beim Umstieg auf diesen Stand, nur auf einem Cluster, der den alten
+schon gefahren hat. Worker, Rückhol-CronJob und ScaledObject kamen vorher aus
+Ansible und gehören damit nicht Helm. `helm upgrade` übernimmt keine fremden
+Objekte und bricht mit `invalid ownership metadata` ab, sie müssen deshalb
+vorher weg. Helm legt sie sofort neu an.
 
-Prüfen: `kubectl get pods` zeigt `backend` als Running.
+```bash
+kubectl delete deployment code-worker cronjob durchlauf scaledobject code-worker-python
+```
 
-### Judge
+Der ausgerollte Stand steht in `ansible/vars/app.yaml`. `app_image_tag` wählt
+den Image-Tag, gebaut von `images.yml` bei einem Git-Tag, und `app_values_env`
+wählt zwischen den Overlays `values-prod.yaml` mit zwei API-Replicas und
+`values-dev.yaml` mit einer, kleineren Grenzen und höchstens zwei Workern.
+`values.schema.json` bricht das Ausrollen ab, wenn der Image-Tag, die Anbindung
+der Datendienste oder ein Eintrag unter `judge` fehlt.
 
-Das Play mit dem Tag `judge` spielt die Manifeste aus `app/k8s` ein (Worker,
-Rückhol-CronJob, KEDA-ScaledObject) und führt den Seed der Aufgaben als Job
-aus. Der Job nutzt das Worker-Image, `laden.py` und die Aufgaben-JSONs kommen
-als ConfigMap in den Cluster:
+Eine weitere Sprache ist ein Eintrag unter `judge.sprachen` in den values, samt
+eigenem Worker-Image. Das Chart erzeugt daraus Deployment und ScaledObject.
+
+Prüfen mit `kubectl get pods`, dort steht `backend` auf Running. `kubectl get
+cronjob,scaledobject` zeigt `durchlauf` und `code-worker-python`. Das
+Worker-Deployment hat ohne wartende Einreichungen null Replicas, KEDA startet
+es bei Last.
+
+### Aufgaben laden
+
+Das Play mit dem Tag `seed` führt den Seed der Aufgaben als Job aus. Der Job
+nutzt das Worker-Image, `laden.py` und die Aufgaben-JSONs kommen als ConfigMap
+in den Cluster. Der Seed bleibt in Ansible, weil er Dateien aus dem Repo
+braucht.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
 ansible-playbook -i inventory/generated-inventory.yml \
-                 -i dns-credentials.yaml deploy.yaml --tags judge
+                 -i dns-credentials.yaml deploy.yaml --tags seed
 ```
 
-Prüfen: `kubectl get cronjob,scaledobject` zeigt `durchlauf` und
-`code-worker-python`, und der Job `aufgaben-seed` steht auf Completed. Das
-Worker-Deployment hat ohne wartende Einreichungen null Replicas, KEDA startet
-es bei Last.
+Prüfen mit `kubectl get jobs`, dort steht `aufgaben-seed` auf Completed.
 
 ### Authentifizierung
 
@@ -207,6 +222,42 @@ meldet, wenn eine `.mmd` neuer ist als ihr SVG.
 
 ## Entscheidungen
 Je Pflicht- und Wahlthema ein Absatz: Wahl, Alternative, Begründung
+
+### Ressourcen der Judge-Worker
+
+Jeder Judge-Worker bekommt einen Kern, als Request und als Limit, dazu 64Mi
+Speicher als Request und 320Mi als Limit. Die Alternative war ein kleinerer
+Request von etwa 250m, dessen Spitzen das Limit auffängt. Dann passen mehr
+Worker auf einen Node und der Judge skaliert weiter, bevor die Kerne ausgehen.
+
+Den Ausschlag gibt, wie der Judge urteilt. Das Zeitlimit einer Aufgabe gilt
+doppelt. Es begrenzt die Rechenzeit über `RLIMIT_CPU`, und dieselbe Zahl gilt
+noch einmal als Frist auf die vergangene Zeit, weil eine Einreichung, die auf
+eine Eingabe wartet statt zu rechnen, sonst nie ablaufen würde. Die Aufgaben im
+Repo setzen zwischen 2 und 4 Sekunden. Bekommt ein Worker seinen Kern nicht,
+weil andere Pods auf demselben Node rechnen, wächst nur die vergangene Zeit.
+Die Rechenzeit bleibt unter dem Limit, die Frist reißt trotzdem, und eine
+korrekte Einreichung bekommt TIMEOUT. Das Urteil hinge dann an der Belegung des Nodes statt an der
+Lösung. Deshalb Request gleich Limit. Der Preis dafür sind fünf gebundene Kerne
+bei fünf Workern, und über fünf hinaus skaliert der Judge erst, wenn Nodes
+dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und 44 bis 48 MiB je
+Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die eine Aufgabe für
+den Kindprozess fordern darf.
+
+### Ressourcen der API
+
+Die API bekommt 100m CPU und 64Mi Speicher als Request, dazu 500m und 256Mi als
+Limit. Die Alternative war ein CPU-Request an der Last, also 10m bis 20m. Der
+reserviert ein Fünftel und lässt die Spitzen vom Limit auffangen.
+
+Den Ausschlag gibt hier der Start und nicht der Betrieb. Im Leerlauf braucht die
+API 3m, unter Last 8m bis 9m, beim Start dagegen rund 55m für etwa 15 Sekunden,
+weil sie dabei den Index in MongoDB anlegt. Ein Request unterhalb dieses Werts
+drosselt genau die Startphase. Das Startfenster der Probe liefe damit langsamer
+ab, und beim Rolling Update fehlte eine Replica länger. Der Preis sind 100m je
+Replica, also 200m für die beiden, die im Betrieb fast nie gebraucht werden. Der
+Speicher steht bei 46 MiB, konstant im Leerlauf, unter Last und beim Start.
+
 ## Grenzen
 Was die Lösung nicht kann und was Sie unter echter Last erwarten
 

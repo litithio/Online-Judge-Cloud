@@ -1,8 +1,7 @@
-# prod: die Konfiguration der Pflichtszenen. Zwei API-Replicas für ein Rolling
-# Update ohne Ausfall (P5). Die requests/limits sind die in #15 begründeten Werte
-# und stehen schon als Vorgabe in values.yaml, deshalb hier nur, was von dev
-# abweicht. Der Tag wird beim Aufruf gesetzt: -f values-prod.yaml
-# --set image.tag=<version>.
+# prod, die Konfiguration der Pflichtszenen. Zwei API-Replicas für ein Rolling
+# Update ohne Ausfall (P5). Die requests und limits stehen mit ihrer Herleitung
+# in values.yaml, deshalb hier nur, was von dev abweicht. Der Tag wird beim
+# Aufruf gesetzt, mit -f values-prod.yaml --set image.tag=<version>.
 
 backend:
   replicas: 2

@@ -19,7 +19,7 @@ Das deckt drei Fälle ab, die für die Queue gleich aussehen:
   jeweilige Liste unten trennt beide Fälle.
 
 Läuft einmal und beendet sich. Im Cluster als CronJob
-(app/k8s/durchlauf-cronjob.yaml), lokal von Hand über
+(app/chart/templates/judge.yaml), lokal von Hand über
 `docker compose run --rm worker python3 durchlauf.py`.
 """
 

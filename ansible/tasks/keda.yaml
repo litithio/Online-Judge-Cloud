@@ -1,6 +1,6 @@
 # === KEDA ===
 # Skaliert die Sprach-Worker über die Länge ihrer Liste in Valkey
-# (ScaledObject je Sprache, app/k8s/keda-scaledobject-python.yaml). Wie beim
+# (ScaledObject je Sprache, app/chart/templates/judge.yaml). Wie beim
 # MongoDB-Operator ein Helm-Chart, eigener Namespace, damit die CRDs und die
 # wenigen Systemkomponenten nicht im default-Namespace zwischen App und
 # Datenbank stehen.

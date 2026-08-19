@@ -3,10 +3,10 @@
 # values.schema.json prüft diese Struktur bei install und upgrade und bricht mit
 # klarer Meldung ab, wenn ein Pflichtfeld (Image-Tag) fehlt.
 #
-# Dieses Chart rollt nur die eigene API aus. MongoDB, die Redis-Queue, der
-# Judge-Worker und der Seed der Aufgaben sind Teil der Infrastruktur und stehen
-# schon im Cluster; das Chart verbindet sich mit den Datendiensten nur noch über
-# die Adressen unter externe.
+# Dieses Chart rollt die API und die Judge-Kette aus. MongoDB, Valkey und der
+# Seed der Aufgaben sind Teil der Infrastruktur und stehen schon im Cluster,
+# das Chart verbindet sich mit den Datendiensten nur über die Adressen unter
+# externe.
 
 # Gemeinsame Herkunft der eigenen Images. Repository und Tag stehen je Dienst
 # darunter; latest ist bewusst nicht die Vorgabe, damit nachvollziehbar bleibt,
@@ -35,6 +35,10 @@ externe:
     name: "mongodb-coding-platform-app"
     key: "connectionString.standard"
   redisUri: "redis://valkey:6379"
+  # Dieselbe Queue für KEDA, aber als host:port und mit vollem DNS-Namen. Der
+  # KEDA-Operator läuft im Namespace keda, ein kurzer Name würde dort aufgelöst
+  # und ginge ins Leere.
+  redisKedaAdresse: "valkey.default.svc.cluster.local:6379"
 
 # ---------------------------------------------------------------------------
 # API (backend)
@@ -42,10 +46,85 @@ externe:
 backend:
   repository: online-judge-backend
   replicas: 2
+  # Der CPU-Request folgt dem Start, nicht der Last. Gemessen sind im Leerlauf
+  # 3m und unter Last 8m bis 9m je Pod, beim Start dagegen 54m bis 55m für rund
+  # 15 Sekunden, weil main.py beim Import den Index anlegt. Läge der Request
+  # darunter, würde ausgerechnet der Start gedrosselt und das Fenster der
+  # startupProbe liefe langsamer ab.
+  #
+  # Der Speicher liegt konstant bei 46 MiB, im Leerlauf wie unter Last wie beim
+  # Start. Das Limit lässt Luft für größere Antworten, etwa wenn die Oberfläche
+  # aus #56 dazukommt.
   resources:
     requests:
       cpu: "100m"
-      memory: "128Mi"
+      memory: "64Mi"
     limits:
       cpu: "500m"
       memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# Judge
+# ---------------------------------------------------------------------------
+# Worker, ScaledObject und Rückhol-CronJob. Der Seed der Aufgaben gehört nicht
+# hierher, er braucht laden.py und die Aufgaben-JSONs als ConfigMap und läuft
+# deshalb weiter aus Ansible.
+judge:
+  # Sandbox-Laufzeit der Worker-Pods. Angelegt wird die RuntimeClass in
+  # ansible/deploy.yaml, das Chart verweist nur darauf.
+  runtimeClass: gvisor
+
+  # Je Eintrag ein Worker-Deployment und ein ScaledObject. name bildet den
+  # Namen des Deployments (code-worker-<name>), den Wert von WORKER_SPRACHE und
+  # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache
+  # braucht ein eigenes Image und einen Eintrag hier, keine weitere Datei.
+  sprachen:
+    - name: python
+      repository: online-judge-worker
+      # Ein Lauf sättigt einen Kern, gemessen 897m bis 1009m an fünf Pods unter
+      # Last. Mehr als ein Kern bringt nichts, der Worker führt die Testfälle
+      # nacheinander aus. Request gleich Limit, weil das Zeitlimit einer
+      # Aufgabe doppelt gilt, als RLIMIT_CPU auf die Rechenzeit und als Frist
+      # auf die vergangene Zeit. Ein gedrosselter Worker reißt die zweite
+      # Grenze, ohne die erste zu erreichen, und lässt damit korrekte
+      # Einreichungen scheitern.
+      #
+      # Beim Speicher sind 44 bis 48 MiB gemessen, im Leerlauf wie unter Last.
+      # Das Limit
+      # deckt zusätzlich den Kindprozess ab, GRENZE_SPEICHER_MAX_MB in
+      # worker.py lässt eine Aufgabe bis 256 MB fordern.
+      resources:
+        requests:
+          cpu: "1"
+          memory: "64Mi"
+        limits:
+          cpu: "1"
+          memory: "320Mi"
+      keda:
+        # 0, damit ohne Einreichungen kein Pod steht.
+        min: 0
+        max: 5
+        # Ab dieser Länge je Replica skaliert KEDA hoch.
+        listLength: 5
+        # KEDA aktiviert, sobald die Länge über diesem Wert liegt. Bei 1 bliebe
+        # eine einzelne wartende Einreichung liegen, bis eine zweite dazukommt,
+        # und der Rückhol-CronJob holt sie nicht, er greift nur bei RUNNING mit
+        # abgelaufener Frist.
+        activationListLength: 0
+
+  durchlauf:
+    repository: online-judge-worker
+    # Dasselbe Image wie der Worker, aber ohne Sandbox. durchlauf.py fragt nur
+    # MongoDB und Valkey ab und ist nach wenigen Sekunden fertig. Der Speicher
+    # entspricht dem Leerlauf des Workers, gemessen 44 MiB, die CPU-Grenze
+    # fängt einen Lauf über viele abgelaufene Einreichungen ab.
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "500m"
+        memory: "128Mi"
+    # Unter CLAIM_FRIST_SEKUNDEN aus worker.py, siehe Kommentar im Template.
+    schedule: "*/2 * * * *"
+    maxVersuche: 3

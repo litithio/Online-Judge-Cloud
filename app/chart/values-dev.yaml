@@ -13,3 +13,27 @@ backend:
     limits:
       cpu: "250m"
       memory: "128Mi"
+
+# Der Judge fährt in dev höchstens zwei Worker. Die Liste muss dabei vollständig
+# stehen: Helm ersetzt eine Liste aus values.yaml, es mischt sie nicht.
+judge:
+  sprachen:
+    - name: python
+      repository: online-judge-worker
+      # Wie in prod. Die CPU bleibt bei einem Kern, auch in dev, weil das
+      # Zeitlimit einer Aufgabe zusätzlich als Frist auf die vergangene Zeit
+      # gilt und ein gedrosselter Worker sie reißt, ohne die Rechenzeit zu
+      # erreichen. Klein wird dev über die Zahl der Worker, nicht über ihre
+      # Grenzen.
+      resources:
+        requests:
+          cpu: "1"
+          memory: "64Mi"
+        limits:
+          cpu: "1"
+          memory: "320Mi"
+      keda:
+        min: 0
+        max: 2
+        listLength: 5
+        activationListLength: 0

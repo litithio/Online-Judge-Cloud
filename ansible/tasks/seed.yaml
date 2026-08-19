@@ -117,7 +117,7 @@
             restartPolicy: Never
             containers:
               - name: nachtrag-113
-                image: ghcr.io/litithio/online-judge-worker:0.2.5
+                image: "ghcr.io/litithio/online-judge-worker:{{ app_image_tag }}"
                 command: ["python", "/app/nachtrag_113.py"]
                 env:
                   - name: MONGO_URI

@@ -13,10 +13,11 @@ app_namespace: default
 # values-dev.yaml. Das Deployment auf dem Kurs-Cluster ist prod.
 app_values_env: prod
 
-# Image-Tag der API (backend). Fester Stand statt latest, gebaut von
-# .github/workflows/images.yml bei einem Git-Tag. Muss gesetzt sein, das
-# Chart-Schema lehnt einen leeren Tag ab.
-app_image_tag: "0.2.5"
+# Image-Tag von API, Worker und Durchlauf. Das Chart nimmt ihn für alle drei,
+# der Seed- und der Nachtrag-Job in tasks/seed.yaml ebenso. Fester Stand statt
+# latest, gebaut von .github/workflows/images.yml bei einem Git-Tag. Muss
+# gesetzt sein, das Chart-Schema lehnt einen leeren Tag ab.
+app_image_tag: "0.2.6"
 
 # Auf den Server kopierter Chart. Die Helm-Module laufen dort (kubeconfig liegt
 # auf dem Server), der Chart muss also neben ihnen liegen, nicht nur auf dem

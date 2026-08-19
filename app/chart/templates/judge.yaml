@@ -4,6 +4,22 @@
 # der API und eine zweite Sprache ein Eintrag in values ist statt einer
 # weiteren Datei.
 {{- range .Values.judge.sprachen }}
+# Die Konfiguration dieses Workers. WORKER_SPRACHE bestimmt, welche Liste er
+# abfragt (judge:<sprache>) und worauf sein ScaledObject weiter unten zielt.
+# SANDBOX_NETZ_ERZWINGEN gibt dem eingereichten Code einen eigenen
+# Netz-Namespace, anders als im lokalen Compose-Stand. Ohne den Schalter würde
+# die Trennung stillschweigend wegfallen, sobald der Aufruf einmal nicht
+# durchgeht, und Einreichungen erreichten wieder die Datenbank.
+{{- $daten := dict "REDIS_URI" (include "online-judge.redisUri" $) "WORKER_SPRACHE" .name "SANDBOX_NETZ_ERZWINGEN" "1" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-worker-{{ .name }}
+  labels:
+    {{- include "online-judge.labels" $ | nindent 4 }}
+data:
+  {{- toYaml $daten | nindent 2 }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,6 +35,11 @@ spec:
       app: code-worker-{{ .name }}
   template:
     metadata:
+      annotations:
+        # Prüfsumme über die Daten der ConfigMap. envFrom liest sie beim Start
+        # des Pods, ohne diese Annotation liefe ein geänderter Wert erst beim
+        # nächsten Neustart an.
+        checksum/config: {{ toYaml $daten | sha256sum }}
       labels:
         {{- include "online-judge.labels" $ | nindent 8 }}
         app: code-worker-{{ .name }}
@@ -32,25 +53,16 @@ spec:
         - name: worker
           image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: code-worker-{{ .name }}
           env:
+            # Getrennt von der ConfigMap, weil die URI das Passwort enthält.
             - name: MONGO_URI
               valueFrom:
                 secretKeyRef:
                   name: {{ $.Values.externe.mongoSecret.name | quote }}
                   key: {{ $.Values.externe.mongoSecret.key | quote }}
-            - name: REDIS_URI
-              value: {{ include "online-judge.redisUri" $ | quote }}
-            # Bestimmt, welche Liste dieser Worker abfragt (judge:<sprache>)
-            # und worauf sein ScaledObject unten zielt.
-            - name: WORKER_SPRACHE
-              value: {{ .name | quote }}
-            # Der eingereichte Code bekommt hier einen eigenen Netz-Namespace,
-            # anders als im lokalen Compose-Stand. Ohne diesen Schalter würde
-            # die Trennung stillschweigend wegfallen, sobald der Aufruf einmal
-            # nicht mehr durchgeht, und Einreichungen erreichten wieder die
-            # Datenbank.
-            - name: SANDBOX_NETZ_ERZWINGEN
-              value: "1"
           resources:
             {{- toYaml .resources | nindent 12 }}
 ---
@@ -80,6 +92,16 @@ spec:
 # Nimmt Einreichungen zurück, deren Frist ohne Ergebnis verstrichen ist, siehe
 # app/worker/durchlauf.py. Ein CronJob für alle Sprachen, das Skript selbst
 # braucht nur MongoDB und Valkey, keine eigene Laufzeitumgebung wie der Worker.
+{{- $durchlaufDaten := dict "REDIS_URI" (include "online-judge.redisUri" .) "MAX_VERSUCHE" (.Values.judge.durchlauf.maxVersuche | toString) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: durchlauf
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+data:
+  {{- toYaml $durchlaufDaten | nindent 2 }}
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -101,6 +123,9 @@ spec:
     spec:
       backoffLimit: 2
       template:
+        metadata:
+          annotations:
+            checksum/config: {{ toYaml $durchlaufDaten | sha256sum }}
         spec:
           restartPolicy: Never
           containers:
@@ -112,15 +137,15 @@ spec:
               # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
               # COPY . . legt durchlauf.py dorthin, neben worker.py.
               command: ["python3", "/app/durchlauf.py"]
+              envFrom:
+                - configMapRef:
+                    name: durchlauf
               env:
+                # Getrennt von der ConfigMap, weil die URI das Passwort enthält.
                 - name: MONGO_URI
                   valueFrom:
                     secretKeyRef:
                       name: {{ .Values.externe.mongoSecret.name | quote }}
                       key: {{ .Values.externe.mongoSecret.key | quote }}
-                - name: REDIS_URI
-                  value: {{ include "online-judge.redisUri" . | quote }}
-                - name: MAX_VERSUCHE
-                  value: {{ .Values.judge.durchlauf.maxVersuche | quote }}
               resources:
                 {{- toYaml .Values.judge.durchlauf.resources | nindent 16 }}

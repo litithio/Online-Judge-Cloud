@@ -219,6 +219,28 @@ meldet, wenn eine `.mmd` neuer ist als ihr SVG.
 
 ## Entscheidungen
 Je Pflicht- und Wahlthema ein Absatz: Wahl, Alternative, Begründung
+
+### Ressourcen der Judge-Worker
+
+Jeder Judge-Worker bekommt einen Kern, als Request und als Limit, dazu 64Mi
+Speicher als Request und 320Mi als Limit. Die Alternative war ein kleinerer
+Request von etwa 250m, dessen Spitzen das Limit auffängt. Dann passen mehr
+Worker auf einen Node und der Judge skaliert weiter, bevor die Kerne ausgehen.
+
+Den Ausschlag gibt, wie der Judge urteilt. Das Zeitlimit einer Aufgabe gilt
+doppelt. Es begrenzt die Rechenzeit über `RLIMIT_CPU`, und dieselbe Zahl gilt
+noch einmal als Frist auf die vergangene Zeit, weil eine Einreichung, die auf
+eine Eingabe wartet statt zu rechnen, sonst nie ablaufen würde. Die Aufgaben im
+Repo setzen zwischen 2 und 4 Sekunden. Bekommt ein Worker seinen Kern nicht,
+weil andere Pods auf demselben Node rechnen, wächst nur die vergangene Zeit.
+Die Rechenzeit bleibt unter dem Limit, die Frist reißt trotzdem, und eine
+korrekte Einreichung bekommt TIMEOUT. Das Urteil hinge dann an der Belegung des Nodes statt an der
+Lösung. Deshalb Request gleich Limit. Der Preis dafür sind fünf gebundene Kerne
+bei fünf Workern, und über fünf hinaus skaliert der Judge erst, wenn Nodes
+dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und 44 bis 48 MiB je
+Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die eine Aufgabe für
+den Kindprozess fordern darf.
+
 ## Grenzen
 Was die Lösung nicht kann und was Sie unter echter Last erwarten
 

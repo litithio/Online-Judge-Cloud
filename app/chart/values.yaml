@@ -72,6 +72,25 @@ judge:
   sprachen:
     - name: python
       repository: online-judge-worker
+      # Ein Lauf sättigt einen Kern, gemessen 897m bis 1009m an fünf Pods unter
+      # Last. Mehr als ein Kern bringt nichts, der Worker führt die Testfälle
+      # nacheinander aus. Request gleich Limit, weil das Zeitlimit einer
+      # Aufgabe doppelt gilt, als RLIMIT_CPU auf die Rechenzeit und als Frist
+      # auf die vergangene Zeit. Ein gedrosselter Worker reißt die zweite
+      # Grenze, ohne die erste zu erreichen, und lässt damit korrekte
+      # Einreichungen scheitern.
+      #
+      # Beim Speicher sind 44 bis 48 MiB gemessen, im Leerlauf wie unter Last.
+      # Das Limit
+      # deckt zusätzlich den Kindprozess ab, GRENZE_SPEICHER_MAX_MB in
+      # worker.py lässt eine Aufgabe bis 256 MB fordern.
+      resources:
+        requests:
+          cpu: "1"
+          memory: "64Mi"
+        limits:
+          cpu: "1"
+          memory: "320Mi"
       keda:
         # 0, damit ohne Einreichungen kein Pod steht.
         min: 0
@@ -86,6 +105,17 @@ judge:
 
   durchlauf:
     repository: online-judge-worker
+    # Dasselbe Image wie der Worker, aber ohne Sandbox. durchlauf.py fragt nur
+    # MongoDB und Valkey ab und ist nach wenigen Sekunden fertig. Der Speicher
+    # entspricht dem Leerlauf des Workers, gemessen 44 MiB, die CPU-Grenze
+    # fängt einen Lauf über viele abgelaufene Einreichungen ab.
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "500m"
+        memory: "128Mi"
     # Unter CLAIM_FRIST_SEKUNDEN aus worker.py, siehe Kommentar im Template.
     schedule: "*/2 * * * *"
     maxVersuche: 3

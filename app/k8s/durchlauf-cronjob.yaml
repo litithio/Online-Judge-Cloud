@@ -1,0 +1,53 @@
+# Durchlauf aus #82: nimmt Einreichungen zurück, deren Frist ohne Ergebnis
+# verstrichen ist, siehe app/worker/durchlauf.py. Ein CronJob für alle
+# Sprachen, das Skript selbst braucht nur MongoDB und Valkey, keine eigene
+# Laufzeitumgebung wie der Worker.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: durchlauf
+spec:
+  # Unter CLAIM_FRIST_PUFFER_SEKUNDEN aus worker.py (Standard 90s), sonst liegt eine
+  # abgelaufene Einreichung zwischen zwei Läufen unnötig lange. CronJob kennt
+  # keine feinere Auflösung als eine Minute, jede volle Minute ist hier also
+  # bereits der engste Takt, den es gibt, mit 30s Marge zu den 90s. Nicht
+  # enger als nötig gewählt, jeder Lauf fragt MongoDB über alle Sprachen ab.
+  schedule: "* * * * *"
+  # Zwei sich überschneidende Läufe sähen dieselben abgelaufenen Einreichungen;
+  # der bedingte Update in durchlauf.py ließe nur den ersten gewinnen, der
+  # zweite liefe für nichts.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: durchlauf
+            # Dasselbe Image wie code-worker (app/k8s/worker.yaml): durchlauf.py
+            # liegt neben worker.py und teilt dessen Abhängigkeiten.
+            image: ghcr.io/litithio/online-judge-worker:0.2.5
+            # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
+            # COPY . . legt durchlauf.py dorthin, neben worker.py. command:
+            # ersetzt nur das Dockerfile-CMD, nicht das WORKDIR, ein relativer
+            # Pfad ginge also auch, absolut ist unabhängig davon richtig.
+            command: ["python3", "/app/durchlauf.py"]
+            env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-coding-platform-app
+                  key: connectionString.standard
+            - name: REDIS_URI
+              value: "redis://valkey:6379"
+            - name: MAX_VERSUCHE
+              value: "3"
+            # Aus #113: PENDING ohne frischen Queue-Eintrag, siehe
+            # durchlauf.py. Über der normalen Wartezeit auf einen KEDA-
+            # skalierten Worker-Pod, sonst reiht der Durchlauf gesunde
+            # Einreichungen ein zweites Mal ein.
+            - name: REENQUEUE_AFTER_SECONDS
+              value: "180"

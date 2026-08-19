@@ -1,8 +1,10 @@
 # Übersteht einen Neustart des Valkey-Pods. Geht der Inhalt trotzdem
-# verloren, etwa weil der Claim mit dem Pod neu entsteht, findet der
-# wiederkehrende Durchlauf über MongoDB die betroffenen Einreichungen anhand
-# ihres Status und reiht sie erneut ein (#82). Der Claim ist darum eine
-# Optimierung gegen unnötige Zweitläufe, keine Voraussetzung für Korrektheit.
+# verloren, findet der wiederkehrende Durchlauf die betroffenen Einreichungen
+# über MongoDB und reiht sie erneut ein: RUNNING mit abgelaufener Frist über
+# #82, PENDING ohne frischen Queue-Eintrag über last_enqueued_at und
+# REENQUEUE_AFTER_SECONDS aus #113 (app/worker/durchlauf.py). Das Volume ist
+# darum eine Optimierung gegen unnötige Zweitläufe, keine Voraussetzung für
+# Korrektheit.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

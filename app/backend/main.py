@@ -1,4 +1,7 @@
 import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
 from fastapi import FastAPI, Depends, HTTPException
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
@@ -6,8 +9,6 @@ from bson import ObjectId
 import redis
 
 from auth import get_current_user
-
-app = FastAPI()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 
@@ -34,12 +35,33 @@ health_client = MongoClient(
     socketTimeoutMS=2000,
 )
 
-# Trägt sowohl den Durchlauf aus #82 (RUNNING mit abgelaufener Frist finden)
-# als auch dessen Requeue-Vergleich. Ohne ihn liefe die Suche über alle
-# Einreichungen, nicht nur über die wartenden.
-db.submissions.create_index([("status", 1), ("frist", 1)])
 
-SPRACHEN = ("python", "java", "cpp", "rust")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Indizes beim Start anlegen, nicht schon beim Modul-Import: Sonst
+    # scheitert schon der Import, wenn MongoDB beim Start des Prozesses noch
+    # nicht erreichbar ist, etwa während eines Rollouts. create_index ist
+    # idempotent, ein erneuter Aufruf bei jedem Start legt nichts doppelt an.
+    #
+    # Trägt sowohl den Durchlauf aus #82 (RUNNING mit abgelaufener Frist
+    # finden) als auch dessen Requeue-Vergleich. Ohne ihn liefe die Suche
+    # über alle Einreichungen, nicht nur über die wartenden.
+    db.submissions.create_index([("status", 1), ("frist", 1)])
+
+    # Trägt die zweite Suche des Durchlaufs aus #113: PENDING ohne frischen
+    # Queue-Eintrag (last_enqueued_at älter als REENQUEUE_AFTER_SECONDS).
+    # Eigener Index, weil sich diese Suche nicht über frist filtern lässt,
+    # die bei PENDING immer None ist.
+    db.submissions.create_index([("status", 1), ("last_enqueued_at", 1)])
+
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Nur Python ist bis #6 tatsächlich wählbar, der Worker führt keine andere
+# Sprache aus. Weitere Einträge kommen mit den jeweiligen Worker-Images.
+SPRACHEN = ("python",)
 STANDARD_SPRACHE = "python"
 
 
@@ -111,6 +133,7 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
     # die Queue-Auswahl des Durchlaufs, versuche/run_token/frist für die
     # bedingte Übernahme im Worker. Die API selbst besetzt nur versuche mit 0
     # und die anderen beiden mit None, der Worker füllt sie beim Claim.
+    jetzt = datetime.now(timezone.utc)
     submission = {
         "user_id": user.get("sub"),
         "username": user.get("preferred_username", "Unknown"),
@@ -119,9 +142,29 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
         "sprache": sprache,
         "status": "PENDING",
         "result": None,
+        "test_results": None,
         "versuche": 0,
+        # Eigener Zähler statt versuche: versuche steigt nur bei einer
+        # tatsächlichen Übernahme (worker.py, _uebernehmen), ein Queue-Eintrag,
+        # der verlorenging, bevor ihn ein Worker zog, rührt ihn nie an. Ohne
+        # requeue_versuche griffe MAX_VERSUCHE in durchlauf.py für #113 also
+        # nie, und eine dauerhaft verlorene Einreichung würde unbegrenzt oft
+        # erneut eingereiht.
+        "requeue_versuche": 0,
         "run_token": None,
         "frist": None,
+        "worker_id": None,
+        # Zeitpunkt des letzten RPUSH (#113). Gesetzt hier bei der Anlage und
+        # erneut vom Durchlauf bei jedem Requeue, siehe durchlauf.py. Trägt
+        # dessen Suche nach PENDING-Einreichungen, deren Queue-Eintrag
+        # verlorenging, etwa weil Valkey seinen Inhalt verliert oder ein
+        # Worker den Eintrag per BLPOP schon zog, aber vor der Übernahme in
+        # MongoDB starb.
+        "last_enqueued_at": jetzt,
+        # Einzige Stelle, die die Anlage selbst festhält; der Worker schreibt
+        # danach nur noch updated_at. Ohne created_at ließe sich nicht sagen,
+        # wie lange eine Einreichung schon in der Warteschlange steht.
+        "created_at": jetzt,
     }
     sub_id = db.submissions.insert_one(submission).inserted_id
 

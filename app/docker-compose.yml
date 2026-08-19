@@ -117,10 +117,33 @@ services:
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://valkey:6379
       MAX_VERSUCHE: "3"
+      REENQUEUE_AFTER_SECONDS: "180"
     depends_on:
       - mongodb
       - valkey
     command: ["python3", "durchlauf.py"]
+    networks:
+      - coding_net
+
+  # Einmalige Migration für #113 (app/worker/nachtrag_113.py): trägt
+  # last_enqueued_at/requeue_versuche/versuche bei Einreichungen nach, die
+  # vor deren Einführung entstanden, und löst PENDING-Einreichungen in
+  # inzwischen entfernten Sprachen ab. Wie durchlauf profiles-gated, ein
+  # zweiter Lauf träfe ohnehin nichts mehr:
+  #   docker compose --profile migration run --rm nachtrag-113
+  nachtrag-113:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    image: judge-worker:local
+    container_name: coding_platform_nachtrag_113
+    restart: "no"
+    profiles: ["migration"]
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+    depends_on:
+      - mongodb
+    command: ["python3", "nachtrag_113.py"]
     networks:
       - coding_net
 

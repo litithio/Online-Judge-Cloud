@@ -3,6 +3,7 @@ import pathlib
 import pwd
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,10 @@ SANDBOX_TIMEOUT = 5  # vergangene Zeit, fängt auch wartende Prozesse
 SANDBOX_SPEICHER_MB = 128
 
 # Fest je Lauf, von keiner Aufgabe zu ändern: Diese Grenzen fangen
-# Fehlverhalten, keinen Bedarf, der mit der Aufgabe wächst.
+# Fehlverhalten, keinen Bedarf, der mit der Aufgabe wächst. Sie schützen den
+# Worker und den Node, nicht die Bewertung, und bleiben deshalb Sache des
+# Workers statt eines Felds an der Aufgabe. Braucht eine Aufgabe später mehr
+# als 1 MiB Ausgabe, wird die Grenze hier nachgezogen, für alle Aufgaben.
 SANDBOX_AUSGABE_BYTES = 1024**2  # RLIMIT_FSIZE, begrenzt stdout und stderr
 SANDBOX_PROZESSE = 64  # RLIMIT_NPROC gegen Fork-Bomben
 
@@ -35,17 +39,45 @@ MELDUNG_MAX = 2000  # so viel Fehlerausgabe übernimmt das Feld result der Einre
 REST_FRIST = 1.0  # Sekunden, die das Aufräumen auf beendete Prozesse wartet
 QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwortet
 
+# Wall-Clock-Frist über RLIMIT_CPU: Die Aufgabe begrenzt die Rechenzeit über
+# RLIMIT_CPU (_starter), diese Frist fängt zusätzlich, was wartet statt zu
+# rechnen, denn RLIMIT_CPU zählt nur CPU-Zeit. Der Puffer liegt auf dem harten
+# RLIMIT_CPU-Limit (zeit + 1), nicht auf zeit selbst: Nur so bleibt er ein
+# kleiner Abstand zum tatsächlichen Konkurrenten und bläht nicht nebenbei die
+# Frist für schlafende oder blockierende Einreichungen auf, die RLIMIT_CPU nie
+# sieht. Muss über null liegen, sonst konkurrieren beide Mechanismen um
+# dieselbe Grenze, und welcher zuerst greift, entscheidet der Zufall statt der
+# Zeit.
+ZEITFRIST_PUFFER = 0.5
+
 # Dieser Worker bedient nur die Liste seiner eigenen Sprache (#82). Mehrere
 # Sprachen heißt mehrere Worker-Deployments, je mit eigenem WORKER_SPRACHE und
 # eigenem Image, nicht ein Worker, der mehrere Listen abfragt.
 WORKER_SPRACHE = os.getenv("WORKER_SPRACHE", "python")
 QUEUE_KEY = f"judge:{WORKER_SPRACHE}"
 
-# Deckelt, wie lange eine Einreichung als RUNNING gilt, bevor der Durchlauf aus
-# #82 sie für hängengeblieben hält und erneut einreiht. Muss über der Summe
-# aller Testfälle einer Aufgabe bei GRENZE_ZEIT_MAX liegen, sonst nimmt sich
-# eine langsame, aber gesunde Einreichung ihre eigene Frist weg.
-CLAIM_FRIST_SEKUNDEN = int(os.getenv("CLAIM_FRIST_SEKUNDEN", "300"))
+# Name des Worker-Pods an der Einreichung (#52, #53), damit nachvollziehbar
+# bleibt, welcher Worker eine Übernahme hatte. In Kubernetes ist der Hostname
+# eines Pods per Voreinstellung sein Name, ohne eigenen Eintrag über die
+# Downward API.
+WORKER_ID = f"worker-{socket.gethostname()}"
+
+# Marge, wie lange eine Einreichung über ihre eigentliche Obergrenze hinaus
+# als RUNNING gilt, bevor der Durchlauf aus #82 sie für hängengeblieben hält
+# und erneut einreiht. Gilt in zwei Rollen: als Frist ab der Übernahme
+# (_uebernehmen), solange die Aufgabe noch nicht gelesen ist, und danach als
+# Marge über der tatsächlichen Obergrenze der Aufgabe (_urteil), sobald die
+# feststeht. Eine feste Zahl als Frist selbst könnte über der Summe aller
+# Testfälle einer Aufgabe nie zuverlässig liegen, die Zahl der Testfälle ist
+# nicht gedeckelt; als Marge auf die aus der Aufgabe berechnete Summe
+# angewendet, bleibt sie das unabhängig von deren Zahl.
+#
+# 90 hält den in durchlauf-cronjob.yaml dokumentierten Takt (60s, die
+# feinste Auflösung, die ein CronJob kennt) mit 50 % Marge ein. Nur diese
+# Bedingung, Marge > Takt, ist hart; 90 selbst ist keine berechnete Zahl,
+# nur eine runde Wahl mit reichlich Abstand. 75 (25 % Marge) hielte dieselbe
+# Bedingung ebenso ein, dann aber knapper.
+CLAIM_FRIST_PUFFER_SEKUNDEN = int(os.getenv("CLAIM_FRIST_PUFFER_SEKUNDEN", "90"))
 
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine
 # Aufgabe das Zeitlimit praktisch abschalten oder mehr Speicher erlauben, als der
@@ -173,12 +205,13 @@ if NETZ_ERZWINGEN and not NETZ_TRENNUNG:
 # subprocess-Dokumentation warnt genau vor dieser Kombination.
 # Nach dem exec bleiben die Grenzen bestehen. Anheben kann der eingereichte
 # Code höchstens das CPU-Soft-Limit, um die eine Sekunde bis zum Hard-Limit,
-# alle anderen Grenzen liegen fest.
+# alle anderen Grenzen liegen fest. Gebaut wird er je Lauf neu, weil Zeit und
+# Speicher von der Aufgabe kommen, nicht einmal beim Start des Workers.
 def _starter(zeit, speicher_bytes):
-    # RLIMIT_CPU zählt nur Sekunden, in denen der Prozess rechnet. Wartezeit
-    # zählt das timeout beim communicate, beide bekommen dieselbe Zahl:
-    # RLIMIT_CPU fängt Programme, die durchgehend rechnen, das timeout
-    # zusätzlich solche, die warten.
+    # RLIMIT_CPU zählt nur Sekunden, in denen der Prozess rechnet. Das ist die
+    # eigentliche Grenze der Aufgabe; ZEITFRIST_PUFFER oben legt zusätzlich
+    # eine Wall-Clock-Frist über den Lauf, die auch wartende Prozesse fängt,
+    # die RLIMIT_CPU nicht sieht.
     #
     # Das Netz zuerst, danach die Grenzen: Der Namespace braucht selbst Speicher,
     # und ein enges RLIMIT_AS würde ihn scheitern lassen.
@@ -277,14 +310,24 @@ def _reste_beenden():
         time.sleep(0.02)
 
 
-def _urteil_nach_signal(signalnummer, zeit):
+def _urteil_nach_signal(signalnummer, zeit, rusage):
+    """Bildet ein Signal, an dem der Prozess gestorben ist, auf ein
+    Verdict-Kürzel und einen Meldungstext ab."""
     if signalnummer == signal.SIGXCPU:
-        return f"TIMEOUT: Rechenzeit von {zeit} Sekunden überschritten"
+        return "TLE", f"Rechenzeit von {zeit} Sekunden überschritten"
     if signalnummer == signal.SIGXFSZ:
-        return f"OUTPUT_LIMIT: mehr als {SANDBOX_AUSGABE_BYTES // 1024} KiB ausgegeben"
-    # Nicht pauschal als Zeitüberschreitung: Eine Einreichung kann sich selbst
-    # per SIGKILL beenden, und der OOM-Killer trifft ebenso. Dass ein Kill vom
-    # Zeitlimit kam, weiß nur der Pfad, der ihn selbst gesendet hat.
+        return "OLE", f"mehr als {SANDBOX_AUSGABE_BYTES // 1024} KiB ausgegeben"
+    # SIGXCPU trifft nur beim Soft-Limit, und die Einreichung kann sich dafür
+    # per signal.signal einen eigenen Handler setzen: Die Warnung verpufft
+    # dann, der Prozess rechnet weiter, bis ihn das Hard-Limit (zeit + 1)
+    # stattdessen per SIGKILL beendet. Ob ein SIGKILL vom Zeitlimit kam oder
+    # von woanders (Selbst-Kill, OOM-Killer), zeigt die rusage aus dem
+    # eigenen wait4 oben: Steht dem Prozess bis zum Kill schon mindestens so
+    # viel CPU-Zeit wie das Limit zu Buche, war das Limit die Ursache, ganz
+    # gleich, wer das Signal geschickt hat. Ein Selbst-Kill oder der
+    # OOM-Killer träfen früher, bei weniger CPU-Zeit als dem Limit.
+    if signalnummer == signal.SIGKILL and rusage.ru_utime + rusage.ru_stime >= zeit:
+        return "TLE", f"Rechenzeit von {zeit} Sekunden überschritten"
     # signal.Signals kennt die Echtzeitsignale oberhalb von SIGRTMIN nicht und
     # wirft dafür ValueError. Ungefangen würde der als Umgebungsfehler
     # herauskommen,
@@ -294,7 +337,7 @@ def _urteil_nach_signal(signalnummer, zeit):
         name = signal.Signals(signalnummer).name
     except ValueError:
         name = f"Signal {signalnummer}"
-    return f"EXECUTION_ERROR: durch {name} beendet"
+    return "RE", f"durch {name} beendet"
 
 
 def _gelesen(fd, grenze):
@@ -320,10 +363,17 @@ class Umgebungsfehler(Exception):
     """
 
 
-def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) -> str:
-    """Führt den eingereichten Code als Subprozess mit den Grenzen der Aufgabe aus."""
+def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
+    """Führt den eingereichten Code als Subprozess mit den Grenzen der Aufgabe aus.
+
+    Gibt ein Kürzel zurück (OK bei einem sauberen Lauf, sonst TLE, OLE, MLE
+    oder RE), dazu Ausgabe oder Meldung, Laufzeit in ms und Spitzenspeicher in
+    KiB. Ob OK zu AC oder WA wird, entscheidet der Aufrufer selbst durch den
+    Vergleich mit der erwarteten Ausgabe, das kennt diese Funktion nicht.
+    """
     verzeichnis = None
     deskriptoren = []
+    eingabe_pfad = None
     try:
         verzeichnis = tempfile.mkdtemp(prefix="work-", dir=SANDBOX_BASIS)
         pfad = pathlib.Path(verzeichnis)
@@ -341,6 +391,31 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
             )
         aus_fd, fehler_fd = deskriptoren
 
+        # Eingabe ebenfalls über eine Datei statt über eine Pipe: der größte
+        # Testfall (zweisumme) hat 372 KB, ein Pipe-Puffer nur 64 KiB. Mit dem
+        # eigenen wait4 unten statt communicate liest niemand mehr nebenbei aus
+        # der Pipe, ein stdin.write() bliebe ab dem vollen Puffer stehen. Die
+        # Datei liegt eine Ebene über dem working directory und bleibt beim
+        # Worker, damit die Einreichung sie nicht kürzen kann.
+        eingabe_fd, eingabe_pfad = tempfile.mkstemp(
+            prefix="eingabe-", dir=SANDBOX_BASIS
+        )
+        deskriptoren.append(eingabe_fd)
+        # os.write ist der rohe Systemaufruf: Er schreibt bis zu so viele
+        # Bytes wie übergeben und meldet im Rückgabewert, wie viele es
+        # tatsächlich wurden. Läuft das Volume mitten im Schreiben voll,
+        # bliebe eine gekürzte Eingabedatei sonst unbemerkt, die Lösung liest
+        # dann eine andere als die erwartete Eingabe und die Einreichung
+        # bekäme dafür ein WA, ein Endurteil für einen Fehler der
+        # Infrastruktur. Läuft das Volume tatsächlich voll, wirft der nächste
+        # Durchgang OSError, das except unten macht daraus den
+        # Umgebungsfehler, und die Einreichung bleibt auf RUNNING.
+        eingabe_bytes = test_input.encode("utf-8")
+        geschrieben = 0
+        while geschrieben < len(eingabe_bytes):
+            geschrieben += os.write(eingabe_fd, eingabe_bytes[geschrieben:])
+        os.lseek(eingabe_fd, 0, os.SEEK_SET)
+
         if SANDBOX_UID is not None:
             # Nur das working directory und die Lösung wechseln den Besitzer, die
             # Ebene darüber bleibt beim Worker.
@@ -348,10 +423,11 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
                 os.chown(ziel, SANDBOX_UID, -1)
             pfad.chmod(0o700)
 
+        start = time.monotonic()
         prozess = subprocess.Popen(
             [sys.executable, "-c", _starter(zeit, speicher)],
             cwd=verzeichnis,
-            stdin=subprocess.PIPE,
+            stdin=eingabe_fd,
             stdout=aus_fd,
             stderr=fehler_fd,
             # env ohne MONGO_URI und REDIS_URI: Der Parameter ersetzt die
@@ -377,33 +453,84 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
             # Einreichung selbst gestartet hat.
             start_new_session=True,
         )
-        try:
-            prozess.communicate(input=test_input.encode("utf-8"), timeout=zeit)
-        except subprocess.TimeoutExpired:
-            os.killpg(prozess.pid, signal.SIGKILL)
-            prozess.wait()
-            return f"TIMEOUT: Zeitlimit von {zeit} Sekunden überschritten"
+
+        # Eigenes wait4 statt communicate/wait: nur wait4 liefert ru_maxrss,
+        # den Spitzenspeicher des Kindes, auch für einen Lauf, der per SIGKILL
+        # gestorben ist. WNOHANG bis zur Frist, damit die Schleife Zeit und
+        # Speicher weiter zusammenhält, ohne blockierend auf das Kind zu warten.
+        frist = start + zeit + 1 + ZEITFRIST_PUFFER
+        while True:
+            pid, status, rusage = os.wait4(prozess.pid, os.WNOHANG)
+            if pid != 0:
+                break
+            if time.monotonic() > frist:
+                os.killpg(prozess.pid, signal.SIGKILL)
+                _, _, rusage = os.wait4(prozess.pid, 0)
+                dauer_ms = round((time.monotonic() - start) * 1000)
+                return (
+                    "TLE",
+                    f"Zeitlimit von {zeit} Sekunden überschritten",
+                    dauer_ms,
+                    rusage.ru_maxrss,
+                )
+            time.sleep(0.02)
+
+        dauer_ms = round((time.monotonic() - start) * 1000)
+        speicher_kb = rusage.ru_maxrss
+
+        # returncode von Hand gesetzt: Das eigene wait4 oben umgeht Popens
+        # Reaping, das returncode sonst selbst füllt. Dieselbe Umrechnung, die
+        # subprocess intern vornimmt: negativ bei einem Signal.
+        if os.WIFSIGNALED(status):
+            prozess.returncode = -os.WTERMSIG(status)
+        else:
+            prozess.returncode = os.WEXITSTATUS(status)
 
         if prozess.returncode < 0:
-            return _urteil_nach_signal(-prozess.returncode, zeit)
+            verdict, meldung = _urteil_nach_signal(-prozess.returncode, zeit, rusage)
+            return verdict, meldung, dauer_ms, speicher_kb
 
-        # Die Grenze meldet der Kernel je nach Zeitpunkt als Signal oder als
-        # EFBIG an den schreibenden Aufruf. Im zweiten Fall endet die Einreichung
-        # mit einem gewöhnlichen Traceback, und ohne diese Prüfung würde als
-        # Urteil EXECUTION_ERROR statt des wahren Grundes stehen. Für stdout und stderr
-        # getrennt geprüft, denn die Grenze gilt jeder Datei einzeln.
+        # Die Grenze meldet der Kernel je nach Zeitpunkt als Signal (oben, über
+        # SIGXFSZ) oder als EFBIG an den schreibenden Aufruf. Im zweiten Fall
+        # endet die Einreichung mit einem gewöhnlichen Traceback, und ohne
+        # diese Prüfung stünde als Urteil RE statt des wahren Grundes. Für
+        # stdout und stderr getrennt geprüft, denn die Grenze gilt jeder Datei
+        # einzeln.
         for fd in (aus_fd, fehler_fd):
             if os.fstat(fd).st_size >= SANDBOX_AUSGABE_BYTES:
                 grenze = SANDBOX_AUSGABE_BYTES // 1024
-                return f"OUTPUT_LIMIT: mehr als {grenze} KiB ausgegeben"
+                return "OLE", f"mehr als {grenze} KiB ausgegeben", dauer_ms, speicher_kb
 
         ausgabe = _gelesen(aus_fd, SANDBOX_AUSGABE_BYTES)
         if prozess.returncode != 0:
             # Gekürzt, weil die Meldung als Urteil in der Datenbank landet und
             # dort neben jeder Einreichung steht. Ein Traceback passt hinein.
             meldung = _gelesen(fehler_fd, MELDUNG_MAX).strip()
-            return f"EXECUTION_ERROR: {meldung or ausgabe.strip()}"
-        return ausgabe.strip()
+            # MLE statt des allgemeinen RE bei einem MemoryError. Der ist das
+            # verlässliche Signal, nicht der gemessene Speicher: RLIMIT_AS
+            # begrenzt den virtuellen Adressraum, eine einzelne große
+            # Zuweisung (z. B. ein 200-MiB-bytearray in einem Zug) scheitert
+            # dort schon beim mmap, bevor auch nur eine Seite eingelagert
+            # wird. ru_maxrss zählt aber nur eingelagerte Seiten und bleibt
+            # dann nahe der Grundlast des Interpreters, weit unter der
+            # Grenze der Aufgabe. Die Zeilenprüfung greift, weil Tracebacks
+            # mit dem Namen der Exception enden. Die Nähe zur Grenze bleibt
+            # als zweites Signal für den Fall, dass Speicher schrittweise
+            # wächst und der Absturz woanders auftritt als bei der Zuweisung
+            # selbst.
+            letzte_zeile = meldung.strip().splitlines()[-1] if meldung.strip() else ""
+            ist_memory_error = letzte_zeile == "MemoryError" or letzte_zeile.startswith(
+                "MemoryError:"
+            )
+            if ist_memory_error or speicher_kb * 1024 >= speicher * 0.95:
+                return (
+                    "MLE",
+                    meldung or "Speichergrenze überschritten",
+                    dauer_ms,
+                    speicher_kb,
+                )
+            return "RE", meldung or ausgabe.strip(), dauer_ms, speicher_kb
+        return "OK", ausgabe.strip(), dauer_ms, speicher_kb
     except Exception as e:
         # Der Typ bleibt in der Meldung: Umgebungsfehler sagt, dass es nicht am
         # eingereichten Code lag, nicht was gescheitert ist.
@@ -413,7 +540,9 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
         # würde sonst die eigentliche Exception verdrängen und die Schritte
         # danach auslassen. Seit process_queue Fehler je Job abfängt, überlebt
         # der Worker das, und file descriptors und Verzeichnisse würden sich
-        # über die Läufe hinweg ansammeln.
+        # über die Läufe hinweg ansammeln. Das Kind ist an dieser Stelle immer
+        # schon über wait4 eingesammelt, _reste_beenden holt nur noch Prozesse,
+        # die die Einreichung selbst gestartet hat.
         try:
             _reste_beenden()
         except Exception as e:
@@ -421,6 +550,11 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int) ->
         for fd in deskriptoren:
             try:
                 os.close(fd)
+            except OSError:
+                pass
+        if eingabe_pfad is not None:
+            try:
+                os.unlink(eingabe_pfad)
             except OSError:
                 pass
         if verzeichnis is not None:
@@ -445,38 +579,118 @@ def _sub_id_lesen(item):
 def _uebernehmen(sub_id):
     """Übernimmt eine Einreichung mit einem bedingten Update von PENDING auf
     RUNNING (#82): eigenes Token für diesen Versuch, Versuchszähler hoch,
-    Frist neu gesetzt.
+    Frist neu gesetzt, Name dieses Workers vermerkt.
 
     Gibt das aktualisierte Document zurück, oder None, wenn die Übernahme
     nicht griff. Das ist kein Fehler: Ein anderer Worker oder der Durchlauf
     kann schneller gewesen sein, oder dieselbe ID steht kurzzeitig doppelt in
     der Queue. Erst nach der Übernahme werden Code und Aufgabe gelesen, aus
     dem Document selbst, nicht mehr aus der Queue.
+
+    Die Frist hier ist nur der Platzhalter für die Zeit bis dahin: Die Aufgabe
+    ist an dieser Stelle noch nicht gelesen, ihre echte Obergrenze also noch
+    nicht bekannt. _urteil ersetzt sie, sobald die Aufgabe vorliegt.
     """
     token = uuid.uuid4().hex
-    frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_SEKUNDEN)
+    frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_PUFFER_SEKUNDEN)
     return db.submissions.find_one_and_update(
         {"_id": sub_id, "status": "PENDING"},
         {
-            "$set": {"status": "RUNNING", "run_token": token, "frist": frist},
+            "$set": {
+                "status": "RUNNING",
+                "run_token": token,
+                "frist": frist,
+                "worker_id": WORKER_ID,
+            },
             "$inc": {"versuche": 1},
         },
         return_document=ReturnDocument.AFTER,
     )
 
 
-def _urteil(submission, task):
-    """Führt die Testfälle der Aufgabe aus und gibt Status und Ergebnistext."""
+def _urteil(sub_id, token, submission, task):
+    """Führt die Testfälle nacheinander aus und schreibt jeden einzeln in
+    test_results, sobald er fertig ist. Bricht beim ersten nicht bestandenen
+    Fall ab, die Fälle danach bleiben auf NOT_RUN stehen: Der Punktstand
+    bedeutet damit "so viele bestanden, dann abgebrochen", nicht "das ist der
+    einzige Fehler". Wie die Ergebnisseite das benennt, gehört zu #56, hier
+    entsteht nur die Datengrundlage dafür.
+    """
     zeit, speicher = grenzen_der_aufgabe(task)
-    for case in task.get("test_cases", []):
-        ausgabe = run_code_in_sandbox(submission["code"], case["input"], zeit, speicher)
-        erwartet = str(case["expected_output"]).strip()
-        if ausgabe != erwartet:
+    test_cases = task.get("test_cases", [])
+
+    # Löst die Frist von der Übernahme (_uebernehmen) ab, sobald die Aufgabe
+    # feststeht: zeit gilt je Testfall, die Summe über alle Testfälle ist die
+    # tatsächliche Obergrenze dieses Laufs, unabhängig von ihrer Zahl. Der
+    # bedingte Update lässt einen inzwischen erschöpften run_token in Ruhe,
+    # wie jeder andere Schreibzugriff hier.
+    db.submissions.update_one(
+        {"_id": sub_id, "status": "RUNNING", "run_token": token},
+        {
+            "$set": {
+                "frist": datetime.now(timezone.utc)
+                + timedelta(
+                    seconds=zeit * len(test_cases) + CLAIM_FRIST_PUFFER_SEKUNDEN
+                )
+            }
+        },
+    )
+
+    # Platzhalter für alle Fälle, bevor der erste läuft. Damit trägt der
+    # Fortschritt "2 von 5 erledigt" schon während des Laufs, nicht erst am
+    # Ende.
+    platzhalter = [
+        {
+            "test_id": i,
+            "verdict": "NOT_RUN",
+            "detail": None,
+            "zeit_ms": None,
+            "speicher_kb": None,
+        }
+        for i in range(1, len(test_cases) + 1)
+    ]
+    db.submissions.update_one(
+        {"_id": sub_id, "status": "RUNNING", "run_token": token},
+        {"$set": {"test_results": platzhalter}},
+    )
+
+    bestanden = 0
+    for i, case in enumerate(test_cases, 1):
+        verdict, text, dauer_ms, speicher_kb = run_code_in_sandbox(
+            submission["code"], case["input"], zeit, speicher
+        )
+        if verdict == "OK":
+            erwartet = str(case["expected_output"]).strip()
+            if text == erwartet:
+                verdict, detail = "AC", "bestanden"
+            else:
+                verdict, detail = "WA", f"Erwartet '{erwartet}', bekommen '{text}'"
+        else:
+            detail = text
+
+        db.submissions.update_one(
+            {"_id": sub_id, "status": "RUNNING", "run_token": token},
+            {
+                "$set": {
+                    f"test_results.{i - 1}": {
+                        "test_id": i,
+                        "verdict": verdict,
+                        "detail": detail,
+                        "zeit_ms": dauer_ms,
+                        "speicher_kb": speicher_kb,
+                    }
+                }
+            },
+        )
+
+        if verdict != "AC":
             return "FAILED", (
-                f"Fehler bei Input '{case['input']}': "
-                f"Erwartet '{erwartet}', Bekommen '{ausgabe}'"
+                f"{bestanden} von {len(test_cases)} bestanden, "
+                f"abgebrochen bei Testfall {i}: {verdict}"
             )
-    return "SUCCESS", "Alle Tests bestanden!"
+        bestanden += 1
+
+    return "SUCCESS", f"Alle {len(test_cases)} Tests bestanden"
 
 
 def _ergebnis_schreiben(sub_id, token, status, text):
@@ -558,7 +772,7 @@ def process_queue():
                 raise Umgebungsfehler(
                     f"Aufgabe {submission['task_id']} steht nicht in tasks"
                 )
-            status, text = _urteil(submission, task)
+            status, text = _urteil(sub_id, token, submission, task)
         except Exception as e:
             # Was hier ankommt, ist kein Urteil über den eingereichten Code:
             # ein Fehler der Umgebung, eine unbrauchbare Aufgabe oder ein

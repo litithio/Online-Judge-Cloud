@@ -51,6 +51,8 @@ spec:
             # Datenbank.
             - name: SANDBOX_NETZ_ERZWINGEN
               value: "1"
+          resources:
+            {{- toYaml .resources | nindent 12 }}
 ---
 # minReplicaCount steht auf 0, weil die Last stoßweise ist und zwischen
 # Prüfungsterminen nahe null. Ohne Einreichungen soll kein Worker-Pod stehen
@@ -120,3 +122,5 @@ spec:
                   value: {{ include "online-judge.redisUri" . | quote }}
                 - name: MAX_VERSUCHE
                   value: {{ .Values.judge.durchlauf.maxVersuche | quote }}
+              resources:
+                {{- toYaml .Values.judge.durchlauf.resources | nindent 16 }}

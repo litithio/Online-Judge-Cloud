@@ -20,6 +20,17 @@ judge:
   sprachen:
     - name: python
       repository: online-judge-worker
+      # Wie in prod. Die CPU bleibt bei einem Kern, auch in dev, weil das
+      # Zeitlimit einer Aufgabe die vergangene Zeit misst und ein gedrosselter
+      # Worker sonst korrekte Einreichungen an der Zeit scheitern ließe. Klein
+      # wird dev über die Zahl der Worker, nicht über ihre Grenzen.
+      resources:
+        requests:
+          cpu: "1"
+          memory: "64Mi"
+        limits:
+          cpu: "1"
+          memory: "320Mi"
       keda:
         min: 0
         max: 2

@@ -111,6 +111,7 @@
             "required": [
               "name",
               "repository",
+              "resources",
               "keda"
             ],
             "properties": {
@@ -160,7 +161,8 @@
           "required": [
             "repository",
             "schedule",
-            "maxVersuche"
+            "maxVersuche",
+            "resources"
           ],
           "properties": {
             "repository": {
@@ -174,6 +176,9 @@
             "maxVersuche": {
               "type": "integer",
               "minimum": 1
+            },
+            "resources": {
+              "type": "object"
             }
           }
         }

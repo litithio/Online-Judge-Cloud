@@ -227,11 +227,14 @@ Speicher als Request und 320Mi als Limit. Die Alternative war ein kleinerer
 Request von etwa 250m, dessen Spitzen das Limit auffängt. Dann passen mehr
 Worker auf einen Node und der Judge skaliert weiter, bevor die Kerne ausgehen.
 
-Den Ausschlag gibt, wie der Judge urteilt. Das Zeitlimit einer Aufgabe misst die
-vergangene Zeit und nicht die reine Rechenzeit, die Aufgaben im Repo setzen
-zwischen 2 und 4 Sekunden. Bekommt ein Worker seinen Kern nicht, weil andere
-Pods auf demselben Node rechnen, überschreitet auch eine korrekte Einreichung
-diese Frist. Das Urteil hinge dann an der Belegung des Nodes statt an der
+Den Ausschlag gibt, wie der Judge urteilt. Das Zeitlimit einer Aufgabe gilt
+doppelt. Es begrenzt die Rechenzeit über `RLIMIT_CPU`, und dieselbe Zahl gilt
+noch einmal als Frist auf die vergangene Zeit, weil eine Einreichung, die auf
+eine Eingabe wartet statt zu rechnen, sonst nie ablaufen würde. Die Aufgaben im
+Repo setzen zwischen 2 und 4 Sekunden. Bekommt ein Worker seinen Kern nicht,
+weil andere Pods auf demselben Node rechnen, wächst nur die vergangene Zeit.
+Die Rechenzeit bleibt unter dem Limit, die Frist reißt trotzdem, und eine
+korrekte Einreichung bekommt TIMEOUT. Das Urteil hinge dann an der Belegung des Nodes statt an der
 Lösung. Deshalb Request gleich Limit. Der Preis dafür sind fünf gebundene Kerne
 bei fünf Workern, und über fünf hinaus skaliert der Judge erst, wenn Nodes
 dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und 44 bis 48 MiB je

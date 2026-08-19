@@ -75,8 +75,10 @@ judge:
       # Ein Lauf sättigt einen Kern, gemessen 897m bis 1009m an fünf Pods unter
       # Last. Mehr als ein Kern bringt nichts, der Worker führt die Testfälle
       # nacheinander aus. Request gleich Limit, weil das Zeitlimit einer
-      # Aufgabe die vergangene Zeit misst. Ein gedrosselter Worker würde
-      # korrekte Einreichungen an der Zeit scheitern lassen.
+      # Aufgabe doppelt gilt, als RLIMIT_CPU auf die Rechenzeit und als Frist
+      # auf die vergangene Zeit. Ein gedrosselter Worker reißt die zweite
+      # Grenze, ohne die erste zu erreichen, und lässt damit korrekte
+      # Einreichungen scheitern.
       #
       # Beim Speicher sind 44 bis 48 MiB gemessen, im Leerlauf wie unter Last.
       # Das Limit

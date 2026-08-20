@@ -188,9 +188,11 @@ Login-Seite und Token-Austausch (zero-code).
 
 Keycloak läuft als einzelner Pod mit einem PVC auf `/opt/keycloak/data`, sodass
 Realm und Benutzer einen Pod-Neustart überleben. Realm, OIDC-Client und ein
-Test-Benutzer kommen als Code über `--import-realm`; die Vorlage liegt in
-`ansible/templates/keycloak-realm.json.j2`, von Hand in der Konsole geklickte
-Änderungen überschreibt der nächste Import. Das Plugin wird in der statischen
+Test-Benutzer kommen als Code über `--import-realm`, die Vorlage liegt in
+`ansible/templates/keycloak-realm.json.j2`. Der Import greift nur, solange es
+den Realm noch nicht gibt. Einen vorhandenen überspringt Keycloak mit der
+Strategie IGNORE_EXISTING, eine geänderte Vorlage erreicht den laufenden
+Cluster also erst nach einem leeren PVC (#146). Das Plugin wird in der statischen
 Traefik-Konfiguration aktiviert (`tasks/traefik-plugin.yaml`, per
 `HelmChartConfig`), wobei Traefik einmal neu startet. Keycloak und die
 Traefik-Anbindung (Middleware + Ingress) rollt das Play mit dem Tag `auth` aus:
@@ -273,7 +275,7 @@ Last und beim Start.
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
 User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
-Prozesszahl. Drei Lücken bleiben.
+Prozesszahl. Vier Lücken bleiben.
 
 Im Cluster bekommt der eingereichte Code über einen User-Namespace ein eigenes,
 leeres Netz. Das setzt voraus, dass die Laufzeit den Aufruf `unshare` mit
@@ -311,3 +313,22 @@ statt einer Meldung der Anwendung. Der Tausch ist bewusst: Ohne MongoDB kann ein
 Pod weder eine Aufgabe ausliefern noch eine Einreichung annehmen. Valkey prüft
 die Probe nicht, denn ohne die Queue scheitert allein `/submit`, während
 `/tasks` und `/submission` weiter antworten.
+
+Bei der Skalierung bleibt eine Lücke. Der Worker nimmt seine Einreichung aus der
+Warteschlange, bevor er rechnet. KEDA misst nur die Länge dieser Warteschlange
+und sieht laufende Arbeit deshalb nicht. Ist die Warteschlange leer, fährt KEDA
+das Worker-Deployment auf null, auch wenn ein Pod noch rechnet. Einen eigenen
+Wert für die Wartezeit davor setzt das Chart nicht, es gilt der Standard von 300
+Sekunden, gerechnet ab dem Leerwerden der Warteschlange. Die betroffene
+Einreichung bleibt auf RUNNING stehen, bis ihre Frist abläuft, danach reiht der
+Durchlauf sie erneut ein und verbraucht einen ihrer drei Versuche. Nach dem
+dritten endet sie auf UNRESOLVED, also ohne fachliches Urteil.
+
+Mit den Aufgaben im Repo tritt der Fall nicht ein. Je Testfall wartet der Worker
+höchstens das Zeitlimit der Aufgabe plus 1,5 Sekunden, weil die Wall-Clock-Frist
+über dem harten RLIMIT_CPU-Limit liegt. Bei `editierdistanz` mit 3 Testfällen à
+4 Sekunden sind das gut 16 Sekunden. In die Nähe der Wartezeit käme erst eine
+Aufgabe, deren Testläufe zusammen Minuten dauern. `GRENZE_ZEIT_MAX` deckelt das
+Zeitlimit auf 60 Sekunden je Testfall, eine Obergrenze für die Zahl der
+Testfälle prüft `app/aufgaben/laden.py` nicht. Wer eine solche Aufgabe anlegt,
+steht vor dieser Wahl neu.

@@ -2,10 +2,12 @@
 
 Eine JSON je Aufgabe, darunter in `loesungen/` je eine Lösung, die bestehen
 muss, und eine, die an einem Limit scheitern muss. `laden.py` schreibt die
-Aufgaben nach MongoDB; der Titel ist dabei der Schlüssel, ein zweiter Lauf
-aktualisiert die Aufgabe also, statt sie erneut anzulegen. Das Ausführen im
-Cluster ist Teil der Infrastruktur und nicht des App-Deployments: der Seed lädt
-die Dateien hier in die vorhandene MongoDB.
+Aufgaben nach MongoDB. Der Titel ist dabei der Schlüssel, ein zweiter Lauf
+aktualisiert die Aufgabe also, statt sie erneut anzulegen. Ein geänderter Titel
+legt dagegen eine zweite Aufgabe an und lässt die alte stehen, denn `laden.py`
+entfernt nichts aus der Datenbank. Das Ausführen im Cluster ist Teil der
+Infrastruktur und nicht des App-Deployments, der Seed lädt die Dateien hier in
+die vorhandene MongoDB.
 
 ## Format
 

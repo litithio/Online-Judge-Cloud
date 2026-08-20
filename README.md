@@ -16,7 +16,9 @@ Prüfungsterminen liegt der Betrieb nahe null. Und der ausgeführte Code
 ist fremd: Endlosschleifen, Speicherfresser und Zugriffsversuche auf das
 Netz sind der Normalfall, nicht die Ausnahme.
 
-Über Container-Images können für jede Sprache (Python, C++, Java, Rust) maßgeschneiderte, schlanke Laufzeitumgebungen bereitgestellt werden, ohne den Host-Worker mit Abhängigkeiten zu überladen.
+Über Container-Images bekommt jede Sprache (Python, C++, Java, Rust) ihre
+eigene schlanke Laufzeitumgebung, ohne den Host-Worker mit Abhängigkeiten zu
+überladen.
 
 ## Architektur
 
@@ -71,6 +73,12 @@ OpenStack-API und braucht den Tunnel. SSH, Ansible und kubectl erreichen die
 Nodes über deren öffentliches IPv6 aus dem Internet, und der Full-Tunnel
 kappt genau das. Voraussetzung ist IPv6 am eigenen Anschluss, sonst bleibt
 nur der Campus.
+
+Auf dem eigenen Rechner liegen Python 3.12, Terraform, Helm und Docker.
+`terraform` und `helm` ruft `scripts/infra-check.sh` auf, `docker` ruft
+`scripts/diagramme.sh` auf. Die Versionen von Terraform und Helm stehen in
+`.github/workflows/infra.yml`, die Python-Version in beiden Workflows. venv
+erzwingt sie nicht, es übernimmt das `python3` aus der PATH.
 
 Einmal je Person einrichten:
 
@@ -223,7 +231,6 @@ eine geänderte `.mmd` ohne mitcommittete SVG macht den Pull Request rot.
 meldet, wenn eine `.mmd` neuer ist als ihr SVG.
 
 ## Entscheidungen
-Je Pflicht- und Wahlthema ein Absatz: Wahl, Alternative, Begründung
 
 ### Ressourcen der Judge-Worker
 
@@ -263,7 +270,6 @@ gebraucht werden. Der Speicher steht bei 46 MiB, konstant im Leerlauf, unter
 Last und beim Start.
 
 ## Grenzen
-Was die Lösung nicht kann und was Sie unter echter Last erwarten
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
 User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
@@ -305,5 +311,3 @@ statt einer Meldung der Anwendung. Der Tausch ist bewusst: Ohne MongoDB kann ein
 Pod weder eine Aufgabe ausliefern noch eine Einreichung annehmen. Valkey prüft
 die Probe nicht, denn ohne die Queue scheitert allein `/submit`, während
 `/tasks` und `/submission` weiter antworten.
-## Bonus
-Nur falls Sie Bonuspunkte beanspruchen, sonst weglassen

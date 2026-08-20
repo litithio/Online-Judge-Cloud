@@ -159,7 +159,10 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
         # dessen Suche nach PENDING-Einreichungen, deren Queue-Eintrag
         # verlorenging, etwa weil Valkey seinen Inhalt verliert oder ein
         # Worker den Eintrag per BLPOP schon zog, aber vor der Übernahme in
-        # MongoDB starb.
+        # MongoDB starb. Scheitert der RPUSH unten, steht das Feld danach
+        # wieder auf None. Das heißt Ausgang unbekannt und nicht sicher nicht
+        # eingereiht, ob die ID in der Liste steht, klärt erst der LPOS-Check
+        # im Durchlauf.
         "last_enqueued_at": jetzt,
         # Einzige Stelle, die die Anlage selbst festhält; der Worker schreibt
         # danach nur noch updated_at. Ohne created_at ließe sich nicht sagen,
@@ -170,7 +173,52 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
 
     # 2. Nur die ID in die Queue der Sprache schreiben. Code und Aufgabe liest
     # der Worker erst nach der Übernahme aus MongoDB, siehe worker.py.
-    redis_client.rpush(f"judge:{sprache}", str(sub_id))
+    try:
+        redis_client.rpush(f"judge:{sprache}", str(sub_id))
+    except Exception as fehler:
+        # Kein 500 nach einem geglückten Insert. Der Aufrufer läse ihn als
+        # nicht angekommen und legte beim Wiederholen eine zweite Einreichung
+        # an, die genauso bewertet würde. Die Einreichung bleibt deshalb
+        # stehen und die Antwort trägt weiter ihre ID.
+        #
+        # Die Ausnahme sagt nicht, dass Valkey den RPUSH nicht ausgeführt hat.
+        # Bricht die Verbindung nach der Ausführung und vor der Antwort ab,
+        # steht die ID bereits in der Liste. Der Marker unten heißt deshalb
+        # Ausgang unbekannt, und der LPOS-Check im Durchlauf entscheidet.
+        #
+        # Breit gefangen, hier und im inneren Block. Nach dem Insert soll
+        # nichts mehr den Endpunkt verlassen, und eine eng gefasste Ausnahme
+        # ließe genau den Fall durch, an den niemand gedacht hat. Dasselbe
+        # tut worker.py beim BLPOP. flush, weil das Backend-Image kein
+        # PYTHONUNBUFFERED setzt und stdout ohne Terminal blockweise puffert.
+        # Ungeflusht stünde die Meldung erst in docker logs, wenn der Puffer
+        # voll ist.
+        print(
+            f"Einreichung {sub_id}: RPUSH ohne Bestätigung, "
+            f"{type(fehler).__name__}: {fehler}",
+            flush=True,
+        )
+        try:
+            # last_enqueued_at auf None statt auf jetzt. Der Durchlauf
+            # trennt daran den unbestätigten RPUSH von einer Einreichung, die
+            # nur wartet (durchlauf.py, _ohne_frischen_eintrag), und prüft
+            # diese hier beim nächsten Lauf, statt REENQUEUE_AFTER_SECONDS
+            # abzuwarten.
+            db.submissions.update_one(
+                {"_id": sub_id}, {"$set": {"last_enqueued_at": None}}
+            )
+        except Exception as marke_fehler:
+            # Auch dieser Schreibzugriff darf die Antwort nicht mehr kippen,
+            # sonst führt eine Neuwahl des Primary genau zu dem 500 nach
+            # geglücktem Insert, den der äußere Block verhindert. Bleibt der
+            # Zeitpunkt der Anlage stehen, greift der Durchlauf über seinen
+            # $lt-Zweig, nur eben erst nach REENQUEUE_AFTER_SECONDS. Das ist
+            # der Weg, den #113 ohnehin vorsieht.
+            print(
+                f"Einreichung {sub_id}: last_enqueued_at nicht auf None, "
+                f"{type(marke_fehler).__name__}: {marke_fehler}",
+                flush=True,
+            )
 
     return {"submission_id": str(sub_id), "status": "PENDING"}
 

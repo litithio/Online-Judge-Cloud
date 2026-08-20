@@ -3,13 +3,17 @@
 requeue_versuche, dazu PENDING-Einreichungen in Sprachen, die es nicht mehr
 gibt.
 
-_verwaiste_pending (durchlauf.py) greift auf last_enqueued_at nur lesend über
-$lt zu, ein fehlendes Feld zählt für MongoDB dabei wie Null und wird
-mitgefunden. requeue_versuche und versuche liest durchlauf.py dagegen über
-eintrag["..."] ohne Rückfall, ein fehlendes Feld dort wäre ein KeyError,
-nicht ein stiller Rückfall auf 0. Diese Migration schließt die Lücke einmalig
-in den Daten, nicht im Code: Die gelesenen Felder bleiben Pflichtfelder, die
-jede neue Einreichung ohnehin schon bekommt (app/backend/main.py).
+_verwaiste_pending (durchlauf.py) greift auf last_enqueued_at nur lesend zu,
+über $lt gegen eine Schwelle und über $type null. Ein fehlendes Feld findet
+keiner der beiden Zweige. MongoDB vergleicht bei $lt nur innerhalb desselben
+BSON-Typs, gegen MongoDB 8.0.28 gemessen findet $lt gegen ein Datum weder null
+noch ein fehlendes Feld, und $type null verlangt das Feld. Eine Einreichung
+ohne last_enqueued_at bliebe damit für den Durchlauf unsichtbar.
+requeue_versuche und versuche liest durchlauf.py über eintrag["..."] ohne
+Rückfall, ein fehlendes Feld dort wäre ein KeyError, nicht ein stiller
+Rückfall auf 0. Diese Migration schließt beide Lücken einmalig in den Daten,
+nicht im Code. Die gelesenen Felder bleiben Pflichtfelder, die jede neue
+Einreichung ohnehin schon bekommt (app/backend/main.py).
 
 Läuft einmal und beendet sich, danach ist sie wirkungslos: Jede Bedingung
 prüft $exists false oder eine feste Liste alter Sprachen, ein zweiter Lauf

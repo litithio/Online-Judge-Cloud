@@ -69,14 +69,21 @@ WORKER_ID = f"worker-{socket.gethostname()}"
 # Marge über der tatsächlichen Obergrenze der Aufgabe (_urteil), sobald die
 # feststeht. Eine feste Zahl als Frist selbst könnte über der Summe aller
 # Testfälle einer Aufgabe nie zuverlässig liegen, die Zahl der Testfälle ist
-# nicht gedeckelt; als Marge auf die aus der Aufgabe berechnete Summe
-# angewendet, bleibt sie das unabhängig von deren Zahl.
+# nicht gedeckelt. Als Marge auf die aus der Aufgabe berechnete Summe
+# angewendet, wächst die Frist dagegen mit der Aufgabe mit.
 #
-# 90 hält den in durchlauf-cronjob.yaml dokumentierten Takt (60s, die
-# feinste Auflösung, die ein CronJob kennt) mit 50 % Marge ein. Nur diese
-# Bedingung, Marge > Takt, ist hart; 90 selbst ist keine berechnete Zahl,
-# nur eine runde Wahl mit reichlich Abstand. 75 (25 % Marge) hielte dieselbe
-# Bedingung ebenso ein, dann aber knapper.
+# Abzudecken ist, was ein Lauf über die reine Rechenzeit hinaus braucht. Je
+# Testfall kommen der Start des Prozesses, das Schreiben der Eingabe, das
+# Aufräumen und ein Schreibzugriff auf MongoDB dazu, und die Frist je Lauf
+# liegt mit zeit + 1 + ZEITFRIST_PUFFER über der zeit, mit der die Summe
+# rechnet. 90 ist keine berechnete Zahl, sondern eine runde Wahl mit Abstand.
+# Bei sehr vielen Testfällen reicht ein fester Wert dafür nicht, die Aufgaben
+# im Repo haben zwei bis drei.
+#
+# Mit dem Takt des Durchlaufs hat die Marge nichts zu tun. Ein selteneres
+# Laufen holt eine hängende Einreichung später zurück, und ein Worker, der über
+# seine Frist hinaus arbeitet, bekommt dadurch eher noch die Gelegenheit, sein
+# Ergebnis zu schreiben.
 CLAIM_FRIST_PUFFER_SEKUNDEN = int(os.getenv("CLAIM_FRIST_PUFFER_SEKUNDEN", "90"))
 
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine

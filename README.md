@@ -188,9 +188,11 @@ Login-Seite und Token-Austausch (zero-code).
 
 Keycloak läuft als einzelner Pod mit einem PVC auf `/opt/keycloak/data`, sodass
 Realm und Benutzer einen Pod-Neustart überleben. Realm, OIDC-Client und ein
-Test-Benutzer kommen als Code über `--import-realm`; die Vorlage liegt in
-`ansible/templates/keycloak-realm.json.j2`, von Hand in der Konsole geklickte
-Änderungen überschreibt der nächste Import. Das Plugin wird in der statischen
+Test-Benutzer kommen als Code über `--import-realm`, die Vorlage liegt in
+`ansible/templates/keycloak-realm.json.j2`. Der Import greift nur, solange es
+den Realm noch nicht gibt. Einen vorhandenen überspringt Keycloak mit der
+Strategie IGNORE_EXISTING, eine geänderte Vorlage erreicht den laufenden
+Cluster also erst nach einem leeren PVC (#146). Das Plugin wird in der statischen
 Traefik-Konfiguration aktiviert (`tasks/traefik-plugin.yaml`, per
 `HelmChartConfig`), wobei Traefik einmal neu startet. Keycloak und die
 Traefik-Anbindung (Middleware + Ingress) rollt das Play mit dem Tag `auth` aus:

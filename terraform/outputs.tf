@@ -27,7 +27,10 @@ resource "local_file" "ansible_inventory" {
     all = {
       children = {
         judge = {
-          vars = { interpreter_python = "/usr/bin/python3" }
+          # ansible_python_interpreter, nicht interpreter_python. Der zweite
+          # Name ist der ini-Schlüssel für ansible.cfg, als Inventory-Variable
+          # wirkt er nicht und Ansible fiele auf die eigene Suche zurück.
+          vars = { ansible_python_interpreter = "/usr/bin/python3" }
           children = {
             judge_k3s_server = {
               vars  = { k3s_role = "server" }

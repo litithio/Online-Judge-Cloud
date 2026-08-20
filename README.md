@@ -150,7 +150,9 @@ wählt zwischen den Overlays `values-prod.yaml` mit zwei API-Replicas und
 der Datendienste oder ein Eintrag unter `judge` fehlt.
 
 Eine weitere Sprache ist ein Eintrag unter `judge.sprachen` in den values, samt
-eigenem Worker-Image. Das Chart erzeugt daraus Deployment und ScaledObject.
+eigenem Worker-Image. Das Chart erzeugt daraus Deployment und ScaledObject. Die
+API führt ihre eigene Liste, `SPRACHEN` in `app/backend/main.py`. Fehlt die
+Sprache dort, lehnt `/submit` jede Einreichung dafür mit 400 ab.
 
 Prüfen mit `kubectl get pods`, dort steht `backend` auf Running. `kubectl get
 cronjob,scaledobject` zeigt `durchlauf` und `code-worker-python`. Das
@@ -199,7 +201,7 @@ ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags auth
 ```
 
-Prüfen: `https://keycloak.<zone>` zeigt den Realm `judge`, ein Aufruf von
+Prüfen: `https://auth.<zone>` zeigt den Realm `judge`, ein Aufruf von
 `https://app.<zone>` leitet unangemeldet zur Anmeldung um, und nach der
 Anmeldung mit dem Test-Benutzer aus `auth-credentials.yaml` ist die API
 erreichbar. Ein direkter Aufruf des `backend`-Service im Cluster (ohne
@@ -241,15 +243,16 @@ Den Ausschlag gibt, wie der Judge urteilt. Das Zeitlimit einer Aufgabe gilt
 doppelt. Es begrenzt die Rechenzeit über `RLIMIT_CPU`, und dieselbe Zahl gilt
 noch einmal als Frist auf die vergangene Zeit, weil eine Einreichung, die auf
 eine Eingabe wartet statt zu rechnen, sonst nie ablaufen würde. Die Aufgaben im
-Repo setzen zwischen 2 und 4 Sekunden. Bekommt ein Worker seinen Kern nicht,
-weil andere Pods auf demselben Node rechnen, wächst nur die vergangene Zeit.
-Die Rechenzeit bleibt unter dem Limit, die Frist reißt trotzdem, und eine
-korrekte Einreichung bekommt TIMEOUT. Das Urteil hinge dann an der Belegung des Nodes statt an der
-Lösung. Deshalb Request gleich Limit. Der Preis dafür sind fünf gebundene Kerne
-bei fünf Workern, und über fünf hinaus skaliert der Judge erst, wenn Nodes
-dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und 44 bis 48 MiB je
-Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die eine Aufgabe für
-den Kindprozess fordern darf.
+Repo setzen 2 bis 4 Sekunden, eine ohne eigenes Limit fällt auf die 5
+Sekunden aus dem Worker zurück. Bekommt ein Worker seinen Kern nicht, weil
+andere Pods auf demselben Node rechnen, wächst nur die vergangene Zeit. Die
+Rechenzeit bleibt unter dem Limit, die Frist reißt trotzdem, und eine korrekte
+Einreichung bekommt TLE. Das Urteil hinge dann an der Belegung des Nodes statt
+an der Lösung. Deshalb Request gleich Limit. Der Preis dafür sind fünf
+gebundene Kerne bei fünf Workern, und über fünf hinaus skaliert der Judge
+erst, wenn Nodes dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und
+44 bis 48 MiB je Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die
+eine Aufgabe für den Kindprozess fordern darf.
 
 ### Ressourcen der API
 
@@ -258,12 +261,13 @@ Limit. Die Alternative war ein CPU-Request an der Last, also 10m bis 20m. Der
 reserviert ein Fünftel und lässt die Spitzen vom Limit auffangen.
 
 Den Ausschlag gibt hier der Start und nicht der Betrieb. Im Leerlauf braucht die
-API 3m, unter Last 8m bis 9m, beim Start dagegen rund 55m für etwa 15 Sekunden,
-weil sie dabei den Index in MongoDB anlegt. Ein Request unterhalb dieses Werts
-drosselt genau die Startphase. Das Startfenster der Probe liefe damit langsamer
-ab, und beim Rolling Update fehlte eine Replica länger. Der Preis sind 100m je
-Replica, also 200m für die beiden, die im Betrieb fast nie gebraucht werden. Der
-Speicher steht bei 46 MiB, konstant im Leerlauf, unter Last und beim Start.
+API 3m, unter Last 8m bis 9m, beim Start dagegen rund 55m für etwa 15
+Sekunden, weil sie dabei ihre Indizes in MongoDB anlegt. Ein Request unterhalb
+dieses Werts drosselt genau die Startphase. Das Startfenster der Probe liefe
+damit langsamer ab, und beim Rolling Update fehlte eine Replica länger. Der
+Preis sind 100m je Replica, also 200m für die beiden, die im Betrieb fast nie
+gebraucht werden. Der Speicher steht bei 46 MiB, konstant im Leerlauf, unter
+Last und beim Start.
 
 ## Grenzen
 

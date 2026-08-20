@@ -15,7 +15,7 @@ Läuft einmal und beendet sich, danach ist sie wirkungslos: Jede Bedingung
 prüft $exists false oder eine feste Liste alter Sprachen, ein zweiter Lauf
 träfe keine Einreichung mehr. Lokal über
 `docker compose --profile migration run --rm nachtrag-113`, im Cluster als
-einmaliger Job (ansible/tasks/judge.yaml).
+Job neben dem Seed (ansible/tasks/seed.yaml).
 """
 
 import os

@@ -39,7 +39,7 @@ variable "flavor_worker" {
 }
 
 variable "worker_count" {
-  description = "Anzahl der Worker; P4 und P6 verlangen mehrere"
+  description = "Anzahl der Worker, P4 verlangt mehrere"
   type        = number
   default     = 3
 }

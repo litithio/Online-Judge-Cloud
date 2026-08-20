@@ -33,8 +33,10 @@ def gelesen(datei):
         raise SystemExit(f"{datei.name}: {', '.join(fehlt)} fehlt oder ist leer")
     # Auf Typen geprüft, nicht nur auf Vorhandensein. Der Worker schreibt die
     # Eingabe unverändert in eine Datei, eine Zahl statt einer Zeichenkette
-    # beantwortet dort jede Einreichung mit SYSTEM_ERROR. Und ein "in"-Test auf
-    # einem String würde Teilzeichenketten finden statt Feldnamen.
+    # lässt dort jeden Lauf als Umgebungsfehler enden. Die Einreichung bleibt
+    # dann auf RUNNING liegen, bis der Durchlauf sie nach MAX_VERSUCHE aufgibt.
+    # Und ein "in"-Test auf einem String würde Teilzeichenketten finden statt
+    # Feldnamen.
     for nummer, fall in enumerate(aufgabe["test_cases"], 1):
         if not isinstance(fall, dict):
             raise SystemExit(f"{datei.name}: Testfall {nummer} ist kein Objekt")

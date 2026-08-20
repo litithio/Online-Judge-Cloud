@@ -48,7 +48,7 @@ backend:
   replicas: 2
   # Der CPU-Request folgt dem Start, nicht der Last. Gemessen sind im Leerlauf
   # 3m und unter Last 8m bis 9m je Pod, beim Start dagegen 54m bis 55m für rund
-  # 15 Sekunden, weil main.py beim Import den Index anlegt. Läge der Request
+  # 15 Sekunden, weil main.py beim Start die Indizes anlegt. Läge der Request
   # darunter, würde ausgerechnet der Start gedrosselt und das Fenster der
   # startupProbe liefe langsamer ab.
   #
@@ -77,7 +77,9 @@ judge:
   # Je Eintrag ein Worker-Deployment und ein ScaledObject. name bildet den
   # Namen des Deployments (code-worker-<name>), den Wert von WORKER_SPRACHE und
   # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache
-  # braucht ein eigenes Image und einen Eintrag hier, keine weitere Datei.
+  # braucht ein eigenes Image und einen Eintrag hier, keine weitere Datei im
+  # Chart. Die API führt daneben ihre eigene Liste, SPRACHEN in
+  # app/backend/main.py, und lehnt eine Sprache ohne Eintrag dort mit 400 ab.
   sprachen:
     - name: python
       repository: online-judge-worker

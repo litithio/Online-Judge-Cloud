@@ -20,8 +20,9 @@ resource "openstack_compute_instance_v2" "server" {
   timeouts { create = "10m" }
 }
 
-# var.worker_count ist die einzige Stelle, an der sich die Anzahl ändert; drei
-# ist das Minimum, bei dem Verteilung (P4) und Skalierung (P6) sichtbar werden.
+# var.worker_count ist die einzige Stelle, an der sich die Anzahl ändert. Drei
+# ist die gewählte Zahl und keine Untergrenze, P4 verlangt nur mehrere Worker.
+# Wie viele Nodes den Judge tragen und wie viele die Dienste, entscheidet #88.
 resource "openstack_compute_instance_v2" "worker" {
   count           = var.worker_count
   name            = "${var.prefix}-k3s-worker-${count.index + 1}"

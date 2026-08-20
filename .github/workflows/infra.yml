@@ -29,7 +29,7 @@ jobs:
           # umleiten; das Skript wertet den Exit-Code selbst aus.
           terraform_wrapper: false
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           # Festgelegt wie bei Terraform, sonst prüft die CI mit dem gerade
           # vorinstallierten Helm des Runners und lokal gilt eine andere Version.

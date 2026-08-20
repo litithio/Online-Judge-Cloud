@@ -42,8 +42,9 @@ import time
 import urllib.error
 import urllib.request
 
-# Nur python: Die API nimmt vier Sprachen an, Worker gibt es nur für Python,
-# jede andere Einreichung bliebe für immer PENDING (#107).
+# Nur python. Die API nimmt über SPRACHEN in app/backend/main.py auch nur
+# python an und lehnt jede andere Sprache mit 400 ab, ein Worker-Image gibt es
+# ebenfalls nur dafür.
 SPRACHE = "python"
 
 AUFGABEN = pathlib.Path(__file__).parent / "aufgaben"

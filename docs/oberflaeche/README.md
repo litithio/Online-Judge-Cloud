@@ -47,8 +47,10 @@ Erweiterung dafür; sie ist zurückgestellt, bis die Standardseite tatsächlich
 stört (#15).
 
 `ergebnis-laeuft.html` nennt eine Wiederaufnahme nach einem Worker-Ausfall.
-Das setzt voraus, dass der Delivery-Counter aus dem Valkey-Stream im Document
-landet; ohne ihn entfällt der Absatz.
+Einen Valkey-Stream gibt es dafür nicht mehr, die Queue hält seit #82 nur noch
+die Einreichungs-ID. Zählen lässt sich eine Wiederaufnahme über `versuche` im
+Document. Das Feld zählt jede Übernahme, den Grund der vorigen nennt es nicht,
+und `worker_id` trägt nur den Worker des laufenden Versuchs.
 
 Der Editor ist im Entwurf ein `pre` mit Zeilennummern. Dort steht später
 Monaco.

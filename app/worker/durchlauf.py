@@ -45,15 +45,23 @@ REDIS_URI = os.getenv("REDIS_URI", "redis://localhost:6379")
 # griffe nie.
 MAX_VERSUCHE = int(os.getenv("MAX_VERSUCHE", "3"))
 
-# Aus #113: wie lange eine Einreichung auf PENDING liegen darf, bevor der
-# Durchlauf sie als Kandidatin für einen verlorenen Queue-Eintrag prüft (den
-# eigentlichen Verlust stellt erst der LPOS-Check gegen Valkey fest, siehe
-# unten). Muss über der
-# normalen Wartezeit einer gesunden Einreichung liegen, sonst reiht der
-# Durchlauf sie ein zweites Mal ein, während sie nur auf ihren Worker wartet:
-# KEDA pollt die Queue ohne eigenes pollingInterval alle 30 Sekunden
-# (keda-scaledobject-python.yaml), dazu kommt die Zeit, bis der Worker-Pod
-# aus minReplicaCount 0 startet und das Image zieht.
+# Aus #113. Wie alt eine PENDING-Einreichung sein muss, damit der Durchlauf sie
+# als Kandidatin für einen verlorenen Queue-Eintrag ansieht. Ob der Eintrag
+# wirklich weg ist, entscheidet danach der LPOS-Check gegen Valkey unten.
+#
+# Die Frist muss über der normalen Wartezeit einer gesunden Einreichung liegen.
+# KEDA pollt die Liste ohne eigenes pollingInterval alle 30 Sekunden, dazu kommt
+# die Zeit, bis der Worker-Pod aus minReplicaCount 0 startet und das Image
+# zieht. Das ScaledObject dazu steht in app/chart/templates/judge.yaml.
+#
+# LPOS allein trägt das nicht. Zwischen dem BLPOP im Worker und der Übernahme
+# auf RUNNING ist die ID aus der Liste und der Status noch PENDING. Fällt ein
+# Lauf in dieses Fenster, meldet LPOS die ID als weg, obwohl gerade ein Worker
+# an ihr arbeitet. Der Durchlauf reiht sie dann ein zweites Mal ein, und bei
+# erschöpften Requeues setzt er sie auf ENDZUSTAND_ERSCHOEPFT. Die Übernahme
+# des Workers greift danach nicht mehr, eine gesunde Einreichung bliebe ohne
+# Urteil. Je weiter die Frist über der normalen Wartezeit liegt, desto seltener
+# ist eine gesunde Einreichung in diesem Moment überhaupt Kandidatin.
 REENQUEUE_AFTER_SECONDS = int(os.getenv("REENQUEUE_AFTER_SECONDS", "180"))
 
 # Platzhalter: welchen Zustand eine erschöpfte Einreichung bekommt, entscheidet

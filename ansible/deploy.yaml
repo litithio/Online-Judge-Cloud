@@ -108,6 +108,18 @@
             nodeSelector:
               online-judge/sandbox: runsc
 
+# Der Namespace für die Anwendung, kommt vor den Datendiensten (MongoDB/Valkey)
+# und der App, weil die künftig hier reingehören -- vorerst
+# bleiben alle Workloads aber noch in default, dieser Schritt legt nur den
+# leeren Namespace an.
+- name: Namespace anlegen
+  hosts: judge_k3s_server
+  tags: [namespace]
+  become: true
+  tasks:
+    - name: Namespace der Anwendung
+      ansible.builtin.import_tasks: tasks/namespace.yaml
+
 # Die Datendienste zuerst: die App verbindet sich beim Start mit MongoDB und
 # der Queue, und das Chart liest die Mongo-URI aus dem Secret, das der Operator
 # erst nach dem Anlegen der Instanz schreibt. Beim ersten Vollauf auf leerem

@@ -139,7 +139,7 @@ Objekte und bricht mit `invalid ownership metadata` ab, sie müssen deshalb
 vorher weg. Helm legt sie sofort neu an.
 
 ```bash
-kubectl delete deployment code-worker cronjob durchlauf scaledobject code-worker-python
+kubectl delete deployment/code-worker cronjob/durchlauf scaledobject/code-worker-python
 ```
 
 Der ausgerollte Stand steht in `ansible/vars/app.yaml`. `app_image_tag` wählt

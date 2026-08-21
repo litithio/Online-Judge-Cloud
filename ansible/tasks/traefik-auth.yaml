@@ -24,7 +24,7 @@
       kind: Middleware
       metadata:
         name: oidc-auth
-        namespace: default
+        namespace: "{{ app_namespace }}"
       spec:
         plugin:
           traefik-oidc-auth:
@@ -72,10 +72,10 @@
       kind: Ingress
       metadata:
         name: app
-        namespace: default
+        namespace: "{{ app_namespace }}"
         annotations:
           # <namespace>-<name>@kubernetescrd verweist auf die Middleware oben.
-          traefik.ingress.kubernetes.io/router.middlewares: default-oidc-auth@kubernetescrd
+          traefik.ingress.kubernetes.io/router.middlewares: "{{ app_namespace }}-oidc-auth@kubernetescrd"
       spec:
         # Ausgeschrieben, obwohl die IngressClass traefik im k3s-Bundle als
         # Default markiert ist. Der API-Server trägt sie sonst selbst ein, und

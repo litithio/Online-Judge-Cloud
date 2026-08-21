@@ -9,7 +9,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: valkey-data
-  namespace: default
+  namespace: "{{ app_namespace }}"
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:

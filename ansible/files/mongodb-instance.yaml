@@ -2,7 +2,7 @@ apiVersion: mongodbcommunity.mongodb.com/v1
 kind: MongoDBCommunity
 metadata:
   name: mongodb
-  namespace: default
+  namespace: "{{ app_namespace }}"
 spec:
   members: 3
   type: ReplicaSet

@@ -23,7 +23,7 @@
       kind: ConfigMap
       metadata:
         name: aufgaben-seed
-        namespace: default
+        namespace: "{{ app_namespace }}"
       data: "{{ seed_daten }}"
 
 # Jobs sind nach dem Anlegen unveränderlich, ein geänderter Seed braucht
@@ -35,7 +35,7 @@
     api_version: batch/v1
     kind: Job
     name: aufgaben-seed
-    namespace: default
+    namespace: "{{ app_namespace }}"
     kubeconfig: /etc/rancher/k3s/k3s.yaml
     wait: true
 
@@ -53,7 +53,7 @@
       kind: Job
       metadata:
         name: aufgaben-seed
-        namespace: default
+        namespace: "{{ app_namespace }}"
       spec:
         backoffLimit: 2
         template:
@@ -91,7 +91,7 @@
     api_version: batch/v1
     kind: Job
     name: nachtrag-113
-    namespace: default
+    namespace: "{{ app_namespace }}"
     kubeconfig: /etc/rancher/k3s/k3s.yaml
     wait: true
 
@@ -109,7 +109,7 @@
       kind: Job
       metadata:
         name: nachtrag-113
-        namespace: default
+        namespace: "{{ app_namespace }}"
       spec:
         backoffLimit: 2
         template:

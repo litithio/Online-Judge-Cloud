@@ -128,6 +128,8 @@
   hosts: judge_k3s_server
   tags: [mongodb]
   become: true
+  vars_files:
+    - vars/app.yaml
   tasks:
     - name: MongoDB Operator und Instanz einrichten
       ansible.builtin.import_tasks: tasks/mongodb.yaml
@@ -136,6 +138,8 @@
   hosts: judge_k3s_server
   tags: [valkey]
   become: true
+  vars_files:
+    - vars/app.yaml
   tasks:
     - name: Valkey Deployment und Service einrichten
       ansible.builtin.import_tasks: tasks/valkey.yaml
@@ -187,6 +191,7 @@
   tags: [auth]
   become: true
   vars_files:
+    - vars/app.yaml
     - vars/auth.yaml
     - auth-credentials.yaml
   tasks:

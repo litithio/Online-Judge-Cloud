@@ -9,7 +9,7 @@
     name: community-operator
     chart_ref: mongodb/community-operator
     chart_version: "0.13.0"
-    release_namespace: default
+    release_namespace: "{{ app_namespace }}"
     wait: true
     kubeconfig: "{{ kubeconfig_root }}"
 
@@ -18,13 +18,13 @@
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
-    definition: "{{ lookup('file', 'mongodb-password.yaml') | from_yaml }}"
+    definition: "{{ lookup('template', 'files/mongodb-password.yaml') | from_yaml }}"
 
 - name: Apply MongoDB Instance
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
-    definition: "{{ lookup('file', 'mongodb-instance.yaml') | from_yaml }}"
+    definition: "{{ lookup('template', 'files/mongodb-instance.yaml') | from_yaml }}"
 
 # === MongoDB Wait ===
 
@@ -32,14 +32,14 @@
   kubernetes.core.k8s_info:
     kind: StatefulSet
     name: mongodb
-    namespace: default
+    namespace: "{{ app_namespace }}"
     kubeconfig: "{{ kubeconfig_root }}"
     wait: true
     wait_timeout: 300
 
 - name: Wait for MongoDB to be ready
   ansible.builtin.command:
-    argv: [kubectl, rollout, status, statefulset/mongodb, --timeout=300s]
+    argv: [kubectl, rollout, status, statefulset/mongodb, -n, "{{ app_namespace }}", --timeout=300s]
   environment:
     KUBECONFIG: "{{ kubeconfig_root }}"
   changed_when: false

@@ -271,6 +271,38 @@ Preis sind 100m je Replica, also 200m für die beiden, die im Betrieb fast nie
 gebraucht werden. Der Speicher steht bei 46 MiB, konstant im Leerlauf, unter
 Last und beim Start.
 
+### Ressourcen von MongoDB
+
+Ein `mongod` bekommt 150m CPU und 512Mi Speicher als Request, dazu 500m und 1Gi
+als Limit. Der Sidecar `mongodb-agent` bekommt 100m und 128Mi, die beiden
+Init-Container je 50m und 64Mi, der Operator 50m und 64Mi. Die Alternative war,
+es bei den Vorgaben des Operators und seines Charts zu belassen. Die stehen
+nirgends im Repo und setzen für jeden Sidecar, jeden Init-Container und den
+Operator 500m an. Ein mongodb-Pod forderte damit 600m, die 100m von `mongod`
+plus die 500m des Sidecars, und mit dem Operator kamen die drei Pods auf 2300m.
+
+Den Ausschlag gibt, dass Sidecar und Operator ihre Spitze nicht unter
+Anwendungslast haben. Gemessen mit `app/lastgenerator.py`, 15 Einreichungen je
+Sekunde über 180 Sekunden, bleibt der Sidecar bei 17m und der Operator bei 1m.
+Ihre Arbeit hängt am Abgleich der Replica-Set-Konfiguration, und der fällt beim
+Ausrollen an. Dort sind 30m für den Sidecar und 10m für den Operator gemessen,
+danach fallen beide zurück. Nur `mongod` folgt der Last, sein Primary trägt die
+Schreiblast und kommt auf 129m. Der bisherige Request von 100m lag darunter und
+ist deshalb mitgewachsen.
+
+Die Init-Container stehen mit im Repo, weil die Änderung sonst wirkungslos
+bliebe. Kubernetes bildet den Request eines Pods als Maximum aus der Summe der
+laufenden Container und dem größten Init-Container. `mongod-posthook` und
+`mongodb-agent-readinessprobe` fordern von sich aus 500m, jeder mongodb-Pod
+hielte damit weiter 500m fest, obwohl `mongod` und Sidecar zusammen nur 250m
+fordern. Beide kopieren je eine Binärdatei und sind in derselben Sekunde fertig,
+in der sie starten, eine Messung mit `kubectl top` gibt es zu ihnen deshalb
+nicht, ihre Zahl folgt der Arbeit. Der Preis ist, dass die Vorgaben des
+Operators nun an vier Stellen überschrieben werden und bei einem Versionssprung
+des Charts nachzusehen sind. Dafür fordern die drei Pods und der Operator 800m
+statt 2300m.
+
+
 ## Grenzen
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen

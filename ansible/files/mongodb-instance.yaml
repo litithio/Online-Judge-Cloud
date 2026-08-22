@@ -39,15 +39,100 @@ spec:
               labelSelector:
                 matchLabels:
                   app: mongodb-svc
-          containers:
-            - name: mongod
+          # Kubernetes bildet den Request eines Pods als Maximum aus der
+          # Summe der laufenden Container und dem größten Init-Container. Ohne
+          # diesen Block forderte jeder mongodb-Pod deshalb weiter 500m, obwohl
+          # mongod und der Sidecar darüber zusammen nur 250m fordern, und die
+          # drei Pods hielten 1500m fest. Nachgesehen mit kubectl describe
+          # node, das den Pod in genau diesem Zwischenstand mit 500m führte und
+          # danach mit 250m.
+          #
+          # Eine Messung gibt es zu den beiden nicht. Sie kopieren je eine
+          # Binärdatei in ein gemeinsames Volume, den Version-Upgrade-Hook und
+          # die Readiness-Probe, und sind laut startedAt und finishedAt im
+          # Pod-Status noch in derselben Sekunde fertig. metrics-server tastet
+          # alle 15 Sekunden ab und sieht sie damit nie. Die Zahl folgt also
+          # der Arbeit und nicht einer Messung, 50m und 64Mi für einen
+          # Kopiervorgang, das Limit lässt ihn schnell durchlaufen.
+          initContainers:
+            - name: mongod-posthook
               resources:
                 requests:
-                  cpu: "100m"
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "128Mi"
+            - name: mongodb-agent-readinessprobe
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "128Mi"
+          containers:
+            # Beide Container stehen hier. Ohne den zweiten Eintrag behielte
+            # der Sidecar die Vorgaben des Operators, und die stehen dann
+            # nirgends im Repo. Alle drei Pods teilen sich diesen Block, jeder
+            # von ihnen kann Primary werden.
+            #
+            # Alle Zahlen unten sind am 22.08. mit kubectl top pod
+            # --containers gemessen, in drei Zuständen. Unter Last meint zwei
+            # Läufe von app/lastgenerator.py gegen den Service backend, 5
+            # Einreichungen je Sekunde über 300 Sekunden und 15 je Sekunde
+            # über 180 Sekunden. Beide hielten die Soll-Rate, alle 1500 und
+            # 2700 Einreichungen wurden angenommen. Beim Ausrollen meint den
+            # Lauf des Plays mit dem Tag mongodb, der den StatefulSet neu
+            # rollt. Im Leerlauf meint den Cluster ohne Einreichungen. Genannt
+            # ist jeweils der Spitzenwert.
+            - name: mongod
+              # Die Schreiblast trägt der Primary. Im schnelleren Lauf kommt er
+              # auf 129m, im langsameren auf 97m, die beiden Secondaries auf
+              # 80m bis 86m, im Leerlauf sind es 11m. Der bisherige Request von
+              # 100m lag unter der Spitze und passt damit nicht mehr, 150m
+              # deckt sie. Das Limit bleibt bei 500m und fängt ab, was neben
+              # der Anwendungslast anfällt, etwa das Aufholen eines Mitglieds
+              # nach einem Neustart.
+              #
+              # Beim Speicher sind unter Last 217Mi bis 306Mi gemessen, beim
+              # Ausrollen bis 310Mi, im Leerlauf 199Mi bis 304Mi. Der größte
+              # Einzelposten darin ist der WiredTiger-Cache, den
+              # additionalMongodConfig oben auf 0.25 GB festlegt. Gedeckelt ist
+              # damit nur der Cache selbst, Verbindungen und laufende Abfragen
+              # kommen unabhängig davon dazu, die harte Grenze zieht erst das
+              # Limit von 1Gi. Der Request bleibt mit 512Mi bewusst über der
+              # gemessenen Spitze, weil der Node bei Speichermangel zuerst den
+              # Pod abräumt, der über seinem Request liegt, und das träfe hier
+              # die Datenbank.
+              resources:
+                requests:
+                  cpu: "150m"
                   memory: "512Mi"
                 limits:
                   cpu: "500m"
                   memory: "1Gi"
+            - name: mongodb-agent
+              # Der Sidecar hält die Automationskonfiguration des Replica Sets
+              # und prüft die Gesundheit von mongod. Mit der Anwendungslast
+              # wächst seine Arbeit kaum, in denselben Läufen liegt er bei 12m
+              # bis 17m und 39Mi bis 71Mi, im Leerlauf bei 8m bis 12m und 37Mi
+              # bis 70Mi. Seine Spitze steht woanders, nämlich beim Ausrollen.
+              # Schreibt er die Konfiguration neu und wartet auf mongod, sind
+              # 30m gemessen, der Speicher startet dabei bei 19Mi und wächst
+              # über Minuten auf den Wert aus dem Betrieb.
+              #
+              # 100m und 128Mi liegen über beiden Spitzen. Ohne den Eintrag
+              # gälten die Vorgaben aus resourcerequirements.Defaults() im
+              # Operator mit 500m und 400M, nicht etwa Werte aus dem Chart,
+              # dessen values.yaml unter agent nur das Image führt.
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
       volumeClaimTemplates:
         - metadata:
             name: data-volume

@@ -12,6 +12,30 @@
     release_namespace: "{{ app_namespace }}"
     wait: true
     kubeconfig: "{{ kubeconfig_root }}"
+    values:
+      operator:
+        # Ohne diesen Block gelten die Vorgaben des Charts mit 500m und
+        # 200Mi als Request, und der Operator hielte damit mehr CPU fest als
+        # die drei mongod zusammen. Gemessen am 22.08. mit kubectl top pod
+        # --containers, unter Last aus app/lastgenerator.py mit 15
+        # Einreichungen je Sekunde über 180 Sekunden, bleibt er bei 1m und
+        # 15Mi und damit auf dem Wert aus dem Leerlauf. Das ist erwartbar,
+        # denn er gleicht nur die MongoDBCommunity mit dem StatefulSet ab und
+        # sieht die Einreichungen gar nicht.
+        #
+        # Seine Arbeit hängt am Abgleich und nicht an der Last, und die Spitze
+        # steht deshalb beim Ausrollen. Im selben Zeitraum gemessen sind 10m
+        # und 16Mi, während er startet und den StatefulSet neu schreibt,
+        # danach fällt er auf 1m zurück. 50m und 64Mi liegen darüber. Das
+        # Limit lässt Luft für einen Abgleich, der länger braucht, ohne dass
+        # ein hängender Operator einen Node leerräumt.
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
 
 # === MongoDB Instance ===
 - name: Apply MongoDB password Secret

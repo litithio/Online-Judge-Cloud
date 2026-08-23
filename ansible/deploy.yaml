@@ -79,14 +79,14 @@
         state: patched
         kubeconfig: /etc/rancher/k3s/k3s.yaml
         kind: Node
-        name: "{{ hostvars[item]['ansible_hostname'] }}"
+        name: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
         definition:
           metadata:
             labels:
               online-judge/sandbox: runsc
       loop: "{{ groups['judge_k3s_agent'] }}"
       loop_control:
-        label: "{{ hostvars[item]['ansible_hostname'] }}"
+        label: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
 
     # scheduling.nodeSelector bindet jeden Pod mit dieser RuntimeClass an die
     # gekennzeichneten Nodes. Der Weg über die RuntimeClass statt über jedes

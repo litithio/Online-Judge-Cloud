@@ -133,6 +133,16 @@
           value: "https://{{ keycloak_host }}"
         - name: KC_HOSTNAME_STRICT
           value: "false"
+        # Ohne JAVA_OPTS_KC_HEAP leitet kc.sh die Heap-Decke aus dem Limit ab,
+        # bei 1024Mi sind das 718Mi. Die 512Mi wählt kc.sh außerhalb eines
+        # Containers selbst, sie liegen über dem unter Last gemessenen
+        # belegten Heap von 312Mi. Die Variable ersetzt nur die drei
+        # Prozentsatz-Flags, MaxMetaspaceSize bleibt stehen. Die Rechnung
+        # dazu steht unten bei resources, siehe auch #165. Die Messungen
+        # entstanden noch beim Start mit 512Mi aus InitialRAMPercentage=50,
+        # das kleinere -Xms ist nicht nachgemessen.
+        - name: JAVA_OPTS_KC_HEAP
+          value: "-Xms256m -Xmx512m"
       extraEnvFrom: |
         - secretRef:
             name: keycloak-admin
@@ -172,13 +182,15 @@
       # für dieses Nachrücken, die bisherigen 512Mi lagen darunter.
       #
       # Das Limit bleibt bei 1024Mi, deckt damit aber nur den gemessenen Fall.
-      # Aus -XX:MaxRAMPercentage=70 leitet Keycloak sich eine Heap-Decke von
-      # 718Mi ab, und zusammen mit den rund 420Mi, die daneben anfallen, passt
-      # diese Decke rechnerisch nicht mehr unter das Limit. Gemessen sind
-      # davon 312Mi belegter Heap bei 92Mi tatsächlichem Bedarf, unter
-      # Anmeldelast tritt der Fall also nicht ein. Ein größeres Limit hilft
-      # dagegen nicht, weil es über dieselben 70 Prozent die Decke mit anhebt.
-      # Der Hebel wäre ein festes -Xmx, das gehört in eine eigene Änderung.
+      # Die Heap-Decke steht über JAVA_OPTS_KC_HEAP weiter oben auf 512Mi,
+      # ohne die Variable läge sie bei 718Mi. Mit den rund 420Mi, die neben
+      # dem Heap gemessen sind, bleibt die Summe bei 932Mi unter dem Limit.
+      # Ungünstiger gerechnet, mit 256Mi MaxMetaspaceSize und dem bisherigen
+      # Höchststand von 74Mi im Code-Cache statt der gemessenen 157Mi und
+      # 33Mi, sind es 1075Mi und die Rechnung geht nicht auf. Ein Deckel sind
+      # die 74Mi dabei nicht, ReservedCodeCacheSize steht auf 240Mi.
+      # Eingetreten ist der Fall nicht, belegt waren 312Mi Heap bei 92Mi
+      # tatsächlichem Bedarf.
       #
       # Die CPU liegt im Leerlauf bei 2m. Unter Last steht sie exakt am Limit,
       # in einem eigenen Lauf über 120 Sekunden waren 1148 von 1263 Perioden

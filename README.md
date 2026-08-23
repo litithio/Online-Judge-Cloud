@@ -325,12 +325,14 @@ Keycloak sieht davon nichts.
 Der Preis sind 832Mi, die auf dem Node festgehalten werden, auch wenn sich
 niemand anmeldet, im Leerlauf stehen dem 560Mi tatsächlicher Verbrauch
 gegenüber. Das Limit bleibt bei 1024Mi, deckt damit aber nur den gemessenen
-Fall. Keycloak leitet seine Heap-Decke über `-XX:MaxRAMPercentage=70` aus dem
-Limit ab und kommt so auf 718Mi, was zusammen mit allem daneben rechnerisch
-nicht mehr unter das Limit passt. Unter Anmeldelast tritt der Fall nicht ein,
-offen ist er trotzdem (#165). Bei der CPU liegt der Leerlauf bei 2m, eine
-vollständige Anmeldung kostet 55 Kern-Millisekunden, die 250m sichern damit
-rund viereinhalb Anmeldungen je Sekunde zu.
+Fall. Die Heap-Decke steht über `JAVA_OPTS_KC_HEAP` auf 512Mi statt auf den
+718Mi, die Keycloak sich sonst über `-XX:MaxRAMPercentage=70` aus dem Limit
+ableitet. Mit den rund 420Mi, die neben dem Heap gemessen sind, bleibt die
+Summe unter dem Limit. Setzt man für Metaspace und Code-Cache die Höchstwerte
+an, passt sie weiter nicht, eingetreten ist der Fall aber nicht (#165). Bei
+der CPU liegt der Leerlauf bei 2m, eine vollständige Anmeldung kostet 55
+Kern-Millisekunden, die 250m sichern damit rund viereinhalb Anmeldungen je
+Sekunde zu.
 
 
 ## Grenzen

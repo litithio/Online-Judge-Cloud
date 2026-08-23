@@ -302,6 +302,36 @@ Operators nun an vier Stellen überschrieben werden und bei einem Versionssprung
 des Charts nachzusehen sind. Dafür fordern die drei Pods und der Operator 800m
 statt 2300m.
 
+### Ressourcen von Keycloak
+
+Keycloak bekommt 250m CPU und 832Mi Speicher als Request, dazu 1000m und 1024Mi
+als Limit. Die Alternative war ein Speicher-Request am Leerlauf, also rund
+560Mi. Der deckt den Normalfall, und die Spitze beim Anmelden fängt das Limit
+auf.
+
+Den Ausschlag gibt, dass die Spitze nicht zurückgeht. Gemessen mit
+`app/anmeldelast.py`, fünf Läufe mit zusammen 13970 Anmeldungen und bis zu 18
+je Sekunde, steigt der Pod von 560Mi auf 735Mi und bleibt dort. Der Bedarf
+wächst dabei kaum mit. Vom Heap sind im Spitzenwert 312Mi belegt, gebraucht
+werden davon nach einer erzwungenen Bereinigung 92Mi, dazu kommen 157Mi
+Metaspace und 33Mi Code-Cache. Zurück ging der Wert im beobachteten Zeitraum
+nicht, auch die Bereinigung holte ihn nicht herunter. Ein Request am Leerlauf
+läge damit schon nach der ersten Anmeldewelle unter dem Verbrauch, und der
+Scheduler plante den Pod zu klein ein. Das Skript ist ein zweites neben
+`app/lastgenerator.py`, weil jenes die Anmeldung überspringt. Es setzt die
+`X-Auth-Request`-Header selbst und spricht den `backend`-Service direkt an,
+Keycloak sieht davon nichts.
+
+Der Preis sind 832Mi, die auf dem Node festgehalten werden, auch wenn sich
+niemand anmeldet, im Leerlauf stehen dem 560Mi tatsächlicher Verbrauch
+gegenüber. Das Limit bleibt bei 1024Mi, deckt damit aber nur den gemessenen
+Fall. Keycloak leitet seine Heap-Decke über `-XX:MaxRAMPercentage=70` aus dem
+Limit ab und kommt so auf 718Mi, was zusammen mit allem daneben rechnerisch
+nicht mehr unter das Limit passt. Unter Anmeldelast tritt der Fall nicht ein,
+offen ist er trotzdem (#165). Bei der CPU liegt der Leerlauf bei 2m, eine
+vollständige Anmeldung kostet 55 Kern-Millisekunden, die 250m sichern damit
+rund viereinhalb Anmeldungen je Sekunde zu.
+
 
 ## Grenzen
 

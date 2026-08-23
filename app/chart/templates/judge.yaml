@@ -49,10 +49,57 @@ spec:
       # Worker-Pods selbst. runsc liegt auf den Agent-Nodes, die RuntimeClass
       # legt ansible/deploy.yaml an.
       runtimeClassName: {{ $.Values.judge.runtimeClass }}
+      # Kein Token im Pod. Der eingereichte Code liefe sonst neben
+      # /var/run/secrets und könnte den Token lesen, der Worker selbst ruft die
+      # Kubernetes-API nie.
+      automountServiceAccountToken: false
+      # Stellt in dem emptyDir unten die /tmp-Rechte des Images her. kubelet
+      # legt ein emptyDir mit 0777 ohne Sticky-Bit an, und ohne das Bit darf
+      # die Einreichung fremde Einträge in /tmp umbenennen, auch /tmp/judge.
+      # Jeder weitere Lauf scheiterte dann am fehlenden Pfad. Mit 1777 löscht
+      # und verschiebt dort nur noch der Eigentümer, wie in /tmp üblich.
+      initContainers:
+        - name: tmp-sticky
+          # Dasselbe Image wie der Worker, es liegt ohnehin auf dem Node.
+          image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: ["chmod", "1777", "/tmp"]
+          securityContext:
+            capabilities:
+              drop: ["ALL"]
+          # Unter den Werten des Workers. Kubernetes bildet den Request des
+          # Pods als Maximum aus Init-Containern und laufenden Containern, mit
+          # den Worker-Requests aus den values ändern diese Zahlen ihn also
+          # nicht. Wer die Worker-Requests in den values darunter senkt, hebt
+          # den Pod-Request auf diese Zahlen an.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "32Mi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: worker
           image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          # Als root mit fast leerem Capability-Satz. Root muss sein, der
+          # Worker wechselt je Lauf per setuid auf den User sandbox,
+          # runAsNonRoot stoppte ihn schon beim Start. Der Kommentar zu #55
+          # nennt CHOWN, SETUID, SETGID und KILL, gemessen (docker run
+          # --cap-drop ALL gegen run_code_in_sandbox) reichen die vier seit
+          # dem chown und chmod 700 des Arbeitsverzeichnisses nicht mehr:
+          # DAC_OVERRIDE braucht der Worker für jeden Blick in das
+          # Verzeichnis, sobald es sandbox gehört, samt dem rmtree danach,
+          # FOWNER für das chmod nach dem chown. Ohne die beiden endet jeder
+          # Lauf als Umgebungsfehler und das Arbeitsverzeichnis bleibt liegen.
+          securityContext:
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "KILL", "SETGID", "SETUID"]
           envFrom:
             - configMapRef:
                 name: code-worker-{{ .name }}
@@ -65,6 +112,18 @@ spec:
                   key: {{ $.Values.externe.mongoSecret.key | quote }}
           resources:
             {{- toYaml .resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # /tmp mit Deckel. Eine Einreichung darf dort schreiben, je Datei auf
+        # 1 MiB begrenzt (RLIMIT_FSIZE), in der Zahl der Dateien aber nicht.
+        # sizeLimit deckelt die Summe, kubelet räumt den Pod bei
+        # Überschreitung ab und der Ersatz startet mit leerem /tmp. Herleitung
+        # der Zahl in README ## Entscheidungen.
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ $.Values.judge.tmpSizeLimit }}
 ---
 # minReplicaCount steht auf 0, weil die Last stoßweise ist und zwischen
 # Prüfungsterminen nahe null. Ohne Einreichungen soll kein Worker-Pod stehen
@@ -128,6 +187,9 @@ spec:
             checksum/config: {{ toYaml $durchlaufDaten | sha256sum }}
         spec:
           restartPolicy: Never
+          # Kein Token im Pod, wie beim Worker. durchlauf.py spricht nur
+          # MongoDB und Valkey an, die Kubernetes-API nie.
+          automountServiceAccountToken: false
           containers:
             - name: durchlauf
               # Dasselbe Image wie die Worker: durchlauf.py liegt neben
@@ -137,6 +199,20 @@ spec:
               # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
               # COPY . . legt durchlauf.py dorthin, neben worker.py.
               command: ["python3", "/app/durchlauf.py"]
+              # Anders als der Worker ohne root und ohne jede Capability.
+              # durchlauf.py startet keinen fremden Code und wechselt keinen
+              # User, es braucht nur die zwei Verbindungen oben. 65534 ist
+              # nobody aus dem Image. Die Gruppe 0 muss dazu, /app liegt mit
+              # 750 auf root:root (app/worker/Dockerfile), ohne sie scheitert
+              # schon das Öffnen von durchlauf.py. Gemessen mit docker run
+              # --user 65534:0 --cap-drop ALL gegen MongoDB und Valkey: der
+              # Lauf geht durch, als 65534:65534 endet er mit EACCES.
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                runAsGroup: 0
+                capabilities:
+                  drop: ["ALL"]
               envFrom:
                 - configMapRef:
                     name: durchlauf

@@ -33,9 +33,9 @@ from durchlauf import ENDZUSTAND_ERSCHOEPFT
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 
 # python bleibt die einzige Sprache mit einem Worker (app/backend/main.py,
-# SPRACHEN). Diese drei gab es einmal (#73), zu ihnen läuft aber kein Worker
-# mehr: Ihre PENDING-Einreichungen kämen nie über #113 hinaus, blieben sie
-# als PENDING stehen, denn nichts holt sie je aus der Queue.
+# AKTIVE_SPRACHEN). Diese drei gab es einmal (#73), zu ihnen läuft aber kein
+# Worker mehr: Ihre PENDING-Einreichungen kämen nie über #113 hinaus, blieben
+# sie als PENDING stehen, denn nichts holt sie je aus der Queue.
 UNTERSTUETZTE_SPRACHE = "python"
 ENTFERNTE_SPRACHEN = ["java", "cpp", "rust"]
 

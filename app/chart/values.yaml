@@ -74,6 +74,13 @@ judge:
   # ansible/deploy.yaml, das Chart verweist nur darauf.
   runtimeClass: gvisor
 
+  # Deckel für das /tmp der Worker, als sizeLimit an einem emptyDir. Ein Lauf
+  # braucht höchstens rund 20 MiB, die Lösung (mehr als 16 MB passen nicht in
+  # das Einreichungs-Dokument in MongoDB), die größte Eingabe im Repo mit
+  # 372 KB und zwei Ausgabedateien à 1 MiB, und räumt danach auf. 64Mi lässt
+  # davon das Dreifache. Herleitung in README ## Entscheidungen.
+  tmpSizeLimit: "64Mi"
+
   # Je Eintrag ein Worker-Deployment und ein ScaledObject. name bildet den
   # Namen des Deployments (code-worker-<name>), den Wert von WORKER_SPRACHE und
   # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache

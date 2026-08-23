@@ -256,6 +256,36 @@ erst, wenn Nodes dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und
 44 bis 48 MiB je Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die
 eine Aufgabe für den Kindprozess fordern darf.
 
+### Deckel für /tmp der Judge-Worker
+
+Das `/tmp` jedes Judge-Workers ist ein emptyDir mit `sizeLimit` 64Mi. Die
+Alternative war ein `ephemeral-storage`-Limit am Container. Das würde neben
+`/tmp` auch `/var/tmp` und den Container-Layer erfassen, setzt dafür aber ein
+gemeinsames Budget für alles, was der Pod schreibt, die Logs des Workers
+eingeschlossen. Aus dem Bedarf eines Laufs herleiten lässt sich so ein Budget
+nicht, und einer Überschreitung sieht man nicht an, wer sie verursacht hat.
+
+Den Ausschlag gibt dieser Bedarf. Ein Lauf legt in `/tmp` die Lösung ab, deren
+Obergrenze die 16-MB-Dokumentgrenze von MongoDB ist, die Eingabe des
+Testfalls, im Repo höchstens 372 KB bei `zweisumme`, und zwei Ausgabedateien,
+die `RLIMIT_FSIZE` auf je 1 MiB begrenzt. Zusammen rund 20 MiB, aufgeräumt
+nach jedem Lauf. 64Mi sind gut das Dreifache, als Luft für Dateien, die eine
+Einreichung zulässig in ihrem Arbeitsverzeichnis anlegt. Ohne Deckel waren aus
+einer einzelnen Einreichung 5,4 GB gemessen, siehe Grenzen.
+
+Überschreitet die Summe den Deckel, räumt kubelet den Pod ab. Die laufende
+Einreichung endet damit, der Durchlauf reiht sie später neu ein, und der
+Ersatz-Pod startet mit leerem `/tmp`. Vorher blieb ein vollgeschriebenes
+`/tmp` stehen und ließ jede folgende Einreichung scheitern, bis jemand
+aufräumte oder den Pod ersetzte.
+
+Zum emptyDir gehört ein Init-Container, der `/tmp` auf die üblichen Rechte
+1777 setzt, kubelet legt das Volume ohne Sticky-Bit an. Er bekommt 50m und
+16Mi als Request, unterhalb der Werte des Workers, denn Kubernetes bildet den
+Request des Pods als Maximum aus Init- und Hauptcontainern, so bleibt er
+unverändert. Eine Messung gibt es zu ihm nicht, er führt ein einzelnes chmod
+aus und ist in derselben Sekunde fertig, in der er startet.
+
 ### Ressourcen der API
 
 Die API bekommt 100m CPU und 64Mi Speicher als Request, dazu 500m und 256Mi als
@@ -356,12 +386,20 @@ Worker-Containers (`resources.limits.memory`) deckelt diese Summe: wird sie
 überschritten, trifft der OOM-Killer den Pod.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
-Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, etwa in
-`/tmp`, und das Aufräumen danach kennt nur ihr eigenes Verzeichnis. Läuft der
-Platz voll, scheitern alle folgenden Einreichungen mit einem Systemfehler, bis
-jemand aufräumt oder den Container ersetzt. In unserer lokalen Umgebung waren
-5,4 GB aus einer einzelnen Einreichung erreichbar, die Menge hängt aber an
-Datenträger und Auslastung.
+Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und
+das Aufräumen danach kennt nur ihr eigenes Verzeichnis. In unserer lokalen
+Umgebung waren so 5,4 GB aus einer einzelnen Einreichung erreichbar. Im
+Cluster deckelt das `sizeLimit` des emptyDir diese Menge für `/tmp` auf 64Mi,
+kubelet räumt den Pod bei Überschreitung ab und der Ersatz startet leer, siehe
+Entscheidungen. Drei Reste bleiben. kubelet erhebt die Belegung der Volumes
+nur etwa im Minutenabstand (`volumeStatsAggPeriod`), bis dahin passt deutlich
+mehr auf den Datenträger, mit der Eviction verschwindet es wieder. Der Scan
+zählt zudem nur, was im Verzeichnis steht. Eine Datei, die eine Einreichung
+löscht und offen behält, belegt weiter Platz am Limit vorbei. Frei wird er
+erst, wenn der haltende Prozess endet, normalerweise also mit dem Aufräumen
+nach dem Lauf, nur ein Prozess, der das Aufräumen übersteht, hält ihn länger. Und `/var/tmp`
+liegt außerhalb des emptyDir im Container-Layer, ist genauso weltbeschreibbar,
+und was dort landet, zählt der Deckel nicht.
 
 Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Menge
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe

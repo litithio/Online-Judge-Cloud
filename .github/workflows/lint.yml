@@ -48,3 +48,50 @@ jobs:
         # Schlägt fehl, wenn eine .mmd geändert wurde, ohne
         # scripts/diagramme.sh laufen zu lassen und die SVGs mitzucommitten.
         run: git diff --exit-code docs/diagramme
+
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: helm lint
+        # helm ist auf den Runnern vorinstalliert. Der Image-Tag hat im
+        # Schema bewusst keine Vorgabe, ohne --set bricht schon das Lint ab.
+        run: helm lint app/chart --set image.tag=0.0.0-ci
+      - name: Rendern und mit kubeconform validieren
+        # Drei Stände: values.yaml allein, dazu je das dev- und das
+        # prod-Overlay. kubeconform prüft die gerenderten Manifeste gegen
+        # die Kubernetes-Schemas. Das KEDA-ScaledObject ist eine CRD ohne
+        # Schema im Katalog, darum -ignore-missing-schemas, alles andere
+        # wird streng geprüft.
+        run: |
+          helm template app/chart --set image.tag=0.0.0-ci > "$RUNNER_TEMP/basis.yaml"
+          helm template app/chart -f app/chart/values-dev.yaml --set image.tag=0.0.0-ci > "$RUNNER_TEMP/dev.yaml"
+          helm template app/chart -f app/chart/values-prod.yaml --set image.tag=0.0.0-ci > "$RUNNER_TEMP/prod.yaml"
+          docker run --rm -v "$RUNNER_TEMP:/render" ghcr.io/yannh/kubeconform:v0.8.0 \
+            -strict -ignore-missing-schemas -summary \
+            /render/basis.yaml /render/dev.yaml /render/prod.yaml
+      - name: Negativtests am values-Schema
+        # values.schema.json ist die einzige Stelle, die einen kaputten
+        # tmpSizeLimit abfängt. kubelet ignoriert ein Limit von 0 still und
+        # beliebiger Text fiele erst am API-Server auf. helm muss hier jedes
+        # Mal scheitern, und zwar an tmpSizeLimit, nicht an etwas anderem.
+        run: |
+          muss_scheitern() {
+            if helm template app/chart --set image.tag=0.0.0-ci "$@" > /dev/null 2> "$RUNNER_TEMP/fehler.txt"; then
+              echo "Schema hat $* durchgelassen"
+              exit 1
+            fi
+            if ! grep -q tmpSizeLimit "$RUNNER_TEMP/fehler.txt"; then
+              cat "$RUNNER_TEMP/fehler.txt"
+              echo "helm ist an etwas anderem gescheitert als an tmpSizeLimit ($*)"
+              exit 1
+            fi
+          }
+          # null löscht den Schlüssel aus den values, das prüft den Pflichtfeld-Fall.
+          muss_scheitern --set judge.tmpSizeLimit=null
+          # --set-string erzwingt Strings, sonst käme die 0 als Zahl an und
+          # scheiterte am Typ statt am Muster.
+          muss_scheitern --set-string judge.tmpSizeLimit=
+          muss_scheitern --set-string judge.tmpSizeLimit=0
+          muss_scheitern --set-string judge.tmpSizeLimit=ganzviel

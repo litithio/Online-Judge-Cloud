@@ -128,6 +128,9 @@ spec:
             checksum/config: {{ toYaml $durchlaufDaten | sha256sum }}
         spec:
           restartPolicy: Never
+          # Kein Token im Pod, wie beim Worker. durchlauf.py spricht nur
+          # MongoDB und Valkey an, die Kubernetes-API nie.
+          automountServiceAccountToken: false
           containers:
             - name: durchlauf
               # Dasselbe Image wie die Worker: durchlauf.py liegt neben
@@ -137,6 +140,20 @@ spec:
               # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
               # COPY . . legt durchlauf.py dorthin, neben worker.py.
               command: ["python3", "/app/durchlauf.py"]
+              # Anders als der Worker ohne root und ohne jede Capability.
+              # durchlauf.py startet keinen fremden Code und wechselt keinen
+              # User, es braucht nur die zwei Verbindungen oben. 65534 ist
+              # nobody aus dem Image. Die Gruppe 0 muss dazu, /app liegt mit
+              # 750 auf root:root (app/worker/Dockerfile), ohne sie scheitert
+              # schon das Öffnen von durchlauf.py. Gemessen mit docker run
+              # --user 65534:0 --cap-drop ALL gegen MongoDB und Valkey: der
+              # Lauf geht durch, als 65534:65534 endet er mit EACCES.
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                runAsGroup: 0
+                capabilities:
+                  drop: ["ALL"]
               envFrom:
                 - configMapRef:
                     name: durchlauf

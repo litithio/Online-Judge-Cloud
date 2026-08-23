@@ -1,4 +1,5 @@
 import os
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -36,24 +37,46 @@ health_client = MongoClient(
 )
 
 
+def _indizes_anlegen():
+    # Beide Aufrufe in einem Block: Ist MongoDB nicht erreichbar, scheitert
+    # schon der erste nach dem Zeitlimit von 30 Sekunden, und der zweite
+    # entfällt damit. Finge jeder Aufruf sein Scheitern einzeln ab, fiele
+    # das Zeitlimit doppelt an.
+    #
+    # Breit gefangen, denn woran die Erstellung auch scheitert, der Prozess
+    # soll weiterlaufen. create_index ist idempotent, beim nächsten Start
+    # mit erreichbarer MongoDB entsteht der Index also doch noch.
+    try:
+        # Trägt sowohl den Durchlauf aus #82 (RUNNING mit abgelaufener Frist
+        # finden) als auch dessen Requeue-Vergleich. Ohne ihn liefe die Suche
+        # über alle Einreichungen, nicht nur über die wartenden.
+        db.submissions.create_index([("status", 1), ("frist", 1)])
+
+        # Trägt die zweite Suche des Durchlaufs aus #113: PENDING ohne
+        # frischen Queue-Eintrag (last_enqueued_at älter als
+        # REENQUEUE_AFTER_SECONDS). Eigener Index, weil sich diese Suche
+        # nicht über frist filtern lässt, die bei PENDING immer None ist.
+        db.submissions.create_index([("status", 1), ("last_enqueued_at", 1)])
+    except Exception as fehler:
+        # flush wie an den anderen Log-Stellen, stdout puffert ohne Terminal
+        # blockweise.
+        print(
+            f"Indizes nicht angelegt, {type(fehler).__name__}: {fehler}",
+            flush=True,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Indizes beim Start anlegen, nicht schon beim Modul-Import: Sonst
-    # scheitert schon der Import, wenn MongoDB beim Start des Prozesses noch
-    # nicht erreichbar ist, etwa während eines Rollouts. create_index ist
-    # idempotent, ein erneuter Aufruf bei jedem Start legt nichts doppelt an.
+    # Die Indizes entstehen in einem eigenen Thread, nicht hier im Hook: Auf
+    # den lifespan-Hook wartet FastAPI, bevor es Anfragen annimmt. Liefe die
+    # Erstellung hier, hielte eine nicht erreichbare MongoDB den Start um ihr
+    # Zeitlimit auf, und /healthz bliebe so lange stumm, obwohl die Probe
+    # bewusst an keinem anderen Dienst hängt (#102, #108).
     #
-    # Trägt sowohl den Durchlauf aus #82 (RUNNING mit abgelaufener Frist
-    # finden) als auch dessen Requeue-Vergleich. Ohne ihn liefe die Suche
-    # über alle Einreichungen, nicht nur über die wartenden.
-    db.submissions.create_index([("status", 1), ("frist", 1)])
-
-    # Trägt die zweite Suche des Durchlaufs aus #113: PENDING ohne frischen
-    # Queue-Eintrag (last_enqueued_at älter als REENQUEUE_AFTER_SECONDS).
-    # Eigener Index, weil sich diese Suche nicht über frist filtern lässt,
-    # die bei PENDING immer None ist.
-    db.submissions.create_index([("status", 1), ("last_enqueued_at", 1)])
-
+    # daemon, damit ein Thread, der noch auf MongoDB wartet, das Beenden des
+    # Prozesses nicht aufhält.
+    threading.Thread(target=_indizes_anlegen, daemon=True).start()
     yield
 
 

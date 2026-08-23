@@ -479,10 +479,19 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
         os.lseek(eingabe_fd, 0, os.SEEK_SET)
 
         if SANDBOX_UID is not None:
-            # Nur das working directory und die Lösung wechseln den Besitzer, die
+            # Nur die Lösung und das working directory wechseln den Besitzer, die
             # Ebene darüber bleibt beim Worker.
-            for ziel in (pfad, pfad / "loesung.py"):
-                os.chown(ziel, SANDBOX_UID, -1)
+            #
+            # Die loesung.py zuerst, solange das Verzeichnis noch dem Worker
+            # gehört und mode 0700 trägt. Erst danach das Verzeichnis. Sonst
+            # gehörte es nach dem ersten chown der Sandbox, und ein Prozess aus
+            # einem früheren Lauf unter derselben UID könnte die loesung.py bis
+            # zum zweiten chown durch einen Sym- oder Hardlink auf eine fremde
+            # Datei wie /etc/passwd ersetzen. Der Worker chownte sie dann als
+            # root an die Sandbox. follow_symlinks=False sichert zusätzlich gegen
+            # einen Symlink. Siehe #185.
+            for ziel in (pfad / "loesung.py", pfad):
+                os.chown(ziel, SANDBOX_UID, -1, follow_symlinks=False)
             pfad.chmod(0o700)
 
         start = time.monotonic()

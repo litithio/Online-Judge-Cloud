@@ -3,6 +3,19 @@
 # eigenen Manifesten, damit die Image-Tags an derselben Stelle stehen wie die
 # der API und eine zweite Sprache ein Eintrag in values ist statt einer
 # weiteren Datei.
+# Das Kommando beider Probes am Worker. Ein Shell-Test und kein Python-Aufruf:
+# Die Probe läuft im cgroup des Workers, und dort sättigt eine Einreichung den
+# einen Kern, den das Limit in values erlaubt. Ein zweiter Python-Interpreter
+# nähme ihr Rechenzeit weg, während ihre Frist über die vergangene Zeit
+# weiterläuft, und schöbe einen knappen korrekten Lauf Richtung TLE. sh, date
+# und stat kosten Millisekunden. Sie liegen alle im Image, es ist Debian-basiert.
+#
+# Das -ge 0 fängt eine Uhr ab, die rückwärts gestellt wurde. Die mtime läge dann
+# in der Zukunft, das Alter wäre negativ und jeder Vergleich nach oben ginge
+# durch, auch für einen längst eingefrorenen Worker. Ein Fehlschlag ist hier das
+# richtige Ergebnis, der Neustart macht die Datei frisch und die Messung wieder
+# brauchbar. Einen Sprung nach vorn fängt das nicht, siehe README ## Grenzen.
+{{- $heartbeat := printf "alter=$(( $(date +%%s) - $(stat -c %%Y /run/heartbeat) )); test $alter -ge 0 && test $alter -lt %d" (int .Values.judge.heartbeatFrist) }}
 {{- range .Values.judge.sprachen }}
 # Die Konfiguration dieses Workers. WORKER_SPRACHE bestimmt, welche Liste er
 # abfragt (judge:<sprache>) und worauf sein ScaledObject weiter unten zielt.
@@ -110,6 +123,32 @@ spec:
                 secretKeyRef:
                   name: {{ $.Values.externe.mongoSecret.name | quote }}
                   key: {{ $.Values.externe.mongoSecret.key | quote }}
+          # Dasselbe Kommando wie die liveness darunter, nach dem Muster des
+          # Backends. Bis sie durchläuft, gilt der Container als nicht
+          # gestartet, und die liveness ruht so lange. Das Fenster von 60
+          # Sekunden deckt den Import von pymongo und redis und den
+          # Python-Subprozess, mit dem _netz_trennung_moeglich beim Start prüft,
+          # ob die Sandbox ein eigenes Netz bekommt.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", {{ $heartbeat | quote }}]
+            periodSeconds: 5
+            failureThreshold: 12
+          # Fängt allein den Worker, der lebt und nicht mehr arbeitet. Stirbt
+          # sein Prozess, startet Kubernetes den Container ohnehin neu, er ist
+          # der Hauptprozess des Containers.
+          #
+          # periodSeconds 30 statt enger, damit die Probe selbst im cgroup nicht
+          # ins Gewicht fällt. failureThreshold 2, weil die Frist die Toleranz
+          # schon trägt. Der zweite Versuch fängt nur ab, dass die Probe unter
+          # Last in ihr eigenes timeoutSeconds läuft. Zusammen vergehen nach dem
+          # letzten Fortschritt höchstens die Frist plus 60 Sekunden.
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", {{ $heartbeat | quote }}]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
           resources:
             {{- toYaml .resources | nindent 12 }}
           volumeMounts:

@@ -45,6 +45,14 @@ QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwo
 # bevor Valkey selbst antwortet. Siehe den Aufbau des Clients weiter unten.
 QUEUE_WARTEN = 15
 
+# Wohin der Worker seinen Heartbeat schreibt, siehe _heartbeat. /run und
+# nicht /tmp: /tmp ist im Cluster ein emptyDir mit Deckel, und dorthin schreibt
+# auch die Einreichung. /run gehört im Image root mit 0755, der Worker läuft als
+# root und der User sandbox liest dort, ohne schreiben zu können. Die Frist, ab
+# der die Datei als zu alt gilt, steht nicht hier, sondern im Chart. Nur die
+# Probe braucht sie, der Worker selbst liest die Datei nie.
+HEARTBEAT_PFAD = "/run/heartbeat"
+
 # Wall-Clock-Frist über RLIMIT_CPU: Die Aufgabe begrenzt die Rechenzeit über
 # RLIMIT_CPU (_starter), diese Frist fängt zusätzlich, was wartet statt zu
 # rechnen, denn RLIMIT_CPU zählt nur CPU-Zeit. Der Puffer liegt auf dem harten
@@ -612,10 +620,40 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             except OSError:
                 pass
         if verzeichnis is not None:
+            # Vor dem rmtree und nicht erst danach. Das rmtree hat keine Frist,
+            # und eine Einreichung darf im Rahmen ihres emptyDir-Deckels sehr
+            # viele Dateien anlegen. Ohne diesen Aufruf liefe das Aufräumen mit
+            # dem Rest der Frist, die der Lauf selbst schon fast aufgebraucht
+            # hat. Es bleibt eine Grenze: Braucht das rmtree selbst länger als
+            # die Frist der Probe, stirbt der Worker trotzdem, siehe README
+            # ## Grenzen.
+            _heartbeat()
             try:
                 shutil.rmtree(verzeichnis)
             except Exception as e:
                 print(f"{verzeichnis} nicht entfernt: {e}")
+
+
+def _heartbeat():
+    """Setzt die mtime von HEARTBEAT_PFAD auf jetzt.
+
+    Die Liveness-Probe im Chart prüft nur das Alter dieser Datei, deshalb steht
+    nichts in ihr. Eine mtime kann nicht halb geschrieben sein, ein Zeitstempel
+    im Inhalt schon.
+
+    Der Aufruf steht an jeder Stelle, die einen Schritt abschließt, nicht nur je
+    Schleifenrunde. Ein Lauf ist nach oben offen, GRENZE_ZEIT_MAX begrenzt 60
+    Sekunden je Testfall und die Zahl der Testfälle nichts. Über einen ganzen
+    Lauf ließe sich keine Frist herleiten, über einen einzelnen Schritt schon.
+
+    Ein Fehler beim Schreiben beendet den Worker nicht. Er meldet sich von
+    selbst, denn eine Datei, die nicht mehr jünger wird, lässt die Probe
+    greifen.
+    """
+    try:
+        pathlib.Path(HEARTBEAT_PFAD).touch()
+    except OSError as e:
+        print(f"Heartbeat nicht geschrieben: {type(e).__name__}: {e}")
 
 
 def _sub_id_lesen(item):
@@ -702,6 +740,7 @@ def _urteil(sub_id, token, submission, task):
             }
         },
     )
+    _heartbeat()
 
     # Platzhalter für alle Fälle, bevor der erste läuft. Damit trägt der
     # Fortschritt "2 von 5 erledigt" schon während des Laufs, nicht erst am
@@ -720,12 +759,14 @@ def _urteil(sub_id, token, submission, task):
         {"_id": sub_id, "status": "RUNNING", "run_token": token},
         {"$set": {"test_results": platzhalter}},
     )
+    _heartbeat()
 
     bestanden = 0
     for i, case in enumerate(test_cases, 1):
         verdict, text, dauer_ms, speicher_kb = run_code_in_sandbox(
             submission["code"], case["input"], zeit, speicher
         )
+        _heartbeat()
         if verdict == "OK":
             erwartet = str(case["expected_output"]).strip()
             if text == erwartet:
@@ -749,6 +790,7 @@ def _urteil(sub_id, token, submission, task):
                 }
             },
         )
+        _heartbeat()
 
         if verdict != "AC":
             return "FAILED", (
@@ -801,6 +843,11 @@ def process_queue():
         )
     print(f"Worker gestartet ({WORKER_SPRACHE}), warte auf {QUEUE_KEY}...")
     while True:
+        # Am Anfang der Runde und nicht erst nach dem blpop. Ein Valkey, das
+        # nicht antwortet, ist kein Fehler dieses Workers, und ohne den Aufruf
+        # hier töte die Probe bei einem Ausfall der Queue jeden Worker, ohne
+        # dass ein Neustart etwas daran ändert.
+        _heartbeat()
         try:
             eintrag = redis_client.blpop(QUEUE_KEY, timeout=QUEUE_WARTEN)
         except Exception as e:
@@ -834,6 +881,7 @@ def process_queue():
             continue
 
         submission = _uebernehmen(sub_id)
+        _heartbeat()
         if submission is None:
             print(f"Einreichung {sub_id}: nicht übernommen, übersprungen")
             continue
@@ -841,6 +889,7 @@ def process_queue():
 
         try:
             task = db.tasks.find_one({"_id": ObjectId(submission["task_id"])})
+            _heartbeat()
             if task is None:
                 raise Umgebungsfehler(
                     f"Aufgabe {submission['task_id']} steht nicht in tasks"
@@ -863,6 +912,7 @@ def process_queue():
             continue
 
         _ergebnis_schreiben(sub_id, token, status, text)
+        _heartbeat()
         print(f"Einreichung {sub_id} verarbeitet: {status}")
 
 

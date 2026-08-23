@@ -48,3 +48,16 @@ jobs:
         # Schlägt fehl, wenn eine .mmd geändert wurde, ohne
         # scripts/diagramme.sh laufen zu lassen und die SVGs mitzucommitten.
         run: git diff --exit-code docs/diagramme
+
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Chart prüfen
+        # Lint, Rendern mit beiden Overlays, kubeconform und die Negativtests
+        # am values-Schema stehen im Skript, lokal ruft ./scripts/check.sh
+        # genau dasselbe auf. helm und kubeconform laufen im Container,
+        # Docker ist auf den Runnern vorinstalliert, die Images kommen
+        # gepinnt aus dem Skript.
+        run: ./scripts/chart-check.sh

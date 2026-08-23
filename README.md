@@ -454,6 +454,18 @@ der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe
 mehr aus. Der Speicher des Workers bleibt davon unberührt, die Schreiblast auf
 dem Node nicht.
 
+Was ein Ausbruch aus der Sandbox erreicht, hängt am Worker-Pod. Er hält die
+Zugangsdaten für MongoDB, `MONGO_URI` kommt aus dem Secret in genau den Pod, der
+fremden Code ausführt. Die Einreichung selbst erreicht die Datenbank nicht, sie
+läuft in einem leeren Netz-Namespace. Offen bleibt der Worker-Prozess davor. Wer
+aus der Sandbox ausbricht, liest und schreibt alle Einreichungen und Aufgaben,
+nicht nur die eigene. Die default-deny-Policy begrenzt den Radius, MongoDB und
+Valkey muss sie ihm erlauben. Ihn stattdessen über die API schreiben zu lassen,
+nähme die Zugangsdaten aus dem Pod. Dagegen steht der Aufwand. Die Übernahme nur
+auf `status: PENDING` und der Schreibvorgang nur bei passendem `run_token`
+stecken heute in je einer Operation und wären über HTTP neu zu bauen, und die
+API läge im Judge-Pfad, ihr Ausfall träfe jeden Lauf.
+
 Außerhalb der Sandbox liegt eine Grenze bei der Verfügbarkeit der API. Die
 readinessProbe fragt `/readyz`, und dieser Endpunkt prüft MongoDB. Fällt die
 Datenbank aus, haben alle Replicas dieselbe Ursache und werden nach etwa 15

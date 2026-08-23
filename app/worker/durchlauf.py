@@ -101,8 +101,8 @@ def _ohne_frischen_eintrag(schwelle):
     die haben aus derselben Zeit auch kein requeue_versuche. Die Schleife
     unten liest es über eintrag[...] ohne Rückfall, ein Treffer dieser Art
     beendete den Durchlauf also mit einem KeyError, bevor der Rest der Liste
-    dran wäre. Diese Einreichungen holt nachtrag_113.py in die Daten, nicht
-    dieser Filter.
+    dran wäre. Jede Anlage setzt beide Felder (app/backend/main.py), eine
+    Einreichung ohne sie entsteht nicht mehr.
     """
     return [
         {"last_enqueued_at": {"$lt": schwelle}},

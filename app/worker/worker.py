@@ -623,8 +623,21 @@ def _urteil(sub_id, token, submission, task):
     einzige Fehler". Wie die Ergebnisseite das benennt, gehört zu #56, hier
     entsteht nur die Datengrundlage dafür.
     """
-    zeit, speicher = grenzen_der_aufgabe(task)
     test_cases = task.get("test_cases", [])
+
+    # Ohne Testfälle liefe die Schleife unten leer durch und jede Einreichung
+    # bestünde, auch ungültiger Code (#53). Das ist ein Fehler der Aufgabe,
+    # kein Urteil über den Code. laden.py lehnt solche Aufgaben beim
+    # Einspielen ab, hier geht es um Aufgaben, die daran vorbei in die
+    # Datenbank kamen. UNRESOLVED wie ENDZUSTAND_ERSCHOEPFT in durchlauf.py:
+    # nur "kein Urteil zustande gekommen", welchen Namen nicht beurteilbare
+    # Einreichungen endgültig tragen, entscheidet #81. Die Prüfung steht vor
+    # grenzen_der_aufgabe, damit eine Aufgabe mit beiden Mängeln zugleich
+    # hier mit dem Grund endet statt als Umgebungsfehler in den Requeues.
+    if not test_cases:
+        return "UNRESOLVED", "Aufgabe ohne Testfälle, kein Urteil möglich"
+
+    zeit, speicher = grenzen_der_aufgabe(task)
 
     # Löst die Frist von der Übernahme (_uebernehmen) ab, sobald die Aufgabe
     # feststeht: zeit gilt je Testfall, die Summe über alle Testfälle ist die

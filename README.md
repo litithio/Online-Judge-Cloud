@@ -151,8 +151,8 @@ der Datendienste oder ein Eintrag unter `judge` fehlt.
 
 Eine weitere Sprache ist ein Eintrag unter `judge.sprachen` in den values, samt
 eigenem Worker-Image. Das Chart erzeugt daraus Deployment und ScaledObject. Die
-API führt ihre eigene Liste, `SPRACHEN` in `app/backend/main.py`. Fehlt die
-Sprache dort, lehnt `/submit` jede Einreichung dafür mit 400 ab.
+API führt ihre eigene Liste, `AKTIVE_SPRACHEN` in `app/backend/main.py`.
+Fehlt die Sprache dort, lehnt `/submit` jede Einreichung dafür mit 400 ab.
 
 Prüfen mit `kubectl get pods`, dort steht `backend` auf Running. `kubectl get
 cronjob,scaledobject` zeigt `durchlauf` und `code-worker-python`. Das

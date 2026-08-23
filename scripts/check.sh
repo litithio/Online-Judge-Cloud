@@ -91,6 +91,8 @@ schritt "ruff format" "beheben mit: ruff format ." \
         ruff format --check .
 schritt "Diagramme" "beheben mit: ./scripts/diagramme.sh" \
         diagramme_pruefen
+schritt "Helm-Chart" "einzeln erneut: ./scripts/chart-check.sh" \
+        ./scripts/chart-check.sh
 
 # Ohne diese Zusammenfassung stehen bei einem Fehlschlag mehrere hundert Zeilen
 # Werkzeugausgabe im Terminal und die Zeile, die zählt, ist weggescrollt.

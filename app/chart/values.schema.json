@@ -95,7 +95,8 @@
         "runtimeClass",
         "tmpSizeLimit",
         "sprachen",
-        "durchlauf"
+        "durchlauf",
+        "heartbeatFrist"
       ],
       "description": "Worker, ScaledObject und Rückhol-CronJob. Der Seed der Aufgaben läuft aus Ansible.",
       "properties": {
@@ -187,6 +188,11 @@
               "type": "object"
             }
           }
+        },
+        "heartbeatFrist": {
+          "type": "integer",
+          "minimum": 63,
+          "description": "Alter in Sekunden, ab dem der Heartbeat eines Workers als zu alt gilt. Das Minimum von 63 ist die berechenbare Untergrenze aus worker.py, ein Sandbox-Lauf endet nach GRENZE_ZEIT_MAX + 1 + ZEITFRIST_PUFFER und danach wartet REST_FRIST auf das Aufräumen. Darunter tötet die Probe einen Worker mitten in einem Testfall."
         }
       }
     }

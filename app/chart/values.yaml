@@ -81,6 +81,25 @@ judge:
   # davon das Dreifache. Herleitung in README ## Entscheidungen.
   tmpSizeLimit: "64Mi"
 
+  # Ab diesem Alter in Sekunden gilt der Heartbeat eines Workers als zu alt
+  # und die Liveness-Probe schlägt an. Der Worker schreibt es nach jedem
+  # abgeschlossenen Schritt, siehe _heartbeat in app/worker/worker.py.
+  #
+  # Die längste Lücke zwischen zwei Schritten ist ein Sandbox-Lauf. Er endet
+  # nach zeit + 1 + ZEITFRIST_PUFFER, mit zeit höchstens GRENZE_ZEIT_MAX also
+  # nach 61,5 Sekunden, dazu REST_FRIST mit 1,0 für das Aufräumen. Das sind
+  # 62,5 berechenbare Sekunden. Eine MongoDB-Operation endet seit den
+  # Zeitlimits am Client nach 10 Sekunden, mit einem erneuten Versuch über eine
+  # Neuwahl des Primary nach 40, und liegt damit darunter.
+  #
+  # Die 120 lassen 57,5 Sekunden darüber. Der Abstand fängt, was keine eigene
+  # Grenze hat, nämlich das Anlegen des Arbeitsverzeichnisses, das chown, das
+  # Lesen der Ausgabe und das rmtree. Das sind Zugriffe auf das emptyDir des
+  # Pods, kein Netz. Eine Obergrenze ist der Abstand nicht, denn das rmtree
+  # läuft ohne Frist. worker.py setzt deshalb vor dem rmtree einen eigenen
+  # Heartbeat, damit das Aufräumen mit der vollen Frist beginnt.
+  heartbeatFrist: 120
+
   # Je Eintrag ein Worker-Deployment und ein ScaledObject. name bildet den
   # Namen des Deployments (code-worker-<name>), den Wert von WORKER_SPRACHE und
   # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache

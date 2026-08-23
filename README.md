@@ -365,6 +365,30 @@ Leerlauf bei 2m, eine vollständige Anmeldung kostet 59 Kern-Millisekunden,
 rechnerisch entsprechen die 250m damit gut vier Anmeldungen je Sekunde.
 
 
+### Liveness-Probe am Judge-Worker
+
+Auf den Worker zeigt kein Service, er holt seine Arbeit selbst aus
+`judge:<sprache>`, und stirbt sein Prozess, startet Kubernetes ihn ohnehin neu.
+Eine Probe fängt deshalb genau einen Fall, einen Worker, der lebt und nicht mehr
+arbeitet. Die Alternative war, ohne Probe zu bleiben. Sie trug, solange sich ein
+untätiger Worker nicht von einem wartenden unterscheiden ließ, denn `blpop`
+wartete ohne Zeitlimit.
+
+Der Worker schreibt nach jedem abgeschlossenen Schritt einen Heartbeat, die
+mtime von `/run/heartbeat`, und nicht nur je Schleifenrunde. Nur so lässt sich
+eine Frist herleiten. `GRENZE_ZEIT_MAX` deckelt 60 Sekunden je Testfall, die
+Zahl der Testfälle deckelt nichts, über einen ganzen Lauf gibt es also keine
+Obergrenze. Die längste Lücke zwischen zwei Schritten ist ein Sandbox-Lauf, er
+endet nach `zeit + 1 + ZEITFRIST_PUFFER` und damit nach 61,5 Sekunden, dazu 1,0
+Sekunde `REST_FRIST` für das Aufräumen. Über diese 62,5 berechenbaren Sekunden
+hinaus lässt die Frist von 120 Platz für das, was keine eigene Grenze hat, etwa
+das `rmtree`.
+
+Die Probe kann einen Worker treffen, der noch arbeitet. Seine Einreichung bleibt
+dann auf RUNNING stehen, der Durchlauf holt sie zurück und verbraucht einen
+ihrer drei Versuche.
+
+
 ## Grenzen
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
@@ -434,3 +458,25 @@ Aufgabe, deren Testläufe zusammen Minuten dauern. `GRENZE_ZEIT_MAX` deckelt das
 Zeitlimit auf 60 Sekunden je Testfall, eine Obergrenze für die Zahl der
 Testfälle prüft `app/aufgaben/laden.py` nicht. Wer eine solche Aufgabe anlegt,
 steht vor dieser Wahl neu.
+
+Der Judge-Worker hat keine readinessProbe. Auf ihn zeigt kein Service, und für
+den Rollout wartet schon die startupProbe, denn bis sie durchläuft, gilt der
+Container als nicht gestartet. Eine Readiness auf denselben Heartbeat mit
+derselben Frist sagte nichts Neues. Mit einer kürzeren fiele ein Worker heraus,
+während er rechnet, und unter Dauerlast käme der Rollout nicht mehr durch.
+
+Zwei Fälle beenden einen Worker, der arbeitet. Das `rmtree` beim Aufräumen hat
+keine Frist, und eine Einreichung darf im Rahmen des 64Mi-Deckels sehr viele
+Dateien anlegen. Der Worker setzt davor einen Heartbeat, damit das Aufräumen mit
+der vollen Frist beginnt, dauert es länger als sie, stirbt er trotzdem. Und die
+Probe rechnet mit der Wanduhr. Einen Sprung nach hinten lehnt der Test über
+`-ge 0` ab, ein Sprung nach vorn über 120 Sekunden trifft einen gesunden Worker.
+Dagegen hälfe nur eine monotone Quelle wie `/proc/uptime` samt einem atomar
+geschriebenen Zeitwert in der Datei.
+
+Ein längerer Ausfall von MongoDB kostet Einreichungen ihre Versuche. Seit die
+Clients Zeitlimits haben, hängt der Worker nicht mehr, sondern stirbt, denn
+`_uebernehmen` steht ohne eigenes try in `process_queue`. Jeder Neustart zieht
+einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt und
+dabei einen der drei Versuche verbraucht. Der Tausch ist gewollt, ein hängender
+Worker zählt für KEDA weiter als Kapazität.

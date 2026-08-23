@@ -304,7 +304,7 @@ statt 2300m.
 
 ### Ressourcen von Keycloak
 
-Keycloak bekommt 250m CPU und 832Mi Speicher als Request, dazu 1000m und 1024Mi
+Keycloak bekommt 250m CPU und 832Mi Speicher als Request, dazu 1000m und 1152Mi
 als Limit. Die Alternative war ein Speicher-Request am Leerlauf, also rund
 560Mi. Der deckt den Normalfall, und die Spitze beim Anmelden fängt das Limit
 auf.
@@ -322,17 +322,17 @@ Scheduler plante den Pod zu klein ein. Das Skript ist ein zweites neben
 `X-Auth-Request`-Header selbst und spricht den `backend`-Service direkt an,
 Keycloak sieht davon nichts.
 
-Der Preis sind 832Mi, die auf dem Node festgehalten werden, auch wenn sich
-niemand anmeldet, im Leerlauf stehen dem 560Mi tatsächlicher Verbrauch
-gegenüber. Das Limit bleibt bei 1024Mi, deckt damit aber nur den gemessenen
-Fall. Die Heap-Decke steht über `JAVA_OPTS_KC_HEAP` auf 512Mi statt auf den
-718Mi, die Keycloak sich sonst über `-XX:MaxRAMPercentage=70` aus dem Limit
-ableitet. Mit den rund 420Mi, die neben dem Heap gemessen sind, bleibt die
-Summe unter dem Limit. Setzt man für Metaspace und Code-Cache die Höchstwerte
-an, passt sie weiter nicht, eingetreten ist der Fall aber nicht (#165). Bei
-der CPU liegt der Leerlauf bei 2m, eine vollständige Anmeldung kostet 55
-Kern-Millisekunden, die 250m sichern damit rund viereinhalb Anmeldungen je
-Sekunde zu.
+Der Request hält 832Mi auf dem Node fest, auch wenn sich niemand anmeldet. Seit
+der Heap-Änderung steht der Pod im Spitzenwert bei 707Mi statt bei 735Mi und
+bleibt auch nach den Läufen bei rund 706Mi. Die Heap-Decke steht über
+`JAVA_OPTS_KC_HEAP` fest auf 512Mi, sonst leitete Keycloak sie über
+`-XX:MaxRAMPercentage=70` aus dem Limit ab. Zusammen mit den 256Mi aus
+`MaxMetaspaceSize`, dem Code-Cache-Höchststand von 73Mi und 214Mi daneben
+ergibt die Decke 1055Mi, und das Limit von 1152Mi deckt diese Rechnung. Weil
+die Decke fest ist, hebt ein größeres Limit den Heap nicht mit an, und
+reserviert wird auf dem Node nichts davon (#165). Bei der CPU liegt der
+Leerlauf bei 2m, eine vollständige Anmeldung kostet 59 Kern-Millisekunden,
+rechnerisch entsprechen die 250m damit gut vier Anmeldungen je Sekunde.
 
 
 ## Grenzen

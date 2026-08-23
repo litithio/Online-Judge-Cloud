@@ -110,6 +110,12 @@ spec:
           # FOWNER für das chmod nach dem chown. Ohne die beiden endet jeder
           # Lauf als Umgebungsfehler und das Arbeitsverzeichnis bleibt liegen.
           securityContext:
+            # allowPrivilegeEscalation false setzt NoNewPrivs. Die SUID-Binaries
+            # im Image (su, mount) geben der Sandbox dann kein euid 0 mehr, auch
+            # nicht über einen Eintrag in einer Datei, die der Worker sonst
+            # übergeben hätte. Der setuid-Wechsel des Workers auf sandbox ist
+            # davon nicht betroffen, er senkt Rechte statt sie zu heben. Siehe #185.
+            allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
               add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "KILL", "SETGID", "SETUID"]

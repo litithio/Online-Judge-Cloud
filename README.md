@@ -256,6 +256,36 @@ erst, wenn Nodes dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und
 44 bis 48 MiB je Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die
 eine Aufgabe für den Kindprozess fordern darf.
 
+### Deckel für /tmp der Judge-Worker
+
+Das `/tmp` jedes Judge-Workers ist ein emptyDir mit `sizeLimit` 64Mi. Die
+Alternative war ein `ephemeral-storage`-Limit am Container. Das würde neben
+`/tmp` auch `/var/tmp` und den Container-Layer erfassen, setzt dafür aber ein
+gemeinsames Budget für alles, was der Pod schreibt, die Logs des Workers
+eingeschlossen. Aus dem Bedarf eines Laufs herleiten lässt sich so ein Budget
+nicht, und einer Überschreitung sieht man nicht an, wer sie verursacht hat.
+
+Den Ausschlag gibt dieser Bedarf. Ein Lauf legt in `/tmp` die Lösung ab, deren
+Obergrenze die 16-MB-Dokumentgrenze von MongoDB ist, die Eingabe des
+Testfalls, im Repo höchstens 372 KB bei `zweisumme`, und zwei Ausgabedateien,
+die `RLIMIT_FSIZE` auf je 1 MiB begrenzt. Zusammen rund 20 MiB, aufgeräumt
+nach jedem Lauf. 64Mi sind gut das Dreifache, als Luft für Dateien, die eine
+Einreichung zulässig in ihrem Arbeitsverzeichnis anlegt. Ohne Deckel waren aus
+einer einzelnen Einreichung 5,4 GB gemessen, siehe Grenzen.
+
+Überschreitet die Summe den Deckel, räumt kubelet den Pod ab. Die laufende
+Einreichung endet damit, der Durchlauf reiht sie später neu ein, und der
+Ersatz-Pod startet mit leerem `/tmp`. Vorher blieb ein vollgeschriebenes
+`/tmp` stehen und ließ jede folgende Einreichung scheitern, bis jemand
+aufräumte oder den Pod ersetzte.
+
+Zum emptyDir gehört ein Init-Container, der `/tmp` auf die üblichen Rechte
+1777 setzt, kubelet legt das Volume ohne Sticky-Bit an. Er bekommt 50m und
+16Mi als Request, unterhalb der Werte des Workers, denn Kubernetes bildet den
+Request des Pods als Maximum aus Init- und Hauptcontainern, so bleibt er
+unverändert. Eine Messung gibt es zu ihm nicht, er führt ein einzelnes chmod
+aus und ist in derselben Sekunde fertig, in der er startet.
+
 ### Ressourcen der API
 
 Die API bekommt 100m CPU und 64Mi Speicher als Request, dazu 500m und 256Mi als
@@ -328,7 +358,7 @@ statt 2300m.
 
 ### Ressourcen von Keycloak
 
-Keycloak bekommt 250m CPU und 832Mi Speicher als Request, dazu 1000m und 1024Mi
+Keycloak bekommt 250m CPU und 832Mi Speicher als Request, dazu 1000m und 1152Mi
 als Limit. Die Alternative war ein Speicher-Request am Leerlauf, also rund
 560Mi. Der deckt den Normalfall, und die Spitze beim Anmelden fängt das Limit
 auf.
@@ -346,15 +376,41 @@ Scheduler plante den Pod zu klein ein. Das Skript ist ein zweites neben
 `X-Auth-Request`-Header selbst und spricht den `backend`-Service direkt an,
 Keycloak sieht davon nichts.
 
-Der Preis sind 832Mi, die auf dem Node festgehalten werden, auch wenn sich
-niemand anmeldet, im Leerlauf stehen dem 560Mi tatsächlicher Verbrauch
-gegenüber. Das Limit bleibt bei 1024Mi, deckt damit aber nur den gemessenen
-Fall. Keycloak leitet seine Heap-Decke über `-XX:MaxRAMPercentage=70` aus dem
-Limit ab und kommt so auf 718Mi, was zusammen mit allem daneben rechnerisch
-nicht mehr unter das Limit passt. Unter Anmeldelast tritt der Fall nicht ein,
-offen ist er trotzdem (#165). Bei der CPU liegt der Leerlauf bei 2m, eine
-vollständige Anmeldung kostet 55 Kern-Millisekunden, die 250m sichern damit
-rund viereinhalb Anmeldungen je Sekunde zu.
+Der Request hält 832Mi auf dem Node fest, auch wenn sich niemand anmeldet. Seit
+der Heap-Änderung steht der Pod im Spitzenwert bei 707Mi statt bei 735Mi und
+bleibt auch nach den Läufen bei rund 706Mi. Die Heap-Decke steht über
+`JAVA_OPTS_KC_HEAP` fest auf 512Mi, sonst leitete Keycloak sie über
+`-XX:MaxRAMPercentage=70` aus dem Limit ab. Zusammen mit den 256Mi aus
+`MaxMetaspaceSize`, dem Code-Cache-Höchststand von 73Mi und 214Mi daneben
+ergibt die Decke 1055Mi, und das Limit von 1152Mi deckt diese Rechnung. Weil
+die Decke fest ist, hebt ein größeres Limit den Heap nicht mit an, und
+reserviert wird auf dem Node nichts davon (#165). Bei der CPU liegt der
+Leerlauf bei 2m, eine vollständige Anmeldung kostet 59 Kern-Millisekunden,
+rechnerisch entsprechen die 250m damit gut vier Anmeldungen je Sekunde.
+
+
+### Liveness-Probe am Judge-Worker
+
+Auf den Worker zeigt kein Service, er holt seine Arbeit selbst aus
+`judge:<sprache>`, und stirbt sein Prozess, startet Kubernetes ihn ohnehin neu.
+Eine Probe fängt deshalb genau einen Fall, einen Worker, der lebt und nicht mehr
+arbeitet. Die Alternative war, ohne Probe zu bleiben. Sie trug, solange sich ein
+untätiger Worker nicht von einem wartenden unterscheiden ließ, denn `blpop`
+wartete ohne Zeitlimit.
+
+Der Worker schreibt nach jedem abgeschlossenen Schritt einen Heartbeat, die
+mtime von `/run/heartbeat`, und nicht nur je Schleifenrunde. Nur so lässt sich
+eine Frist herleiten. `GRENZE_ZEIT_MAX` deckelt 60 Sekunden je Testfall, die
+Zahl der Testfälle deckelt nichts, über einen ganzen Lauf gibt es also keine
+Obergrenze. Die längste Lücke zwischen zwei Schritten ist ein Sandbox-Lauf, er
+endet nach `zeit + 1 + ZEITFRIST_PUFFER` und damit nach 61,5 Sekunden, dazu 1,0
+Sekunde `REST_FRIST` für das Aufräumen. Über diese 62,5 berechenbaren Sekunden
+hinaus lässt die Frist von 120 Platz für das, was keine eigene Grenze hat, etwa
+das `rmtree`.
+
+Die Probe kann einen Worker treffen, der noch arbeitet. Seine Einreichung bleibt
+dann auf RUNNING stehen, der Durchlauf holt sie zurück und verbraucht einen
+ihrer drei Versuche.
 
 
 ## Grenzen
@@ -378,12 +434,20 @@ Worker-Containers (`resources.limits.memory`) deckelt diese Summe: wird sie
 überschritten, trifft der OOM-Killer den Pod.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
-Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, etwa in
-`/tmp`, und das Aufräumen danach kennt nur ihr eigenes Verzeichnis. Läuft der
-Platz voll, scheitern alle folgenden Einreichungen mit einem Systemfehler, bis
-jemand aufräumt oder den Container ersetzt. In unserer lokalen Umgebung waren
-5,4 GB aus einer einzelnen Einreichung erreichbar, die Menge hängt aber an
-Datenträger und Auslastung.
+Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und
+das Aufräumen danach kennt nur ihr eigenes Verzeichnis. In unserer lokalen
+Umgebung waren so 5,4 GB aus einer einzelnen Einreichung erreichbar. Im
+Cluster deckelt das `sizeLimit` des emptyDir diese Menge für `/tmp` auf 64Mi,
+kubelet räumt den Pod bei Überschreitung ab und der Ersatz startet leer, siehe
+Entscheidungen. Drei Reste bleiben. kubelet erhebt die Belegung der Volumes
+nur etwa im Minutenabstand (`volumeStatsAggPeriod`), bis dahin passt deutlich
+mehr auf den Datenträger, mit der Eviction verschwindet es wieder. Der Scan
+zählt zudem nur, was im Verzeichnis steht. Eine Datei, die eine Einreichung
+löscht und offen behält, belegt weiter Platz am Limit vorbei. Frei wird er
+erst, wenn der haltende Prozess endet, normalerweise also mit dem Aufräumen
+nach dem Lauf, nur ein Prozess, der das Aufräumen übersteht, hält ihn länger. Und `/var/tmp`
+liegt außerhalb des emptyDir im Container-Layer, ist genauso weltbeschreibbar,
+und was dort landet, zählt der Deckel nicht.
 
 Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Menge
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe
@@ -418,3 +482,25 @@ Aufgabe, deren Testläufe zusammen Minuten dauern. `GRENZE_ZEIT_MAX` deckelt das
 Zeitlimit auf 60 Sekunden je Testfall, eine Obergrenze für die Zahl der
 Testfälle prüft `app/aufgaben/laden.py` nicht. Wer eine solche Aufgabe anlegt,
 steht vor dieser Wahl neu.
+
+Der Judge-Worker hat keine readinessProbe. Auf ihn zeigt kein Service, und für
+den Rollout wartet schon die startupProbe, denn bis sie durchläuft, gilt der
+Container als nicht gestartet. Eine Readiness auf denselben Heartbeat mit
+derselben Frist sagte nichts Neues. Mit einer kürzeren fiele ein Worker heraus,
+während er rechnet, und unter Dauerlast käme der Rollout nicht mehr durch.
+
+Zwei Fälle beenden einen Worker, der arbeitet. Das `rmtree` beim Aufräumen hat
+keine Frist, und eine Einreichung darf im Rahmen des 64Mi-Deckels sehr viele
+Dateien anlegen. Der Worker setzt davor einen Heartbeat, damit das Aufräumen mit
+der vollen Frist beginnt, dauert es länger als sie, stirbt er trotzdem. Und die
+Probe rechnet mit der Wanduhr. Einen Sprung nach hinten lehnt der Test über
+`-ge 0` ab, ein Sprung nach vorn über 120 Sekunden trifft einen gesunden Worker.
+Dagegen hälfe nur eine monotone Quelle wie `/proc/uptime` samt einem atomar
+geschriebenen Zeitwert in der Datei.
+
+Ein längerer Ausfall von MongoDB kostet Einreichungen ihre Versuche. Seit die
+Clients Zeitlimits haben, hängt der Worker nicht mehr, sondern stirbt, denn
+`_uebernehmen` steht ohne eigenes try in `process_queue`. Jeder Neustart zieht
+einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt und
+dabei einen der drei Versuche verbraucht. Der Tausch ist gewollt, ein hängender
+Worker zählt für KEDA weiter als Kapazität.

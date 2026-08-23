@@ -93,14 +93,21 @@
       "type": "object",
       "required": [
         "runtimeClass",
+        "tmpSizeLimit",
         "sprachen",
-        "durchlauf"
+        "durchlauf",
+        "heartbeatFrist"
       ],
       "description": "Worker, ScaledObject und Rückhol-CronJob. Der Seed der Aufgaben läuft aus Ansible.",
       "properties": {
         "runtimeClass": {
           "type": "string",
           "minLength": 1
+        },
+        "tmpSizeLimit": {
+          "type": "string",
+          "pattern": "^([0-9]*[1-9][0-9]*(\\.[0-9]+)?|0+\\.[0-9]*[1-9][0-9]*)(Ki|Mi|Gi|Ti|k|M|G|T)?$",
+          "description": "Deckel für das /tmp der Worker (emptyDir sizeLimit). Ohne ihn stünde das emptyDir offen, deshalb Pflicht. Das Muster verlangt eine positive Zahl mit optionaler Einheit, eine 0 würde kubelet als Limit ignorieren und beliebiger Text fiele erst am API-Server auf. Die Exponentenschreibweise von Kubernetes-Quantities bleibt bewusst draußen."
         },
         "sprachen": {
           "type": "array",
@@ -181,6 +188,11 @@
               "type": "object"
             }
           }
+        },
+        "heartbeatFrist": {
+          "type": "integer",
+          "minimum": 63,
+          "description": "Alter in Sekunden, ab dem der Heartbeat eines Workers als zu alt gilt. Das Minimum von 63 ist die berechenbare Untergrenze aus worker.py, ein Sandbox-Lauf endet nach GRENZE_ZEIT_MAX + 1 + ZEITFRIST_PUFFER und danach wartet REST_FRIST auf das Aufräumen. Darunter tötet die Probe einen Worker mitten in einem Testfall."
         }
       }
     }

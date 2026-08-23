@@ -133,6 +133,15 @@
           value: "https://{{ keycloak_host }}"
         - name: KC_HOSTNAME_STRICT
           value: "false"
+        # Ohne JAVA_OPTS_KC_HEAP leitet kc.sh die Heap-Decke aus dem Limit ab,
+        # beim Limit von 1152Mi wären das rund 806Mi. Die 512Mi wählt kc.sh
+        # außerhalb eines Containers selbst, sie liegen über dem unter Last
+        # belegten Heap von 299Mi. Die Variable ersetzt nur die drei
+        # Prozentsatz-Flags, MaxMetaspaceSize bleibt stehen. Der Initial-Heap
+        # von 256Mi spart gegenüber 512Mi rund 180Mi im Spitzenwert und kostet
+        # Durchsatz, gemessen in einem Gegenlauf zu #165.
+        - name: JAVA_OPTS_KC_HEAP
+          value: "-Xms256m -Xmx512m"
       extraEnvFrom: |
         - secretRef:
             name: keycloak-admin
@@ -151,51 +160,37 @@
         - name: realm-import
           mountPath: /opt/keycloak/data/import
           readOnly: true
-      # Gemessen am 22.08. mit echten Anmeldungen gegen den Realm judge. Der
-      # Client judge-gateway erlaubt keine Direktvergabe, der Lastgenerator
-      # fährt deshalb den Authorization-Code-Flow wie ein Browser. Fünf Läufe
-      # mit zusammen 13970 Anmeldungen, der längste über 260 Sekunden, die
-      # Rate zwischen 13 und 18 Anmeldungen je Sekunde und die CPU dabei
-      # durchgehend ausgelastet.
+      # Gemessen mit app/anmeldelast.py, das echte Anmeldungen über den
+      # Authorization-Code-Flow fährt. Der Client judge-gateway erlaubt keine
+      # Direktvergabe. Zehn Läufe am 22. und 23.08. mit zusammen 22838
+      # Anmeldungen, keiner davon hat den Pod umgeworfen.
       #
-      # Der Pod steht im Spitzenwert bei 735Mi, vor den Läufen im Leerlauf
-      # bei 560Mi. Die JVM meldet dabei 312Mi belegten Heap, 157Mi Metaspace
-      # und 33Mi Code-Cache. Der Rest verteilt sich auf Thread-Stacks, native
-      # Puffer und Dateicache und ist ohne Native Memory Tracking nicht weiter
-      # aufzuschlüsseln. Aufschlussreich ist der Abstand zwischen belegtem und
-      # gebrauchtem Heap. Nach erzwungener Bereinigung bleiben davon 92Mi
-      # übrig, der Bedarf wächst also kaum, während die JVM den einmal
-      # belegten Bereich behält. Über die ersten vier Läufe stieg der Wert von
-      # 643Mi auf 735Mi mit kleiner werdenden Schritten, ohne sicher
-      # auszulaufen.
-      # Der Request von 832Mi deckt deshalb den Spitzenwert und lässt Reserve
-      # für dieses Nachrücken, die bisherigen 512Mi lagen darunter.
+      # Der Request von 832Mi deckt den Spitzenwert von 707Mi und lässt
+      # Reserve für das Nachrücken. Die JVM gibt einmal belegten Speicher
+      # nicht zurück, der Pod bleibt auch nach den Läufen bei 706Mi. Die
+      # bisherigen 512Mi lagen unter dem Verbrauch, siehe #161.
       #
-      # Das Limit bleibt bei 1024Mi, deckt damit aber nur den gemessenen Fall.
-      # Aus -XX:MaxRAMPercentage=70 leitet Keycloak sich eine Heap-Decke von
-      # 718Mi ab, und zusammen mit den rund 420Mi, die daneben anfallen, passt
-      # diese Decke rechnerisch nicht mehr unter das Limit. Gemessen sind
-      # davon 312Mi belegter Heap bei 92Mi tatsächlichem Bedarf, unter
-      # Anmeldelast tritt der Fall also nicht ein. Ein größeres Limit hilft
-      # dagegen nicht, weil es über dieselben 70 Prozent die Decke mit anhebt.
-      # Der Hebel wäre ein festes -Xmx, das gehört in eine eigene Änderung.
+      # Das Limit von 1152Mi deckt den ungünstigen Fall. Heap-Decke 512Mi,
+      # MaxMetaspaceSize 256Mi, Code-Cache im beobachteten Höchststand 73Mi
+      # und 214Mi daneben ergeben 1055Mi. Vor #165 waren es 1281Mi gegen ein
+      # Limit von 1024Mi. Ein Limit wird auf dem Node nicht reserviert,
+      # geplant wird mit dem Request.
       #
-      # Die CPU liegt im Leerlauf bei 2m. Unter Last steht sie exakt am Limit,
-      # in einem eigenen Lauf über 120 Sekunden waren 1148 von 1263 Perioden
-      # gedrosselt. Aus demselben Lauf kostet eine Anmeldung 55
-      # Kern-Millisekunden, gerechnet aus 120 Sekunden CPU-Zeit für 2167
-      # Anmeldungen. Diese 18 je Sekunde sind der ausgereizte Testfall und
-      # nicht der Betrieb. Ein Kurs meldet sich stoßweise an und bleibt danach
-      # angemeldet, gebraucht wird weit weniger als eine Anmeldung je Sekunde.
-      # Der Request von 250m sichert rund viereinhalb je Sekunde zu und bleibt
-      # deshalb stehen, das Limit von 1000m lässt die gemessenen 18 zu.
+      # Die CPU liegt im Leerlauf bei 2m. Unter Last steht sie am Limit, in
+      # einem Lauf über 120 Sekunden waren 1156 von 1205 Perioden gedrosselt.
+      # Eine Anmeldung kostet dabei 59 Kern-Millisekunden. Diese 17 je Sekunde
+      # sind der ausgereizte Testfall und nicht der Betrieb. Ein Kurs meldet
+      # sich stoßweise an und bleibt danach angemeldet, gebraucht wird weit
+      # weniger als eine Anmeldung je Sekunde. Rechnerisch entsprechen die
+      # 250m gut vier je Sekunde, das Limit von 1000m lässt die gemessenen 17
+      # zu.
       resources:
         requests:
           cpu: "250m"
           memory: "832Mi"
         limits:
           cpu: "1000m"
-          memory: "1024Mi"
+          memory: "1152Mi"
       # DNS und Wildcard-TLS kommen automatisch von external-dns und cert-manager
       # der Rolle, sobald der Host unter der eigenen Zone liegt.
       ingress:

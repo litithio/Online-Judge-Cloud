@@ -101,8 +101,8 @@ def _ohne_frischen_eintrag(schwelle):
     die haben aus derselben Zeit auch kein requeue_versuche. Die Schleife
     unten liest es über eintrag[...] ohne Rückfall, ein Treffer dieser Art
     beendete den Durchlauf also mit einem KeyError, bevor der Rest der Liste
-    dran wäre. Diese Einreichungen holt nachtrag_113.py in die Daten, nicht
-    dieser Filter.
+    dran wäre. Jede Anlage setzt beide Felder (app/backend/main.py), eine
+    Einreichung ohne sie entsteht nicht mehr.
     """
     return [
         {"last_enqueued_at": {"$lt": schwelle}},
@@ -125,8 +125,23 @@ def _verwaiste_pending(db, schwelle):
 
 
 def durchlauf():
-    db = MongoClient(MONGO_URI)["coding_platform"]
-    redis_client = redis.Redis.from_url(REDIS_URI)
+    # Dieselben Zeitlimits wie in worker.py, dort steht die Herleitung. Hier
+    # wiegt ein hängender Aufruf schwerer als am Worker. Der CronJob läuft mit
+    # concurrencyPolicy Forbid (app/chart/templates/judge.yaml), ein Lauf ohne
+    # Ende hält damit jeden weiteren auf, und abgelaufene Einreichungen bleiben
+    # liegen, solange niemand den Job von Hand abräumt. Valkey bekommt hier ein
+    # kürzeres socket_timeout als am Worker, der Durchlauf ruft nur LPOS und
+    # RPUSH und wartet an keiner Stelle blockierend auf einen Eintrag.
+    db = MongoClient(
+        MONGO_URI,
+        connectTimeoutMS=5000,
+        socketTimeoutMS=10000,
+    )["coding_platform"]
+    redis_client = redis.Redis.from_url(
+        REDIS_URI,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+    )
     jetzt = datetime.now(timezone.utc)
     schwelle = jetzt - timedelta(seconds=REENQUEUE_AFTER_SECONDS)
 

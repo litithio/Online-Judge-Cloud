@@ -64,17 +64,18 @@ spec:
           # Rolling Update sofort Anfragen, auch wenn er MongoDB noch nicht
           # erreicht (P5, Update ohne Ausfall).
           #
-          # Die startupProbe gibt dem Start bis zu 120 Sekunden. main.py legt
-          # im lifespan-Hook zwei Indizes an und blockiert dabei je Index bis
-          # zu 30 Sekunden, wenn MongoDB nicht erreichbar ist. Ohne dieses
-          # Fenster würde die liveness den Pod töten, bevor der HTTP-Server
-          # lauscht, und der Start käme nie zum Ende.
+          # Die startupProbe gibt dem Start bis zu 60 Sekunden. Die Indizes
+          # entstehen in einem eigenen Thread (main.py), der Start wartet
+          # nicht mehr auf MongoDB. Gemessen braucht er bis zur ersten
+          # Antwort auf /healthz rund 26 Sekunden, wenn ein voller Knoten
+          # den Pod auf seinen CPU-Request drückt. Das Fenster ist gut das
+          # Doppelte, Herleitung im README unter Startfenster der API.
           startupProbe:
             httpGet:
               path: /healthz
               port: 8000
             periodSeconds: 5
-            failureThreshold: 24
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /healthz

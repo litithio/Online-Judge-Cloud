@@ -301,6 +301,30 @@ Preis sind 100m je Replica, also 200m für die beiden, die im Betrieb fast nie
 gebraucht werden. Der Speicher steht bei 46 MiB, konstant im Leerlauf, unter
 Last und beim Start.
 
+### Startfenster der API
+
+Die startupProbe gibt dem Start 60 Sekunden, periodSeconds 5 und
+failureThreshold 12. Vorher waren es 120 Sekunden, hergeleitet aus der
+Index-Erstellung im lifespan-Hook, die je Index bis zu 30 Sekunden auf MongoDB
+wartete. Seit #108 entstehen die Indizes in einem eigenen Thread, der Start
+wartet auf keinen anderen Dienst mehr, und das alte Fenster hatte damit keine
+Grundlage mehr.
+
+Gemessen am 23.08.2026 mit dem Image aus app/backend/Dockerfile unter docker
+run mit CPU-Grenze, Zeit vom Containerstart bis zur ersten 200 auf /healthz, je
+drei Läufe: bei 0,5 CPU rund 1 Sekunde, bei 0,25 rund 2, bei 0,1 rund 8, bei
+0,05 rund 26. Die 0,05 entsprechen dem Request aus values-dev.yaml, also dem
+Anteil, den ein voll ausgelasteter Knoten dem Pod noch garantiert. Das Fenster
+braucht es also wirklich, nur eben für 26 Sekunden statt 120.
+
+60 Sekunden sind gut das Doppelte des Messwerts, als Reserve dafür, dass die
+Messung auf dem Mac lief und ein Cluster-Knoten je Kern langsamer sein kann.
+Verworfen: 30 Sekunden lägen zu dicht am Messwert. Die startupProbe ganz zu
+streichen hieße, dass die liveness mit ihren rund 35 Sekunden (initialDelay 5
+plus drei Fehlversuche im 10-Sekunden-Takt) den Start allein abdecken müsste,
+ohne Reserve. Die Folge des kleineren Fensters: ein Start, der wirklich hängt,
+wird nach spätestens 60 Sekunden neu gestartet statt nach 120.
+
 ### Ressourcen von MongoDB
 
 Ein `mongod` bekommt 150m CPU und 512Mi Speicher als Request, dazu 500m und 1Gi

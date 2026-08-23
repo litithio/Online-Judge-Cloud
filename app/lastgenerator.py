@@ -42,9 +42,9 @@ import time
 import urllib.error
 import urllib.request
 
-# Nur python. Die API nimmt über SPRACHEN in app/backend/main.py auch nur
-# python an und lehnt jede andere Sprache mit 400 ab, ein Worker-Image gibt es
-# ebenfalls nur dafür.
+# Nur python. Die API nimmt über AKTIVE_SPRACHEN in app/backend/main.py auch
+# nur python an und lehnt jede andere Sprache mit 400 ab, ein Worker-Image
+# gibt es ebenfalls nur dafür.
 SPRACHE = "python"
 
 AUFGABEN = pathlib.Path(__file__).parent / "aufgaben"

@@ -78,7 +78,7 @@ judge:
   # Namen des Deployments (code-worker-<name>), den Wert von WORKER_SPRACHE und
   # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache
   # braucht ein eigenes Image und einen Eintrag hier, keine weitere Datei im
-  # Chart. Die API führt daneben ihre eigene Liste, SPRACHEN in
+  # Chart. Die API führt daneben ihre eigene Liste, AKTIVE_SPRACHEN in
   # app/backend/main.py, und lehnt eine Sprache ohne Eintrag dort mit 400 ab.
   sprachen:
     - name: python

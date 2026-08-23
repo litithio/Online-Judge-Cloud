@@ -82,9 +82,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Nur Python ist bis #6 tatsächlich wählbar, der Worker führt keine andere
-# Sprache aus. Weitere Einträge kommen mit den jeweiligen Worker-Images.
-SPRACHEN = ("python",)
+# Bauplan der Plattform: alle Sprachen, die einmal einen Worker bekommen
+# sollen (#107). /submit prüft nicht gegen diese Liste, denn eine Einreichung
+# in einer Sprache ohne Worker landete in einer Queue, die niemand bedient,
+# und bliebe dauerhaft PENDING.
+SPRACHEN = ("python", "java", "cpp", "rust")
+
+# Sprachen, zu denen tatsächlich ein Worker läuft (judge.sprachen in
+# app/chart/values.yaml, je Eintrag ein Deployment samt ScaledObject). Nur
+# gegen diese Liste prüft /submit. Eine Sprache aus dem Bauplan wandert
+# hierher, sobald ihr Worker-Image existiert und das Chart sie ausrollt.
+AKTIVE_SPRACHEN = ("python",)
 STANDARD_SPRACHE = "python"
 
 
@@ -149,8 +157,14 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
     task_id = payload.get("task_id")
     code = payload.get("code")
     sprache = payload.get("sprache", STANDARD_SPRACHE)
-    if sprache not in SPRACHEN:
-        raise HTTPException(status_code=400, detail=f"Unbekannte Sprache: {sprache}")
+    if sprache not in AKTIVE_SPRACHEN:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Sprache nicht aktiv: {sprache}. "
+                f"Aktive Sprachen: {', '.join(AKTIVE_SPRACHEN)}"
+            ),
+        )
 
     # 1. Submission in MongoDB erstellen, mit den Feldern aus #82: sprache für
     # die Queue-Auswahl des Durchlaufs, versuche/run_token/frist für die

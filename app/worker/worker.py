@@ -34,7 +34,14 @@ SANDBOX_SPEICHER_MB = 128
 # Workers statt eines Felds an der Aufgabe. Braucht eine Aufgabe später mehr
 # als 1 MiB Ausgabe, wird die Grenze hier nachgezogen, für alle Aufgaben.
 SANDBOX_AUSGABE_BYTES = 1024**2  # RLIMIT_FSIZE, begrenzt stdout und stderr
-SANDBOX_PROZESSE = 64  # RLIMIT_NPROC gegen Fork-Bomben
+# RLIMIT_NPROC gegen Fork-Bomben, Threads zählen mit. Wie viel die Zahl
+# zulässt, hängt an der Laufzeit, gemessen im Cluster gegen beide. Unter runc
+# zählt der Prozess der Einreichung selbst mit, mit 1 startet sie also gar
+# nichts mehr. Unter runsc zählt er nicht mit, dort bleibt ihr ein weiterer
+# Prozess. Der Judge läuft im Cluster unter runsc, im Compose unter runc. In
+# beiden Fällen ist die Fork-Bombe damit erledigt, und die Zahl deckelt
+# zugleich den Speicher, denn RLIMIT_AS gilt je Prozess.
+SANDBOX_PROZESSE = 1
 
 MELDUNG_MAX = 2000  # so viel Fehlerausgabe übernimmt das Feld result der Einreichung
 REST_FRIST = 1.0  # Sekunden, die das Aufräumen auf beendete Prozesse wartet
@@ -526,6 +533,22 @@ def _gelesen(fd, grenze):
     return roh.decode("utf-8", errors="replace")
 
 
+def _letzte_zeile(fd, grenze):
+    """Die letzte Zeile einer Ausgabedatei, gelesen von ihrem Ende her.
+
+    _gelesen liefert den Anfang der Datei, und der Anfang bleibt auch die
+    Meldung an der Einreichung. Für die Einordnung zählt dagegen das Ende. Der
+    Name der Exception steht in der letzten Zeile eines Tracebacks, und eine
+    Einreichung, die vorher viel nach stderr schreibt, schöbe ihn sonst über
+    die Grenze hinaus. Der Zugriff läuft wie in _gelesen über den file
+    descriptor, nicht über den Pfad.
+    """
+    groesse = os.fstat(fd).st_size
+    os.lseek(fd, max(0, groesse - grenze), os.SEEK_SET)
+    text = os.read(fd, grenze).decode("utf-8", errors="replace").strip()
+    return text.splitlines()[-1] if text else ""
+
+
 class Umgebungsfehler(Exception):
     """Der Lauf ist an der Umgebung gescheitert, nicht am eingereichten Code.
 
@@ -549,6 +572,17 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
     try:
         # Vor dem mkdtemp: Findet die Vergabe keine freie UID, soll kein
         # Verzeichnis entstehen, das gleich wieder zu entfernen wäre.
+        #
+        # Die Vergabe erledigt zugleich, wofür #72 hier eine eigene Prüfung
+        # hatte. Ein Rest eines früheren Laufs belegte das Kontingent aus
+        # SANDBOX_PROZESSE, und der nächste Lauf bekam dafür ein RE mit der
+        # Meldung, er habe seine eigene Grenze ausgeschöpft, obwohl er nichts
+        # gestartet hat. Seit jeder Lauf eine eigene UID trägt, zählt der
+        # Kernel das Kontingent getrennt, ein Rest unter einer alten UID nimmt
+        # dem neuen Lauf also nichts mehr weg. _uid_vergeben räumt darüber
+        # hinaus die Kandidaten-UID leer und überspringt sie, solange dort noch
+        # etwas läuft. Ein Abbruch bleibt für den Fall, dass keine UID mehr frei
+        # ist, statt für jeden einzelnen Rest.
         uid = _uid_vergeben() if SANDBOX_BEREICH is not None else None
         # Die Vergabe kann bis zu REST_FRIST auf das Aufräumen einer
         # wiederverwendeten UID warten. Dieser Schritt schließt sie ab, damit die
@@ -711,6 +745,32 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             # Gekürzt, weil die Meldung als Urteil in der Datenbank landet und
             # dort neben jeder Einreichung steht. Ein Traceback passt hinein.
             meldung = _gelesen(fehler_fd, MELDUNG_MAX).strip()
+            letzte_zeile = _letzte_zeile(fehler_fd, MELDUNG_MAX)
+
+            # Eigene Meldung, wenn der Start eines weiteren Prozesses oder
+            # Threads gescheitert ist. Ohne sie stünde als Urteil nur ein
+            # Traceback, aus dem die Grenze nicht hervorgeht. Erkannt an der
+            # letzten Zeile, wie beim MemoryError unten. fork meldet EAGAIN als
+            # BlockingIOError, das Anlegen eines Threads als RuntimeError mit
+            # festem Text, beide Male ohne eigene Fehlerklasse. Die Meldung
+            # nennt deshalb beide Grenzen, die den Start verhindern können.
+            # Dieselbe Zeile steht auch dann in stderr, wenn pthread_create am
+            # Speicher der Aufgabe scheitert und nicht an SANDBOX_PROZESSE.
+            # Eine Einreichung, die selbst einen BlockingIOError bis nach oben
+            # durchreicht, bekommt diese Meldung fälschlich.
+            if letzte_zeile.startswith(
+                "BlockingIOError: [Errno 11]"
+            ) or letzte_zeile.startswith("RuntimeError: can't start new thread"):
+                return (
+                    "RE",
+                    "Start eines weiteren Prozesses oder Threads gescheitert."
+                    " Der Judge begrenzt die Zahl der Prozesse je Einreichung,"
+                    " Threads zählen mit. Auch zu wenig Speicher verhindert den"
+                    f" Start. {letzte_zeile}",
+                    dauer_ms,
+                    speicher_kb,
+                )
+
             # MLE statt des allgemeinen RE bei einem MemoryError. Der ist das
             # verlässliche Signal, nicht der gemessene Speicher: RLIMIT_AS
             # begrenzt den virtuellen Adressraum, eine einzelne große
@@ -723,7 +783,6 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             # als zweites Signal für den Fall, dass Speicher schrittweise
             # wächst und der Absturz woanders auftritt als bei der Zuweisung
             # selbst.
-            letzte_zeile = meldung.strip().splitlines()[-1] if meldung.strip() else ""
             ist_memory_error = letzte_zeile == "MemoryError" or letzte_zeile.startswith(
                 "MemoryError:"
             )
@@ -736,6 +795,10 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
                 )
             return "RE", meldung or ausgabe.strip(), dauer_ms, speicher_kb
         return "OK", ausgabe.strip(), dauer_ms, speicher_kb
+    except Umgebungsfehler:
+        # Schon eingeordnet, der Zweig darunter würde die Meldung ein zweites
+        # Mal in einen Umgebungsfehler packen.
+        raise
     except Exception as e:
         # Der Typ bleibt in der Meldung: Umgebungsfehler sagt, dass es nicht am
         # eingereichten Code lag, nicht was gescheitert ist.

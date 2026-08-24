@@ -420,9 +420,12 @@ den `backend`-Service im Cluster direkt erreicht, konnte diese Header selbst
 setzen und unter jedem Namen einreichen. Das Gateway setzt deshalb zusätzlich
 `X-Gateway-Auth` mit einem festen Wert, den die API vergleicht. Die Alternative
 war, das Access-Token weiterzureichen und in der API gegen die JWKS von Keycloak
-zu prüfen. Das trägt weiter, W6 verlangt die Token-Prüfung aber am Gateway und
-nicht in der Anwendung. Der feste Wert läuft nie ab und steht im Secret wie im
-Middleware-Objekt, wer eines davon lesen darf, kommt an der Prüfung vorbei.
+zu prüfen. Sie träfe auch einen Angreifer, der an den festen Wert kommt. Gegen
+den, der hier zählt, wirken beide gleich, denn ein aus der Sandbox
+ausgebrochener Worker hält weder ein Token noch das Secret. Den Ausschlag gibt
+W6, das die Token-Prüfung am Gateway verlangt und nicht in der Anwendung. Der
+feste Wert läuft nie ab und steht im Secret wie im Middleware-Objekt, wer eines
+davon lesen darf, kommt an der Prüfung vorbei.
 
 
 ## Grenzen

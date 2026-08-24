@@ -427,11 +427,21 @@ ihn gar nicht erst starten, wenn die Trennung nicht zustande kommt, statt sie
 still wegfallen zu lassen. Wo sie ausfiele, bliebe nur eine NetworkPolicy als
 Begrenzung.
 
-Die Speichergrenze von 128 MiB gilt für jeden Prozess einzeln. Startet eine
-Einreichung weitere Prozesse, bekommt jeder von ihnen erneut 128 MiB. Bei den
-erlaubten 64 Prozessen sind das zusammen 8 GiB. Das Speicherlimit des
-Worker-Containers (`resources.limits.memory`) deckelt diese Summe: wird sie
-überschritten, trifft der OOM-Killer den Pod.
+Die Speichergrenze gilt für jeden Prozess einzeln. `RLIMIT_NPROC` steht auf 1
+und begrenzt damit, wie viele Prozesse eine Einreichung dazubekommt. Threads
+zählen mit. Wie viele es genau sind, hängt an der Laufzeit. Unter runsc im
+Cluster bleibt der Einreichung ein weiterer Prozess, unter runc im Compose
+keiner, denn dort zählt ihr eigener Prozess mit. Im Cluster belegen die beiden
+Prozesse zusammen also bis zum Doppelten der Grenze, mit der Vorgabe von 128
+MiB sind das 256 MiB und damit weniger als die 320Mi des Worker-Containers.
+Eine Aufgabe darf über `memory_limit_mb` bis zu 256 MiB fordern, dann sind es
+512 MiB, und das Speicherlimit des Containers (`resources.limits.memory`) fängt
+die Summe ab, indem der OOM-Killer den Pod trifft. Wer die Grenze reißt, bekommt
+RE mit einer eigenen Meldung. Ein Prozess, der einen Lauf übersteht, belegt das
+Kontingent des nächsten, denn beide laufen unter derselben UID. Der Worker
+räumt deshalb auch vor jedem Lauf auf und wertet einen verbliebenen Rest als
+Fehler der Umgebung. Die Einreichung bleibt dann auf RUNNING stehen und kostet
+einen Versuch.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
 Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und

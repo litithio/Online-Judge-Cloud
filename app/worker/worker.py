@@ -431,8 +431,9 @@ def _uid_vergeben():
 
     Die verbleibende Grenze liegt bei der Frist. Eine Fork-Kette, die schneller
     neue Prozesse erzeugt, als _uids_leerraeumen sie beendet, übersteht sie, so
-    wie sie auch _reste_beenden übersteht. Sie ganz zu schließen ist Sache von
-    #72: Mit RLIMIT_NPROC 1 kann eine Einreichung keinen zweiten Prozess starten.
+    wie sie auch _reste_beenden übersteht. Seit #72 kommt sie kaum noch zustande,
+    denn RLIMIT_NPROC steht auf 1 und lässt der Einreichung unter runsc einen
+    einzigen weiteren Prozess, unter runc gar keinen.
 
     Die Frist gilt für den ganzen Vergabeversuch, nicht je Kandidat. Sonst
     summierte sich REST_FRIST über alle belegten UIDs, im Erschöpfungsfall auf

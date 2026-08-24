@@ -438,10 +438,11 @@ Eine Aufgabe darf über `memory_limit_mb` bis zu 256 MiB fordern, dann sind es
 512 MiB, und das Speicherlimit des Containers (`resources.limits.memory`) fängt
 die Summe ab, indem der OOM-Killer den Pod trifft. Wer die Grenze reißt, bekommt
 RE mit einer eigenen Meldung. Ein Prozess, der einen Lauf übersteht, belegt das
-Kontingent des nächsten, denn beide laufen unter derselben UID. Der Worker
-räumt deshalb auch vor jedem Lauf auf und wertet einen verbliebenen Rest als
-Fehler der Umgebung. Die Einreichung bleibt dann auf RUNNING stehen und kostet
-einen Versuch.
+Kontingent des nächsten nicht, denn der Kernel führt es je UID und jeder Lauf
+bekommt eine eigene. Der Worker räumt die UID vor der Vergabe trotzdem leer und
+weicht auf die nächste aus, solange dort noch etwas läuft. Erst wenn keine UID
+mehr frei ist, wertet er das als Fehler der Umgebung. Die Einreichung bleibt
+dann auf RUNNING stehen und kostet einen Versuch.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
 Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und

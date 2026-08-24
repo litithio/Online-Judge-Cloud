@@ -415,9 +415,9 @@ ihrer drei Versuche.
 
 ## Grenzen
 
-Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
-User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
-Prozesszahl. Vier Lücken bleiben.
+Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je Lauf
+eigenen UID und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
+Prozesszahl. Fünf Lücken bleiben.
 
 Im Cluster bekommt der eingereichte Code über einen User-Namespace ein eigenes,
 leeres Netz. Das setzt voraus, dass die Laufzeit den Aufruf `unshare` mit
@@ -448,6 +448,19 @@ erst, wenn der haltende Prozess endet, normalerweise also mit dem Aufräumen
 nach dem Lauf, nur ein Prozess, der das Aufräumen übersteht, hält ihn länger. Und `/var/tmp`
 liegt außerhalb des emptyDir im Container-Layer, ist genauso weltbeschreibbar,
 und was dort landet, zählt der Deckel nicht.
+
+Was eine Einreichung in `/tmp` zurücklässt, trennt die eigene UID nur zum Teil.
+Die Datei gehört der UID ihres Laufs, und ob ein späterer Lauf sie liest,
+entscheidet ihr Modus. Eine Datei mit 0600, wie `tempfile` sie anlegt, bleibt dem
+nächsten Lauf verschlossen und wird erst wieder lesbar, wenn der Vorrat aus 100
+UIDs umläuft und dieselbe UID erneut an der Reihe ist. Wer mit `open` schreibt,
+bekommt unter der üblichen umask 022 den Modus 0644, und diese Datei liest schon
+der unmittelbar nächste Lauf. `TMPDIR` zeigt auf das Arbeitsverzeichnis, damit
+`tempfile` nicht ohne Zutun der Lösung nach `/tmp` schreibt und dort ein Rest
+bleibt, wenn sie am Zeitlimit stirbt. Gegen absichtliches Schreiben nach `/tmp`
+hilft das nicht. Ein eigenes `/tmp` je Lauf über einen mount namespace schlösse
+die Lücke, gemessen ohne seccomp. Ob der mount unter gVisor durchgeht, ist
+offen.
 
 Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Menge
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe

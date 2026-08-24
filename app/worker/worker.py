@@ -1,3 +1,4 @@
+import grp
 import os
 import pathlib
 import pwd
@@ -48,9 +49,9 @@ QUEUE_WARTEN = 15
 # Wohin der Worker seinen Heartbeat schreibt, siehe _heartbeat. /run und
 # nicht /tmp: /tmp ist im Cluster ein emptyDir mit Deckel, und dorthin schreibt
 # auch die Einreichung. /run gehört im Image root mit 0755, der Worker läuft als
-# root und der User sandbox liest dort, ohne schreiben zu können. Die Frist, ab
-# der die Datei als zu alt gilt, steht nicht hier, sondern im Chart. Nur die
-# Probe braucht sie, der Worker selbst liest die Datei nie.
+# root und der eingereichte Code liest dort mit 0755, ohne schreiben zu können.
+# Die Frist, ab der die Datei als zu alt gilt, steht nicht hier, sondern im
+# Chart. Nur die Probe braucht sie, der Worker selbst liest die Datei nie.
 HEARTBEAT_PFAD = "/run/heartbeat"
 
 # Wall-Clock-Frist über RLIMIT_CPU: Die Aufgabe begrenzt die Rechenzeit über
@@ -108,11 +109,35 @@ CLAIM_FRIST_PUFFER_SEKUNDEN = int(os.getenv("CLAIM_FRIST_PUFFER_SEKUNDEN", "90")
 GRENZE_ZEIT_MAX = 60
 GRENZE_SPEICHER_MAX_MB = 256
 
-# Unter diesem User läuft der eingereichte Code. Er wird im Dockerfile
-# angelegt und hat kein Leserecht auf /app.
-SANDBOX_USER = os.getenv("SANDBOX_USER", "sandbox")
+# Bereich der UIDs, unter denen der eingereichte Code läuft. Jeder Lauf bekommt
+# eine eigene, und dieselbe wird als GID verwendet. Eine gemeinsame UID für alle
+# Läufe reichte nicht (#87): Das Arbeitsverzeichnis des nächsten Laufs gehörte
+# dann demselben User wie das des vorigen, und ein Prozess, der das Aufräumen
+# überlebt hat, könnte dessen loesung.py lesen oder zwischen dem chown und dem
+# execv durch eigenen Code ersetzen. In einer Klausur wäre das der Weg an die
+# Lösung des Nächsten.
+#
+# Die UIDs stehen in keiner /etc/passwd. Der Kernel braucht dort keinen Eintrag,
+# und subprocess nimmt für user und group auch Zahlen. Gemessen im Container aus
+# judge-worker:local, ein Lauf unter UID 100000 ohne Eintrag startet und meldet
+# "uid 100000 gid 100000 gruppen []". Ein Vorrat an useradd-Usern im Image wäre
+# nur eine zweite Stelle, die zum Bereich hier passen muss.
+#
+# Die Basis liegt über 65534 (nobody) und damit über allem, was Debian vergibt.
+# _sandbox_bereich prüft das beim Start gegen die tatsächliche /etc/passwd, statt
+# es anzunehmen.
+SANDBOX_UID_BASIS = 100000
 
-# Der Wechsel des Users braucht root im Worker. Ohne ihn würde fremder Code
+# Die Anzahl ist eine runde Wahl mit Abstand, keine Rechnung. Sie trägt auch
+# nicht die Trennung, das tut die Prüfung in _uid_vergeben: Eine UID wird erst
+# wieder vergeben, wenn kein Prozess mehr unter ihr läuft und ihr kein
+# Verzeichnis mehr gehört. Der Worker arbeitet die Queue nacheinander ab, zu
+# jedem Zeitpunkt ist also genau eine UID in Gebrauch. Die Anzahl bestimmt nur,
+# wie viele misslungene Aufräumvorgänge er übersteht, bevor er keine freie UID
+# mehr findet und aufgibt.
+SANDBOX_UID_ANZAHL = 100
+
+# Der Wechsel der UID braucht root im Worker. Ohne ihn würde fremder Code
 # unter demselben User laufen wie der Worker: Er könnte /app samt worker.py lesen,
 # den Worker per Signal beenden und über prlimit seine eigenen Grenzen wieder
 # anheben.
@@ -166,37 +191,46 @@ redis_client = redis.Redis.from_url(
 )
 
 
-def _sandbox_uid():
-    """Gibt die UID zurück, unter der der eingereichte Code laufen soll."""
+def _sandbox_bereich():
+    """Gibt den Bereich der UIDs zurück, aus dem jeder Lauf eine bekommt."""
     if os.geteuid() != 0:
         if TRENNUNG_ERZWINGEN:
             raise SystemExit(
-                f"Der Worker läuft nicht als root und kann den eingereichten Code "
-                f"deshalb nicht unter dem User {SANDBOX_USER} ausführen. "
-                f"Ohne diese Trennung liest fremder Code die Zugangsdaten des "
-                f"Workers. Zum Übergehen SANDBOX_TRENNUNG_ERZWINGEN=0 setzen, "
-                f"aber dann nur mit einer anderen Isolation davor."
+                "Der Worker läuft nicht als root und kann den eingereichten Code "
+                "deshalb nicht unter einer eigenen UID ausführen. "
+                "Ohne diese Trennung liest fremder Code die Zugangsdaten des "
+                "Workers. Zum Übergehen SANDBOX_TRENNUNG_ERZWINGEN=0 setzen, "
+                "aber dann nur mit einer anderen Isolation davor."
             )
         return None
-    try:
-        uid = pwd.getpwnam(SANDBOX_USER).pw_uid
-    except KeyError:
-        raise SystemExit(
-            f"Den User {SANDBOX_USER} gibt es im Image nicht. Er wird in "
-            f"app/worker/Dockerfile angelegt."
-        ) from None
+    bereich = range(SANDBOX_UID_BASIS, SANDBOX_UID_BASIS + SANDBOX_UID_ANZAHL)
     # Eine UID, die auf den Worker selbst zeigt, hebt die Trennung nicht nur
     # auf: Das Aufräumen nach dem Lauf beendet dann alle Prozesse mit dieser UID
     # und damit den Worker.
-    if uid in (0, os.geteuid()):
+    if 0 in bereich or os.geteuid() in bereich:
         raise SystemExit(
-            f"{SANDBOX_USER} hat die UID {uid} und damit die des Workers. Der "
-            f"eingereichte Code braucht eine eigene."
+            f"Der UID-Bereich {bereich.start} bis {bereich.stop - 1} enthält die "
+            f"UID des Workers. Der eingereichte Code braucht eigene."
         )
-    return uid
+    # Gehört eine UID des Bereichs einem echten User des Images, könnte die
+    # Einreichung an dessen Dateien. Die Zahl dient auch als GID (group=uid beim
+    # Popen), deshalb ebenso gegen die Gruppen geprüft: Eine Gruppe mit einer GID
+    # aus dem Bereich gäbe dem Lauf ihre Gruppenrechte. Geprüft statt angenommen,
+    # denn der Bereich steht hier und User und Gruppen kommen aus der Basis und
+    # dem Dockerfile.
+    user = sorted(e.pw_name for e in pwd.getpwall() if e.pw_uid in bereich)
+    gruppen = sorted(g.gr_name for g in grp.getgrall() if g.gr_gid in bereich)
+    if user or gruppen:
+        raise SystemExit(
+            f"Der UID-Bereich {bereich.start} bis {bereich.stop - 1} überschneidet "
+            f"sich mit dem Image. User: {', '.join(user) or 'keine'}. "
+            f"Gruppen: {', '.join(gruppen) or 'keine'}. Verschiebe "
+            f"SANDBOX_UID_BASIS."
+        )
+    return bereich
 
 
-SANDBOX_UID = _sandbox_uid()
+SANDBOX_BEREICH = _sandbox_bereich()
 
 # Basisverzeichnis, unter dem der Worker für jeden Lauf ein eigenes working
 # directory anlegt. Es gehört dem Worker und die Läufe liegen so nicht direkt
@@ -204,7 +238,14 @@ SANDBOX_UID = _sandbox_uid()
 # Verzeichnis also umbenennen, und das Aufräumen danach würde nur noch den
 # alten Pfad finden und alles liegen lassen.
 SANDBOX_BASIS = pathlib.Path(tempfile.gettempdir()) / "judge"
-SANDBOX_BASIS.mkdir(mode=0o755, exist_ok=True)
+# Geleert und nicht nur angelegt. Stirbt der Worker zwischen dem Popen und dem
+# rmtree, etwa durch den SIGKILL beim Scaledown oder durch den OOM-Killer,
+# bleibt das Arbeitsverzeichnis des laufenden Laufs liegen. Ohne das Leeren
+# fände der neu gestartete Worker es vor, und sobald der Bereich einmal umläuft,
+# träfe es wieder auf seine eigene UID (#87).
+if SANDBOX_BASIS.exists():
+    shutil.rmtree(SANDBOX_BASIS)
+SANDBOX_BASIS.mkdir(mode=0o755)
 
 
 # Kappt dem eingereichten Code das Netz, so wie es zuvor der eigene
@@ -237,13 +278,17 @@ NETZ_ERZWINGEN = os.getenv("SANDBOX_NETZ_ERZWINGEN", "0") != "0"
 
 def _netz_trennung_moeglich():
     """Prüft einmal beim Start, ob es möglich ist, der Sandbox ein leeres Netz zu geben."""
-    if SANDBOX_UID is None:
+    if SANDBOX_BEREICH is None:
         return False
+    # Die erste UID des Bereichs und nicht eine aus _uid_vergeben: Die Probe
+    # läuft beim Start, dort ist noch keine UID belegt, und der Zeiger soll bei
+    # der ersten Einreichung am Anfang stehen.
+    uid = SANDBOX_BEREICH[0]
     fertig = subprocess.run(
         [sys.executable, "-c", "import os\n" + NETZ_BLOCK],
         capture_output=True,
-        user=SANDBOX_UID,
-        group=SANDBOX_USER,
+        user=uid,
+        group=uid,
         extra_groups=[],
     )
     return fertig.returncode == 0
@@ -312,41 +357,34 @@ def grenzen_der_aufgabe(task):
     return zeit, speicher * 1024**2
 
 
-def _sandbox_pids():
-    """Alle Prozesse mit der UID der Sandbox, Zombies eingeschlossen."""
+def _pids_mit_uid(uids):
+    """Alle Prozesse mit einer dieser UIDs, Zombies eingeschlossen."""
     treffer = []
     for eintrag in pathlib.Path("/proc").glob("[0-9]*"):
         try:
             zeilen = (eintrag / "status").read_text().splitlines()
             uid = next(z for z in zeilen if z.startswith("Uid:")).split()[1]
-            if int(uid) == SANDBOX_UID:
+            if int(uid) in uids:
                 treffer.append(int(eintrag.name))
         except (OSError, ValueError, StopIteration):
             continue
     return treffer
 
 
-def _reste_beenden():
-    """Beendet, was ein Lauf hinterlassen hat.
+def _uids_leerraeumen(uids, frist_sekunden):
+    """Beendet alle Prozesse mit einer dieser UIDs und sammelt sie ein.
 
-    Startet die Einreichung selbst einen Prozess, kann der per setsid die
-    Prozessgruppe verlassen und überlebt dann den Kill auf die Gruppe. Er läuft
-    unter der UID der Sandbox weiter, verbraucht die CPU des Pods und belegt
-    Plätze im NPROC-Kontingent. Der Worker arbeitet die Queue nacheinander ab,
-    nach einem Lauf darf es also keine Prozesse mit dieser UID mehr geben.
+    Gibt die PIDs zurück, die nach der Frist noch laufen. Eine leere Liste heißt
+    sauber. Die Schleife killt wiederholt, bis nichts mehr übrig ist: Ein
+    einzelner Blick in /proc verpasst sonst einen Prozess, der zwischen dem
+    Auflisten und dem Lesen von status startet oder sich durch einen Nachfolger
+    ersetzt. Ein abgesetzter Prozess wird nach dem Kill von PID 1 adoptiert, im
+    Container also vom Worker selbst, und muss von ihm eingesammelt werden. Sonst
+    bleibt er als Zombie stehen und belegt einen Platz im NPROC-Kontingent.
     """
-    if SANDBOX_UID is None:
-        return
-
-    # Die Schleife läuft, bis nichts mehr übrig ist. Ein einzelner Durchgang
-    # würde die Prozesse verpassen, die zwischen dem Blick in /proc und dem
-    # Signal noch starten. Ein abgesetzter Prozess wird nach dem Kill von PID 1
-    # adoptiert, im Container also vom Worker selbst, und muss von ihm
-    # eingesammelt werden. Sonst bleibt er als Zombie stehen und belegt einen
-    # Platz im NPROC-Kontingent.
-    frist = time.monotonic() + REST_FRIST
+    frist = time.monotonic() + frist_sekunden
     while True:
-        for pid in _sandbox_pids():
+        for pid in _pids_mit_uid(uids):
             try:
                 os.kill(pid, signal.SIGKILL)
             except OSError:
@@ -363,13 +401,85 @@ def _reste_beenden():
             except ChildProcessError:
                 break
 
-        offen = _sandbox_pids()
+        offen = _pids_mit_uid(uids)
         if not offen:
-            return
+            return []
         if time.monotonic() > frist:
-            print(f"Prozesse der Sandbox blieben stehen: {offen}")
-            return
+            return offen
         time.sleep(0.02)
+
+
+def _uid_vergeben():
+    """Gibt eine UID aus dem Bereich zurück, die kein Lauf mehr belegt.
+
+    Der Zeiger läuft am Ende des Bereichs um, eine UID wird also
+    wiederverwendet. Sicher ist das erst durch die Prüfung hier: Ein Prozess
+    eines früheren Laufs unter der UID wird beendet, nicht nur erkannt. Ein
+    einzelner /proc-Scan verpasst sonst eine Fork-Kette, die sich zwischen dem
+    Auflisten und dem Lesen erneuert, und die UID käme trotz eines Überlebenden
+    wieder in Umlauf. Bleibt nach der Frist einer stehen oder gehört der UID noch
+    ein Verzeichnis unter SANDBOX_BASIS, überspringt die Vergabe sie. Beides
+    zusammen sind genau die zwei Wege aus #87, über die ein alter Lauf an den
+    nächsten käme.
+
+    Die verbleibende Grenze liegt bei der Frist. Eine Fork-Kette, die schneller
+    neue Prozesse erzeugt, als _uids_leerraeumen sie beendet, übersteht sie, so
+    wie sie auch _reste_beenden übersteht. Sie ganz zu schließen ist Sache von
+    #72: Mit RLIMIT_NPROC 1 kann eine Einreichung keinen zweiten Prozess starten.
+
+    Die Frist gilt für den ganzen Vergabeversuch, nicht je Kandidat. Sonst
+    summierte sich REST_FRIST über alle belegten UIDs, im Erschöpfungsfall auf
+    SANDBOX_UID_ANZAHL Sekunden, und der Worker schriebe so lange keinen
+    Heartbeat. Ist die Frist aufgebraucht, prüft die Vergabe die restlichen UIDs
+    nur noch, statt weiter zu killen: ein weiterer Kill-Versuch hielte die Frist
+    ohnehin nicht mehr ein, eine freie UID soll aber noch gefunden werden. So
+    wartet die Vergabe insgesamt höchstens REST_FRIST auf das Aufräumen, wie das
+    Aufräumen nach einem Lauf, und der Rest ist ein Blick in /proc je UID.
+    """
+    global _uid_zeiger
+    frist_ende = time.monotonic() + REST_FRIST
+    for _ in range(len(SANDBOX_BEREICH)):
+        uid = SANDBOX_BEREICH[_uid_zeiger]
+        _uid_zeiger = (_uid_zeiger + 1) % len(SANDBOX_BEREICH)
+        rest = frist_ende - time.monotonic()
+        belegt = _uids_leerraeumen({uid}, rest) if rest > 0 else _pids_mit_uid({uid})
+        if belegt:
+            continue
+        if any(e.lstat().st_uid == uid for e in SANDBOX_BASIS.iterdir()):
+            continue
+        return uid
+    # Kein Weiterlaufen mit einer belegten UID. Der Fall heißt, dass das
+    # Aufräumen SANDBOX_UID_ANZAHL mal hintereinander misslungen ist, und jeder
+    # dieser Fälle steht schon einzeln im Log.
+    raise RuntimeError(
+        f"Keine freie UID im Bereich {SANDBOX_BEREICH.start} bis "
+        f"{SANDBOX_BEREICH.stop - 1}. Alle sind noch von Prozessen oder "
+        f"Verzeichnissen früherer Läufe belegt."
+    )
+
+
+_uid_zeiger = 0
+
+
+def _reste_beenden():
+    """Beendet, was ein Lauf hinterlassen hat.
+
+    Startet die Einreichung selbst einen Prozess, kann der per setsid die
+    Prozessgruppe verlassen und überlebt dann den Kill auf die Gruppe. Er läuft
+    unter der UID der Sandbox weiter, verbraucht die CPU des Pods und belegt
+    Plätze im NPROC-Kontingent. Der Worker arbeitet die Queue nacheinander ab,
+    nach einem Lauf darf es also keine Prozesse mit diesen UIDs mehr geben.
+
+    Gesucht wird über den ganzen Bereich und nicht nur über die UID des eben
+    beendeten Laufs. Ein Prozess aus einem früheren Lauf, der eine Runde
+    überstanden hat, wäre sonst bis zum Umlauf des Zeigers unsichtbar.
+    """
+    if SANDBOX_BEREICH is None:
+        return
+
+    offen = _uids_leerraeumen(SANDBOX_BEREICH, REST_FRIST)
+    if offen:
+        print(f"Prozesse der Sandbox blieben stehen: {offen}")
 
 
 def _urteil_nach_signal(signalnummer, zeit, rusage):
@@ -437,6 +547,15 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
     deskriptoren = []
     eingabe_pfad = None
     try:
+        # Vor dem mkdtemp: Findet die Vergabe keine freie UID, soll kein
+        # Verzeichnis entstehen, das gleich wieder zu entfernen wäre.
+        uid = _uid_vergeben() if SANDBOX_BEREICH is not None else None
+        # Die Vergabe kann bis zu REST_FRIST auf das Aufräumen einer
+        # wiederverwendeten UID warten. Dieser Schritt schließt sie ab, damit die
+        # Wartezeit nicht in die Heartbeat-Lücke des folgenden Laufs fällt. Nur so
+        # bleibt die Rechnung für die Untergrenze von heartbeatFrist im
+        # values.schema.json gültig, die den Lauf ohne diese Wartezeit ansetzt.
+        _heartbeat()
         verzeichnis = tempfile.mkdtemp(prefix="work-", dir=SANDBOX_BASIS)
         pfad = pathlib.Path(verzeichnis)
         (pfad / "loesung.py").write_text(code, encoding="utf-8")
@@ -478,9 +597,11 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             geschrieben += os.write(eingabe_fd, eingabe_bytes[geschrieben:])
         os.lseek(eingabe_fd, 0, os.SEEK_SET)
 
-        if SANDBOX_UID is not None:
+        if uid is not None:
             # Nur die Lösung und das working directory wechseln den Besitzer, die
-            # Ebene darüber bleibt beim Worker.
+            # Ebene darüber bleibt beim Worker. Die UID dient auch als GID, eine
+            # gemeinsame Gruppe gäbe zwei Läufen sonst wieder einen Weg
+            # zueinander.
             #
             # Die loesung.py zuerst, solange das Verzeichnis noch dem Worker
             # gehört und mode 0700 trägt. Erst danach das Verzeichnis. Sonst
@@ -489,9 +610,10 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             # zum zweiten chown durch einen Sym- oder Hardlink auf eine fremde
             # Datei wie /etc/passwd ersetzen. Der Worker chownte sie dann als
             # root an die Sandbox. follow_symlinks=False sichert zusätzlich gegen
-            # einen Symlink. Siehe #185.
+            # einen Symlink. Siehe #185. Die eigene UID je Lauf nimmt diesem
+            # Rennen die Grundlage, die Reihenfolge bleibt trotzdem.
             for ziel in (pfad / "loesung.py", pfad):
-                os.chown(ziel, SANDBOX_UID, -1, follow_symlinks=False)
+                os.chown(ziel, uid, uid, follow_symlinks=False)
             pfad.chmod(0o700)
 
         start = time.monotonic()
@@ -501,23 +623,35 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             stdin=eingabe_fd,
             stdout=aus_fd,
             stderr=fehler_fd,
-            # env ohne MONGO_URI und REDIS_URI: Der Parameter ersetzt die
-            # geerbte Umgebung des Workers, die Einreichung sieht nur die vier
+            # env ohne MONGO_URI und REDIS_URI. Der Parameter ersetzt die
+            # geerbte Umgebung des Workers, die Einreichung sieht nur die fünf
             # Variablen hier. Den Zugriff verhindert das nicht, der Subprozess
             # teilt das Netz des Workers, aber es gibt die Adressen nicht auch
             # noch her.
+            #
+            # TMPDIR zeigt auf das Arbeitsverzeichnis. Ohne die Variable liefert
+            # tempfile.gettempdir() das geteilte /tmp, und was eine Lösung dort
+            # liegen lässt, überdauert ihren Lauf. Eine Datei mit 0600, wie
+            # tempfile sie anlegt, wird für einen fremden Lauf erst wieder
+            # lesbar, wenn der Vorrat umläuft und dieselbe UID erneut an der
+            # Reihe ist. Wer absichtlich nach /tmp schreibt, umgeht die
+            # Variable, und unter der üblichen umask liegt die Datei dann mit
+            # 0644 sogar für jeden folgenden Lauf offen. Die Variable deckt den
+            # anderen Weg ab, den versehentlichen Rest einer Lösung, die am
+            # Zeitlimit stirbt und ihre temporären Dateien nicht mehr aufräumt.
             env={
                 "PATH": "/usr/local/bin:/usr/bin:/bin",
                 "HOME": verzeichnis,
+                "TMPDIR": verzeichnis,
                 "PYTHONDONTWRITEBYTECODE": "1",  # sonst legt jeder Import eigener Module __pycache__ an
                 "PYTHONUNBUFFERED": "1",  # sonst fehlt nach einem Kill die gepufferte Ausgabe
             },
             # group und extra_groups müssen mit. Der Parameter user setzt für
             # sich genommen nur die UID, die Gruppen würden dann die des
             # Workers, und über die Gruppe root wäre /app trotz 750 lesbar.
-            user=SANDBOX_UID,
-            group=SANDBOX_USER if SANDBOX_UID is not None else None,
-            extra_groups=[] if SANDBOX_UID is not None else None,
+            user=uid,
+            group=uid,
+            extra_groups=[] if uid is not None else None,
             # start_new_session startet die Einreichung in einer eigenen
             # Session und damit in einer eigenen Prozessgruppe. Das killpg
             # beim Zeitlimit trifft dann auch die Prozesse, die die

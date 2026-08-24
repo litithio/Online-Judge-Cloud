@@ -100,21 +100,23 @@ spec:
           image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           # Als root mit fast leerem Capability-Satz. Root muss sein, der
-          # Worker wechselt je Lauf per setuid auf den User sandbox,
+          # Worker wechselt je Lauf per setuid auf eine eigene UID,
           # runAsNonRoot stoppte ihn schon beim Start. Der Kommentar zu #55
           # nennt CHOWN, SETUID, SETGID und KILL, gemessen (docker run
           # --cap-drop ALL gegen run_code_in_sandbox) reichen die vier seit
           # dem chown und chmod 700 des Arbeitsverzeichnisses nicht mehr:
           # DAC_OVERRIDE braucht der Worker für jeden Blick in das
-          # Verzeichnis, sobald es sandbox gehört, samt dem rmtree danach,
-          # FOWNER für das chmod nach dem chown. Ohne die beiden endet jeder
-          # Lauf als Umgebungsfehler und das Arbeitsverzeichnis bleibt liegen.
+          # Verzeichnis, sobald es der Einreichung gehört, samt dem rmtree
+          # danach, FOWNER für das chmod nach dem chown. Ohne die beiden endet
+          # jeder Lauf als Umgebungsfehler und das Arbeitsverzeichnis bleibt
+          # liegen.
           securityContext:
             # allowPrivilegeEscalation false setzt NoNewPrivs. Die SUID-Binaries
             # im Image (su, mount) geben der Sandbox dann kein euid 0 mehr, auch
             # nicht über einen Eintrag in einer Datei, die der Worker sonst
-            # übergeben hätte. Der setuid-Wechsel des Workers auf sandbox ist
-            # davon nicht betroffen, er senkt Rechte statt sie zu heben. Siehe #185.
+            # übergeben hätte. Der setuid-Wechsel des Workers auf die UID des
+            # Laufs ist davon nicht betroffen, er senkt Rechte statt sie zu
+            # heben. Siehe #185.
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]

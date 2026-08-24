@@ -470,8 +470,8 @@ der unmittelbar nächste Lauf. `TMPDIR` zeigt auf das Arbeitsverzeichnis, damit
 `tempfile` nicht ohne Zutun der Lösung nach `/tmp` schreibt und dort ein Rest
 bleibt, wenn sie am Zeitlimit stirbt. Gegen absichtliches Schreiben nach `/tmp`
 hilft das nicht. Ein eigenes `/tmp` je Lauf über einen mount namespace schlösse
-die Lücke, gemessen ohne seccomp. Ob der mount unter gVisor durchgeht, ist offen,
-und ob der Umbau kommt, entscheidet #189.
+die Lücke, im Cluster unter gVisor gemessen. Ob der Umbau kommt, entscheidet
+#189.
 
 Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Menge
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe

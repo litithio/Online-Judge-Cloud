@@ -34,14 +34,19 @@ SANDBOX_SPEICHER_MB = 128
 # Workers statt eines Felds an der Aufgabe. Braucht eine Aufgabe später mehr
 # als 1 MiB Ausgabe, wird die Grenze hier nachgezogen, für alle Aufgaben.
 SANDBOX_AUSGABE_BYTES = 1024**2  # RLIMIT_FSIZE, begrenzt stdout und stderr
-# RLIMIT_NPROC gegen Fork-Bomben, Threads zählen mit. Wie viel die Zahl
-# zulässt, hängt an der Laufzeit, gemessen im Cluster gegen beide. Unter runc
-# zählt der Prozess der Einreichung selbst mit, mit 1 startet sie also gar
-# nichts mehr. Unter runsc zählt er nicht mit, dort bleibt ihr ein weiterer
-# Prozess. Der Judge läuft im Cluster unter runsc, im Compose unter runc. In
-# beiden Fällen ist die Fork-Bombe damit erledigt, und die Zahl deckelt
-# zugleich den Speicher, denn RLIMIT_AS gilt je Prozess.
-SANDBOX_PROZESSE = 1
+# RLIMIT_NPROC gegen Fork-Bomben, Threads zählen mit. Die Zahl meint die
+# Prozesse neben der Einreichung, ihr eigener ist nicht gemeint. 0 heißt
+# deshalb, dass sie läuft und nichts weiter starten kann.
+#
+# Der Wert 1 wäre je nach Laufzeit etwas anderes, gemessen im Cluster gegen
+# beide. Unter runc zählt der Kernel den Prozess der Einreichung mit und sie
+# bekommt keinen weiteren, unter runsc zählt er nicht mit und sie bekommt
+# einen. Mit 0 verhalten sich beide gleich. Der eine Prozess unter runsc
+# betrifft nicht nur die Beschreibung. RLIMIT_AS gilt je Prozess, zwei Prozesse
+# mal der für eine Aufgabe erlaubten 256 MiB liegen über dem Speicherlimit des
+# Worker-Containers, und dann trifft der OOM-Kill den Worker statt die
+# Einreichung.
+SANDBOX_PROZESSE = 0
 
 MELDUNG_MAX = 2000  # so viel Fehlerausgabe übernimmt das Feld result der Einreichung
 REST_FRIST = 1.0  # Sekunden, die das Aufräumen auf beendete Prozesse wartet
@@ -400,8 +405,11 @@ def _uids_leerraeumen(uids, frist_sekunden):
         # Auch das Einsammeln ist gedeckelt. Ein übersehener Prozess, der
         # fortlaufend neue Prozesse erzeugt und sterben lässt, würde die Schleife
         # sonst endlos mit Arbeit versorgen und der Worker würde nie zur Frist
-        # kommen.
-        for _ in range(SANDBOX_PROZESSE * 2):
+        # kommen. Gedeckelt wird über dieselbe Frist und nicht über eine eigene
+        # Zahl. Wie viel hier aufläuft, hängt am Verhalten des übersehenen
+        # Prozesses und nicht an SANDBOX_PROZESSE, und an SANDBOX_PROZESSE
+        # gekoppelt liefe die Schleife bei 0 gar nicht mehr.
+        while time.monotonic() <= frist:
             try:
                 if os.waitpid(-1, os.WNOHANG)[0] == 0:
                     break
@@ -431,9 +439,9 @@ def _uid_vergeben():
 
     Die verbleibende Grenze liegt bei der Frist. Eine Fork-Kette, die schneller
     neue Prozesse erzeugt, als _uids_leerraeumen sie beendet, übersteht sie, so
-    wie sie auch _reste_beenden übersteht. Seit #72 kommt sie kaum noch zustande,
-    denn RLIMIT_NPROC steht auf 1 und lässt der Einreichung unter runsc einen
-    einzigen weiteren Prozess, unter runc gar keinen.
+    wie sie auch _reste_beenden übersteht. Seit #72 kommt sie nicht mehr
+    zustande, denn RLIMIT_NPROC steht auf 0 und lässt der Einreichung unter
+    beiden Laufzeiten keinen weiteren Prozess.
 
     Die Frist gilt für den ganzen Vergabeversuch, nicht je Kandidat. Sonst
     summierte sich REST_FRIST über alle belegten UIDs, im Erschöpfungsfall auf
@@ -765,7 +773,7 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
                 return (
                     "RE",
                     "Start eines weiteren Prozesses oder Threads gescheitert."
-                    " Der Judge begrenzt die Zahl der Prozesse je Einreichung,"
+                    " Die Einreichung darf nur ihren eigenen Prozess verwenden,"
                     " Threads zählen mit. Auch zu wenig Speicher verhindert den"
                     f" Start. {letzte_zeile}",
                     dauer_ms,

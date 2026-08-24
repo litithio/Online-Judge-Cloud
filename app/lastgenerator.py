@@ -6,9 +6,12 @@ Läuft lokal aus dem Repo, nicht im Cluster: Die Screencast-Szene verlangt ein
 Live-Terminal, und die Wirkung der Last zeigt das Dashboard aus #11, nicht
 dieses Skript. Es zählt deshalb nur, was die API geantwortet hat.
 
-Aufruf, lokal gegen den Compose-Stand:
+Aufruf, lokal gegen den Compose-Stand. Der Wert ist der aus
+app/docker-compose.yml. Ohne ihn nimmt das Skript den des Clusters aus
+ansible/auth-credentials.yaml, und der Compose-Stand antwortet mit 401:
 
-    python3 lastgenerator.py --rate 5 --dauer 60
+    GATEWAY_SECRET=nur-lokal-ohne-gateway-kein-geheimnis \
+        python3 lastgenerator.py --rate 5 --dauer 60
 
 Gegen den Cluster läuft das Skript auf dem Server-Node, kubectl port-forward
 scheitert dort, weil das Backend nur auf :: bindet und der Forward im
@@ -17,14 +20,19 @@ Pod-Netns localhost nicht über IPv6 erreicht:
     tar czf - -C app lastgenerator.py aufgaben | ssh ubuntu@<server> \
         'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
     # Service-IP: kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
-    ssh ubuntu@<server> 'python3 /tmp/last/lastgenerator.py --rate 2 \
-        --dauer 60 --api "http://[<service-ip>]:8000"'
+    ssh ubuntu@<server> 'GATEWAY_SECRET=<wert> python3 /tmp/last/lastgenerator.py \
+        --rate 2 --dauer 60 --api "http://[<service-ip>]:8000"'
 
 Die Identität kommt als X-Auth-Request-Header mit, so wie das Gateway sie
 setzen würde. Der Weg über das Gateway selbst bräuchte eine Browser-Session
 des OIDC-Plugins, und die Last soll die Judge-Kette messen, nicht die
-Anmeldung. Der backend-Service nimmt die Header direkt an (app/backend/auth.py
-liest sie ungeprüft, erreichbar ist der Service nur im Cluster). Nur
+Anmeldung.
+
+Dazu kommt X-Gateway-Auth. Seit #79 lehnt die API einen Aufruf ohne diesen
+Header ab, auch aus dem Cluster heraus. Den Wert nimmt das Skript aus
+GATEWAY_SECRET, sonst aus ansible/auth-credentials.yaml. Auf dem Server-Node
+liegt die Datei nicht, deshalb steht sie im Aufruf oben als Variable. Gegen den
+Compose-Stand gilt der feste Wert aus app/docker-compose.yml. Nur
 Standardbibliothek, damit der Aufruf keine eigene Umgebung braucht.
 """
 
@@ -70,15 +78,36 @@ ERGEBNISSE = (
 )
 
 
+def _herkunftswert():
+    """Der Wert, mit dem das Gateway sich bei der API ausweist (#79).
+
+    Aus der Umgebung, sonst aus ansible/auth-credentials.yaml. Auf dem
+    Server-Node liegt die Datei nicht, dort setzt der Aufruf die Variable. Der
+    Import steht deshalb in der Funktion und nicht oben, sonst scheiterte ein
+    Lauf dort schon am fehlenden anmeldelast.py, das der tar-Aufruf im
+    Docstring nicht mitkopiert.
+    """
+    wert = os.getenv("GATEWAY_SECRET")
+    if wert:
+        return wert
+
+    from anmeldelast import ZUGANG, lies_wert
+
+    return lies_wert(ZUGANG, "gateway_secret")
+
+
 def _kopfzeilen(nutzer):
-    """Die Identitäts-Header, wie das Gateway sie setzen würde.
+    """Die Header, wie das Gateway sie setzen würde.
 
     Dieselben Namen wie im Headers-Block der Middleware
-    (ansible/tasks/traefik-auth.yaml), gelesen von app/backend/auth.py.
+    (ansible/tasks/traefik-auth.yaml), gelesen von app/backend/auth.py. Ohne
+    X-Gateway-Auth antwortet die API auf jede Route mit 401, denn ein direkter
+    Aufruf des Service umgeht das Gateway.
     """
     return {
         "X-Auth-Request-User": nutzer,
         "X-Auth-Request-Preferred-Username": nutzer,
+        "X-Gateway-Auth": _herkunftswert(),
     }
 
 

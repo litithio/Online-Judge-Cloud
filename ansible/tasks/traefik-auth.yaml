@@ -50,6 +50,12 @@
             # gefüllt, die App liest genau sie (app/backend/auth.py) und prüft
             # selbst keine Tokens. Die Go-Templates des Plugins stehen in
             # raw-Blöcken, damit Ansibles Jinja sie nicht selbst auswertet.
+            #
+            # X-Gateway-Auth trägt keinen Claim, sondern den festen Wert aus
+            # auth-credentials.yaml, und steht deshalb ohne raw-Block. Die API
+            # erkennt daran, dass die Anfrage durch das Gateway kam (#79). Das
+            # Plugin setzt jeden Header dieser Liste, ein gleichnamiger aus der
+            # eingehenden Anfrage wird dabei überschrieben.
             Headers:
               - Name: X-Auth-Request-User
                 Value: "{% raw %}{{ .claims.sub }}{% endraw %}"
@@ -57,6 +63,8 @@
                 Value: "{% raw %}{{ .claims.email }}{% endraw %}"
               - Name: X-Auth-Request-Preferred-Username
                 Value: "{% raw %}{{ .claims.preferred_username }}{% endraw %}"
+              - Name: X-Gateway-Auth
+                Value: "{{ gateway_secret }}"
   no_log: true
 
 # App-Ingress: Host app_host, geschützt durch die Middleware. Verweist auf den

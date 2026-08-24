@@ -413,6 +413,18 @@ dann auf RUNNING stehen, der Durchlauf holt sie zurück und verbraucht einen
 ihrer drei Versuche.
 
 
+### Herkunftsprüfung an der API
+
+Die API liest die Identität aus den Gateway-Headern und prüft kein Token. Wer
+den `backend`-Service im Cluster direkt erreicht, konnte diese Header selbst
+setzen und unter jedem Namen einreichen. Das Gateway setzt deshalb zusätzlich
+`X-Gateway-Auth` mit einem festen Wert, den die API vergleicht. Die Alternative
+war, das Access-Token weiterzureichen und in der API gegen die JWKS von Keycloak
+zu prüfen. Das trägt weiter, W6 verlangt die Token-Prüfung aber am Gateway und
+nicht in der Anwendung. Der feste Wert läuft nie ab und steht im Secret wie im
+Middleware-Objekt, wer eines davon lesen darf, kommt an der Prüfung vorbei.
+
+
 ## Grenzen
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je Lauf
@@ -427,22 +439,21 @@ ihn gar nicht erst starten, wenn die Trennung nicht zustande kommt, statt sie
 still wegfallen zu lassen. Wo sie ausfiele, bliebe nur eine NetworkPolicy als
 Begrenzung.
 
-Die Speichergrenze gilt für jeden Prozess einzeln. `RLIMIT_NPROC` steht auf 1
-und begrenzt damit, wie viele Prozesse eine Einreichung dazubekommt. Threads
-zählen mit. Wie viele es genau sind, hängt an der Laufzeit. Unter runsc im
-Cluster bleibt der Einreichung ein weiterer Prozess, unter runc im Compose
-keiner, denn dort zählt ihr eigener Prozess mit. Im Cluster belegen die beiden
-Prozesse zusammen also bis zum Doppelten der Grenze, mit der Vorgabe von 128
-MiB sind das 256 MiB und damit weniger als die 320Mi des Worker-Containers.
-Eine Aufgabe darf über `memory_limit_mb` bis zu 256 MiB fordern, dann sind es
-512 MiB, und das Speicherlimit des Containers (`resources.limits.memory`) fängt
-die Summe ab, indem der OOM-Killer den Pod trifft. Wer die Grenze reißt, bekommt
-RE mit einer eigenen Meldung. Ein Prozess, der einen Lauf übersteht, belegt das
-Kontingent des nächsten nicht, denn der Kernel führt es je UID und jeder Lauf
-bekommt eine eigene. Der Worker räumt die UID vor der Vergabe trotzdem leer und
-weicht auf die nächste aus, solange dort noch etwas läuft. Erst wenn keine UID
-mehr frei ist, wertet er das als Fehler der Umgebung. Die Einreichung bleibt
-dann auf RUNNING stehen und kostet einen Versuch.
+`RLIMIT_NPROC` steht auf 0 und begrenzt die Prozesse neben der Einreichung,
+ihr eigener ist nicht gemeint. Sie startet also weder einen zweiten Prozess
+noch einen zweiten Thread, Threads zählen mit, und beide Laufzeiten verhalten
+sich gleich. Eine Lösung mit einem Thread oder einem Hilfsprozess nimmt der
+Judge damit nicht mehr an, sie bekommt RE mit einer eigenen Meldung. Mit 1
+statt 0 liefe sie durch, dafür bekäme die Einreichung unter runsc einen
+zweiten Prozess. Die Speichergrenze gilt je Prozess, und zweimal die für eine
+Aufgabe erlaubten 256 MiB liegen über den 320Mi des Worker-Containers.
+Gemessen trifft der OOM-Kill dann den Pod und nicht die Einreichung. Ein
+Prozess, der einen Lauf übersteht, belegt das Kontingent des nächsten nicht,
+denn der Kernel führt es je UID und jeder Lauf bekommt eine eigene. Der Worker
+räumt die UID vor der Vergabe trotzdem leer und weicht auf die nächste aus,
+solange dort noch etwas läuft. Erst wenn keine UID mehr frei ist, wertet er
+das als Fehler der Umgebung. Die Einreichung bleibt dann auf RUNNING stehen
+und kostet einen Versuch.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
 Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und das

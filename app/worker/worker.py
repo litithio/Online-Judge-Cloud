@@ -245,11 +245,18 @@ def _sandbox_bereich():
 SANDBOX_BEREICH = _sandbox_bereich()
 
 # Basisverzeichnis, unter dem der Worker für jeden Lauf ein eigenes working
-# directory anlegt. Es gehört dem Worker und die Läufe liegen so nicht direkt
-# in /tmp: Dort darf jeder schreiben, die Einreichung könnte ihr eigenes
-# Verzeichnis also umbenennen, und das Aufräumen danach würde nur noch den
-# alten Pfad finden und alles liegen lassen.
-SANDBOX_BASIS = pathlib.Path(tempfile.gettempdir()) / "judge"
+# directory anlegt. Es liegt bewusst außerhalb von /tmp (#189). Der Lauf bekommt
+# sein eigenes /tmp als tmpfs, siehe TMP_BLOCK, und ein tmpfs verdeckt alles
+# darunter. Läge das Arbeitsverzeichnis weiter unter /tmp, wäre es nach dem
+# mount nicht mehr über seinen Pfad erreichbar und der Lauf bräche mit
+# "can't open file" ab, weil CPython den Dateinamen beim execv gegen getcwd
+# auflöst.
+#
+# /work ist ein eigenes emptyDir mit eigenem Deckel, siehe judge.workSizeLimit
+# im Chart. Der Worker verwaltet dieses Verzeichnis und räumt es nach jedem
+# Lauf, das /tmp des Laufs gehört dagegen der Einreichung und verschwindet mit
+# ihr. Beides lag vorher im selben emptyDir.
+SANDBOX_BASIS = pathlib.Path(os.getenv("SANDBOX_BASIS", "/work/judge"))
 # Geleert und nicht nur angelegt. Stirbt der Worker zwischen dem Popen und dem
 # rmtree, etwa durch den SIGKILL beim Scaledown oder durch den OOM-Killer,
 # bleibt das Arbeitsverzeichnis des laufenden Laufs liegen. Ohne das Leeren
@@ -257,7 +264,9 @@ SANDBOX_BASIS = pathlib.Path(tempfile.gettempdir()) / "judge"
 # träfe es wieder auf seine eigene UID (#87).
 if SANDBOX_BASIS.exists():
     shutil.rmtree(SANDBOX_BASIS)
-SANDBOX_BASIS.mkdir(mode=0o755)
+# parents, damit auch /work entsteht. Im Cluster legt der Volume-Mount es an,
+# lokal und im Compose gibt es das Verzeichnis nicht.
+SANDBOX_BASIS.mkdir(mode=0o755, parents=True)
 
 
 # Kappt dem eingereichten Code das Netz, so wie es zuvor der eigene
@@ -274,13 +283,77 @@ SANDBOX_BASIS.mkdir(mode=0o755)
 #
 # Ein gesetztes seccomp-Profil wie das Standardprofil von Docker blockiert
 # CLONE_NEWUSER; containerd im Cluster setzt keins, dort greift die Trennung.
+# CLONE_NEWNS kommt für das eigene /tmp aus #189 dazu. Im User-Namespace hat der
+# Prozess die Rechte, den Mount-Namespace anzulegen, und braucht dafür kein
+# CAP_SYS_ADMIN am Pod.
 NETZ_BLOCK = (
     "u, g = os.getuid(), os.getgid()\n"
-    "os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNET)\n"
+    "os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNET | os.CLONE_NEWNS)\n"
     "open('/proc/self/setgroups', 'w').write('deny')\n"
     "open('/proc/self/uid_map', 'w').write(f'{u} {u} 1')\n"
     "open('/proc/self/gid_map', 'w').write(f'{g} {g} 1')\n"
 )
+
+# Größe des eigenen /tmp je Lauf. Ein tmpfs liegt im Speicher und zählt gegen
+# das Memory-Limit des Worker-Containers, deshalb klein. Die Einreichung braucht
+# es nicht, TMPDIR zeigt auf ihr Arbeitsverzeichnis und dort gilt der Deckel des
+# emptyDir. Wer /tmp trotzdem fest verdrahtet, findet hier Platz für die
+# Zwischendateien, die eine Lösung üblicherweise anlegt.
+SANDBOX_TMP_MB = 16
+
+# Zahl der Dateien im eigenen /tmp. Das sizeLimit des emptyDir greift für ein
+# tmpfs im Namespace nicht, und ohne diese Grenze könnte eine Einreichung
+# Speicher über viele leere Dateien belegen, ohne die Größe zu reißen.
+SANDBOX_TMP_INODES = 4096
+
+# Marke, mit der der Starter den gelungenen Aufbau meldet. Sie geht über einen
+# eigenen Deskriptor an den Worker, nicht über den Exit-Code. Ein Exit-Code
+# allein trüge nicht, denn die Einreichung könnte ihn selbst erzeugen und sich
+# damit als Fehler der Umgebung ausgeben, was sie der Bewertung entzöge und
+# jedes Mal einen erneuten Versuch kostete. Den Deskriptor schließt der Starter
+# vor dem execv, die Einreichung findet ihn also gar nicht mehr vor.
+SANDBOX_AUFBAU_OK = b"ok"
+SANDBOX_AUFBAU_MARKE = "SANDBOX-AUFBAU"
+
+
+# Hängt der Einreichung ein eigenes, leeres /tmp unter. Ohne das überdauert eine
+# Datei, die sie dort zurücklässt, ihren Lauf, und ein späterer Lauf liest sie,
+# je nach Modus schon der nächste oder erst nach dem Umlauf des UID-Vorrats
+# (#189). Läuft nach NETZ_BLOCK, der Mount-Namespace kommt von dort.
+#
+# Erst / rekursiv privat. Solange die Propagation shared ist, scheitert der
+# mount, und eine Änderung wanderte nach außen. Danach das tmpfs mit nosuid und
+# nodev, mode 1777 wie ein gewöhnliches /tmp.
+#
+# Jeder Schritt bricht den Lauf ab, wenn er scheitert. Weiterzulaufen ohne
+# eigenes /tmp wäre ein Fail-open und stellte genau die Lücke wieder her, die
+# der Block schließt.
+def _tmp_block(melde_fd):
+    """Erzeugt den Teil des Starters, der das eigene /tmp aufsetzt.
+
+    melde_fd ist das Schreibende einer Pipe zum Worker. Gelingt der Aufbau,
+    schreibt der Starter die Marke hinein und schließt den Deskriptor, bevor er
+    die Einreichung startet. Der Worker unterscheidet daran einen Fehler der
+    Umgebung von einem Absturz der Einreichung, und die Einreichung kann das
+    nicht nachstellen, weil der Deskriptor bei ihrem Start schon zu ist.
+    """
+    return (
+        "import ctypes\n"
+        "libc = ctypes.CDLL('libc.so.6', use_errno=True)\n"
+        "MS_REC, MS_PRIVATE, MS_NOSUID, MS_NODEV = 0x4000, 0x40000, 2, 4\n"
+        "if libc.mount(b'none', b'/', None, MS_REC | MS_PRIVATE, None) != 0:\n"
+        f"    os.write(2, ('{SANDBOX_AUFBAU_MARKE} / nicht privat, errno '"
+        " + str(ctypes.get_errno())).encode())\n"
+        "    os._exit(1)\n"
+        f"daten = b'size={SANDBOX_TMP_MB}m,nr_inodes={SANDBOX_TMP_INODES},mode=1777'\n"
+        "if libc.mount(b'tmpfs', b'/tmp', b'tmpfs', MS_NOSUID | MS_NODEV, daten) != 0:\n"
+        f"    os.write(2, ('{SANDBOX_AUFBAU_MARKE} tmpfs nicht gemountet, errno '"
+        " + str(ctypes.get_errno())).encode())\n"
+        "    os._exit(1)\n"
+        f"os.write({melde_fd}, {SANDBOX_AUFBAU_OK!r})\n"
+        f"os.close({melde_fd})\n"
+    )
+
 
 # Im Cluster gehört SANDBOX_NETZ_ERZWINGEN=1 ins Deployment. Dort funktioniert
 # die Trennung, und sie soll nicht unbemerkt wegfallen, wenn jemand später ein
@@ -288,16 +361,24 @@ NETZ_BLOCK = (
 NETZ_ERZWINGEN = os.getenv("SANDBOX_NETZ_ERZWINGEN", "0") != "0"
 
 
-def _netz_trennung_moeglich():
-    """Prüft einmal beim Start, ob es möglich ist, der Sandbox ein leeres Netz zu geben."""
+def _namespace_trennung_moeglich():
+    """Prüft einmal beim Start, ob die Sandbox ihre Namespaces bekommt.
+
+    Geprüft wird beides zusammen, das leere Netz und das eigene /tmp, denn beide
+    hängen am selben User-Namespace. Der Lauf setzt sie später ebenfalls in einem
+    Zug, ein getrenntes Ergebnis brächte hier nichts.
+    """
     if SANDBOX_BEREICH is None:
         return False
     # Die erste UID des Bereichs und nicht eine aus _uid_vergeben: Die Probe
     # läuft beim Start, dort ist noch keine UID belegt, und der Zeiger soll bei
     # der ersten Einreichung am Anfang stehen.
     uid = SANDBOX_BEREICH[0]
+    # Die Probe braucht keinen Melde-Deskriptor, sie wertet nur den Exit-Code
+    # aus. Der Platzhalter zeigt auf stderr, dorthin darf jeder Prozess
+    # schreiben, und die zwei Bytes stören die Ausgabe der Probe nicht.
     fertig = subprocess.run(
-        [sys.executable, "-c", "import os\n" + NETZ_BLOCK],
+        [sys.executable, "-c", "import os, sys\n" + NETZ_BLOCK + _tmp_block(2)],
         capture_output=True,
         user=uid,
         group=uid,
@@ -306,7 +387,7 @@ def _netz_trennung_moeglich():
     return fertig.returncode == 0
 
 
-NETZ_TRENNUNG = _netz_trennung_moeglich()
+NETZ_TRENNUNG = _namespace_trennung_moeglich()
 if NETZ_ERZWINGEN and not NETZ_TRENNUNG:
     raise SystemExit(
         "SANDBOX_NETZ_ERZWINGEN ist gesetzt, aber der eingereichte Code bekommt "
@@ -326,17 +407,18 @@ if NETZ_ERZWINGEN and not NETZ_TRENNUNG:
 # Code höchstens das CPU-Soft-Limit, um die eine Sekunde bis zum Hard-Limit,
 # alle anderen Grenzen liegen fest. Gebaut wird er je Lauf neu, weil Zeit und
 # Speicher von der Aufgabe kommen, nicht einmal beim Start des Workers.
-def _starter(zeit, speicher_bytes):
+def _starter(zeit, speicher_bytes, melde_fd):
     # RLIMIT_CPU zählt nur Sekunden, in denen der Prozess rechnet. Das ist die
     # eigentliche Grenze der Aufgabe; ZEITFRIST_PUFFER oben legt zusätzlich
     # eine Wall-Clock-Frist über den Lauf, die auch wartende Prozesse fängt,
     # die RLIMIT_CPU nicht sieht.
     #
-    # Das Netz zuerst, danach die Grenzen: Der Namespace braucht selbst Speicher,
-    # und ein enges RLIMIT_AS würde ihn scheitern lassen.
+    # Namespaces und mount zuerst, danach die Grenzen. Der Namespace braucht
+    # selbst Speicher, und ein enges RLIMIT_AS würde ihn scheitern lassen.
+    # TMP_BLOCK hängt an NETZ_BLOCK, denn der Mount-Namespace entsteht dort.
     return (
         "import os, resource, sys\n"
-        + (NETZ_BLOCK if NETZ_TRENNUNG else "")
+        + (NETZ_BLOCK + _tmp_block(melde_fd) if NETZ_TRENNUNG else "")
         + f"resource.setrlimit(resource.RLIMIT_CPU, ({zeit}, {zeit + 1}))\n"
         + f"resource.setrlimit(resource.RLIMIT_AS, ({speicher_bytes},"
         + f" {speicher_bytes}))\n"
@@ -659,9 +741,20 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
                 os.chown(ziel, uid, uid, follow_symlinks=False)
             pfad.chmod(0o700)
 
+        # Pipe, über die der Starter den gelungenen Aufbau meldet. Das Leseende
+        # bleibt beim Worker, das Schreibende erbt das Kind und schließt es vor
+        # dem execv wieder. Siehe _tmp_block.
+        melde_lesen, melde_schreiben = os.pipe()
+        # Beide Enden in die Aufräumliste. Wirft das Popen unten, etwa weil dem
+        # Worker die Prozesse ausgehen, bliebe das Schreibende sonst offen und
+        # ginge Lauf für Lauf verloren, bis kein Deskriptor mehr frei ist.
+        deskriptoren.extend((melde_lesen, melde_schreiben))
+        os.set_inheritable(melde_schreiben, True)
+
         start = time.monotonic()
         prozess = subprocess.Popen(
-            [sys.executable, "-c", _starter(zeit, speicher)],
+            [sys.executable, "-c", _starter(zeit, speicher, melde_schreiben)],
+            pass_fds=(melde_schreiben,),
             cwd=verzeichnis,
             stdin=eingabe_fd,
             stdout=aus_fd,
@@ -701,6 +794,11 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
             # Einreichung selbst gestartet hat.
             start_new_session=True,
         )
+        # Im Worker schließen, sonst bliebe die Pipe offen und das Lesen unten
+        # wartete auf ein Dateiende, das nie käme. Aus der Aufräumliste nehmen,
+        # damit das finally den Deskriptor nicht ein zweites Mal schließt.
+        deskriptoren.remove(melde_schreiben)
+        os.close(melde_schreiben)
 
         # Eigenes wait4 statt communicate/wait: nur wait4 liefert ru_maxrss,
         # den Spitzenspeicher des Kindes, auch für einen Lauf, der per SIGKILL
@@ -750,6 +848,16 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
                 return "OLE", f"mehr als {grenze} KiB ausgegeben", dauer_ms, speicher_kb
 
         ausgabe = _gelesen(aus_fd, SANDBOX_AUSGABE_BYTES)
+        # Fehlt die Marke, ist der Starter vor dem execv gescheitert und die
+        # Einreichung nie gelaufen. Das liegt an der Umgebung und darf deshalb
+        # kein RE werden. Ohne Namespaces gibt es keinen _tmp_block und damit
+        # auch keine Marke, dann entfällt die Prüfung.
+        if NETZ_TRENNUNG and os.read(melde_lesen, len(SANDBOX_AUFBAU_OK)) != (
+            SANDBOX_AUFBAU_OK
+        ):
+            meldung = _gelesen(fehler_fd, MELDUNG_MAX).strip()
+            raise Umgebungsfehler(meldung or SANDBOX_AUFBAU_MARKE)
+
         if prozess.returncode != 0:
             # Gekürzt, weil die Meldung als Urteil in der Datenbank landet und
             # dort neben jeder Einreichung steht. Ein Traceback passt hinein.

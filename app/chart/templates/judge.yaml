@@ -66,17 +66,23 @@ spec:
       # /var/run/secrets und könnte den Token lesen, der Worker selbst ruft die
       # Kubernetes-API nie.
       automountServiceAccountToken: false
-      # Stellt in dem emptyDir unten die /tmp-Rechte des Images her. kubelet
-      # legt ein emptyDir mit 0777 ohne Sticky-Bit an, und ohne das Bit darf
-      # die Einreichung fremde Einträge in /tmp umbenennen, auch /tmp/judge.
-      # Jeder weitere Lauf scheiterte dann am fehlenden Pfad. Mit 1777 löscht
-      # und verschiebt dort nur noch der Eigentümer, wie in /tmp üblich.
+      # Setzt die Rechte der beiden emptyDir unten. kubelet legt sie mit 0777
+      # ohne Sticky-Bit an, und ohne weiteres Zutun dürfte dort jeder fremde
+      # Einträge umbenennen. Für /work heißt das, die Einreichung könnte
+      # /work/judge verschieben und jeder weitere Lauf scheiterte am fehlenden
+      # Pfad. /tmp bekommt 1777 wie im Image, dort löscht und verschiebt dann
+      # nur noch der Eigentümer.
       initContainers:
-        - name: tmp-sticky
+        - name: verzeichnisse
           # Dasselbe Image wie der Worker, es liegt ohnehin auf dem Node.
           image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
-          command: ["chmod", "1777", "/tmp"]
+          # /tmp bekommt 1777 wie im Image, /work dagegen 0755. Die
+          # Arbeitsverzeichnisse unter /work gehören dem Worker, und die
+          # Einreichung hat dort nichts anzulegen. Ohne das chmod stünde auch
+          # /work auf den 0777 des emptyDir, und sie könnte /work/judge
+          # umbenennen, womit jeder weitere Lauf am fehlenden Pfad scheiterte.
+          command: ["sh", "-c", "chmod 1777 /tmp && chmod 755 /work"]
           securityContext:
             capabilities:
               drop: ["ALL"]
@@ -95,6 +101,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: work
+              mountPath: /work
       containers:
         - name: worker
           image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
@@ -162,6 +170,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: work
+              mountPath: /work
       volumes:
         # /tmp mit Deckel. Eine Einreichung darf dort schreiben, je Datei auf
         # 1 MiB begrenzt (RLIMIT_FSIZE), in der Zahl der Dateien aber nicht.
@@ -171,6 +181,14 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ $.Values.judge.tmpSizeLimit }}
+        # /work trägt die Arbeitsverzeichnisse der Läufe, früher lagen sie unter
+        # /tmp (#189). Sie mussten dort heraus, weil jeder Lauf sein eigenes /tmp
+        # als tmpfs bekommt und ein tmpfs alles darunter verdeckt. Eigenes
+        # Volume mit eigenem Deckel, denn die Einreichung schreibt in ihr
+        # Arbeitsverzeichnis, und der Worker räumt es nach dem Lauf.
+        - name: work
+          emptyDir:
+            sizeLimit: {{ $.Values.judge.workSizeLimit }}
 ---
 # minReplicaCount steht auf 0, weil die Last stoßweise ist und zwischen
 # Prüfungsterminen nahe null. Ohne Einreichungen soll kein Worker-Pod stehen

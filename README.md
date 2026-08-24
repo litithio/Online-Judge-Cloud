@@ -432,7 +432,7 @@ davon lesen darf, kommt an der Prüfung vorbei.
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je Lauf
 eigenen UID und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
-Prozesszahl. Fünf Lücken bleiben.
+Prozesszahl. Vier Lücken bleiben.
 
 Im Cluster bekommt der eingereichte Code über einen User-Namespace ein eigenes,
 leeres Netz. Das setzt voraus, dass die Laufzeit den Aufruf `unshare` mit
@@ -459,33 +459,23 @@ das als Fehler der Umgebung. Die Einreichung bleibt dann auf RUNNING stehen
 und kostet einen Versuch.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
-Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und
-das Aufräumen danach kennt nur ihr eigenes Verzeichnis. In unserer lokalen
-Umgebung waren so 5,4 GB aus einer einzelnen Einreichung erreichbar. Im
-Cluster deckelt das `sizeLimit` des emptyDir diese Menge für `/tmp` auf 64Mi,
-kubelet räumt den Pod bei Überschreitung ab und der Ersatz startet leer, siehe
-Entscheidungen. Drei Reste bleiben. kubelet erhebt die Belegung der Volumes
-nur etwa im Minutenabstand (`volumeStatsAggPeriod`), bis dahin passt deutlich
-mehr auf den Datenträger, mit der Eviction verschwindet es wieder. Der Scan
-zählt zudem nur, was im Verzeichnis steht. Eine Datei, die eine Einreichung
-löscht und offen behält, belegt weiter Platz am Limit vorbei. Frei wird er
-erst, wenn der haltende Prozess endet, normalerweise also mit dem Aufräumen
-nach dem Lauf, nur ein Prozess, der das Aufräumen übersteht, hält ihn länger. Und `/var/tmp`
-liegt außerhalb des emptyDir im Container-Layer, ist genauso weltbeschreibbar,
-und was dort landet, zählt der Deckel nicht.
-
-Was eine Einreichung in `/tmp` zurücklässt, trennt die eigene UID nur zum Teil.
-Die Datei gehört der UID ihres Laufs, und ob ein späterer Lauf sie liest,
-entscheidet ihr Modus. Eine Datei mit 0600, wie `tempfile` sie anlegt, bleibt dem
-nächsten Lauf verschlossen und wird erst wieder lesbar, wenn der Vorrat aus 100
-UIDs umläuft und dieselbe UID erneut an der Reihe ist. Wer mit `open` schreibt,
-bekommt unter der üblichen umask 022 den Modus 0644, und diese Datei liest schon
-der unmittelbar nächste Lauf. `TMPDIR` zeigt auf das Arbeitsverzeichnis, damit
-`tempfile` nicht ohne Zutun der Lösung nach `/tmp` schreibt und dort ein Rest
-bleibt, wenn sie am Zeitlimit stirbt. Gegen absichtliches Schreiben nach `/tmp`
-hilft das nicht. Ein eigenes `/tmp` je Lauf über einen mount namespace schlösse
-die Lücke, im Cluster unter gVisor gemessen. Ob der Umbau kommt, entscheidet
-#189.
+Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und das
+Aufräumen danach kennt nur ihr eigenes Verzeichnis. In unserer lokalen Umgebung
+waren so 5,4 GB aus einer einzelnen Einreichung erreichbar. Zwei Deckel fangen
+das im Cluster. Ihr Arbeitsverzeichnis liegt unter `/work`, dort greift das
+`sizeLimit` des emptyDir mit 64Mi, kubelet räumt den Pod bei Überschreitung ab
+und der Ersatz startet leer, siehe Entscheidungen. Ihr `/tmp` ist ein eigenes
+tmpfs je Lauf mit 16 MiB und 4096 Dateien, und es verschwindet mit dem letzten
+Prozess, der seinen Namespace hält. Vier Reste bleiben. Übersteht ein Prozess
+das Aufräumen nach dem Lauf, hält er den Namespace und damit das tmpfs, dessen
+Speicher bleibt dann belegt, bis er endet. kubelet erhebt die Belegung der
+Volumes nur etwa im Minutenabstand (`volumeStatsAggPeriod`), bis dahin passt
+deutlich mehr auf den Datenträger, mit der Eviction verschwindet es wieder. Der
+Scan zählt zudem nur, was im Verzeichnis steht. Eine Datei, die eine Einreichung
+löscht und offen behält, belegt weiter Platz am Limit vorbei, und frei wird er
+erst, wenn der haltende Prozess endet. Und `/var/tmp` liegt außerhalb beider
+Volumes im Container-Layer, ist genauso weltbeschreibbar, und was dort landet,
+zählt kein Deckel.
 
 Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Menge
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe

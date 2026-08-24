@@ -58,7 +58,7 @@ flowchart TB
     api ==>|"legt Einreichung an,<br/>liest Ergebnis"| mongo
     keda -.->|"liest die Länge"| valkey
     keda -.->|"setzt die Replicas"| judge
-    durchlauf -.->|"findet abgelaufene Übernahmen"| mongo
+    durchlauf -.->|"findet abgelaufene Übernahmen und<br/>PENDING ohne neuen Queue-Eintrag"| mongo
     durchlauf -.->|"reiht sie erneut ein"| valkey
 
     tf -.->|"provisioniert VMs und Keypair"| openstack

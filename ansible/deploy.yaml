@@ -169,14 +169,16 @@
 # Judge-Kette. MongoDB, Valkey und der Seed sind Infrastruktur und kommen aus
 # den Plays davor, ebenso die KEDA-CRD, die das ScaledObject braucht. Läuft auf dem Server (dort liegt die kubeconfig)
 # und vor der Auth-Kette, damit der backend-Service steht, wenn die geschützte
-# Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml, Secrets
-# braucht die App keine.
+# Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml. Aus
+# auth-credentials.yaml kommt der Herkunftswert des Gateways, den das Play als
+# Secret anlegt und die API beim Start liest (#79).
 - name: Anwendung ausrollen
   hosts: judge_k3s_server
   tags: [app]
   become: true
   vars_files:
     - vars/app.yaml
+    - auth-credentials.yaml
   tasks:
     - name: Anwendung
       ansible.builtin.import_tasks: tasks/app.yaml

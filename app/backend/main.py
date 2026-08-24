@@ -9,7 +9,7 @@ from pymongo.errors import PyMongoError
 from bson import ObjectId
 import redis
 
-from auth import get_current_user
+from auth import get_current_user, herkunft_pruefen
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 
@@ -82,6 +82,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Die Herkunftsprüfung aus #79 hängt als Middleware am ganzen Prozess und
+# nicht als Depends an den Routen. FastAPI bedient /openapi.json, /docs und
+# /redoc selbst, und die kennen keine Abhängigkeit. Ohne die Middleware
+# beantwortet der Pod sie jedem im Cluster, gemessen mit 200 aus einem Pod im
+# Namespace. Die beiden Probes nimmt auth.OFFENE_PFADE aus.
+app.middleware("http")(herkunft_pruefen)
+
 # Bauplan der Plattform: alle Sprachen, die einmal einen Worker bekommen
 # sollen (#107). /submit prüft nicht gegen diese Liste, denn eine Einreichung
 # in einer Sprache ohne Worker landete in einer Queue, die niemand bedient,
@@ -103,9 +110,10 @@ def parse_json(data):
 
 
 # Die beiden Endpunkte für die Probes tragen bewusst kein
-# Depends(get_current_user). Das kubelet ruft den Pod direkt auf, an der
-# Auth-Kette vorbei, und schickt deshalb keine Gateway-Header. Eine geschützte
-# Probe schlüge dauerhaft fehl.
+# Depends(get_current_user) und stehen in auth.OFFENE_PFADE. Das kubelet ruft
+# den Pod direkt auf, an der Auth-Kette vorbei, und schickt weder die
+# Identitäts-Header noch den Wert aus #79. Eine geschützte Probe schlüge
+# dauerhaft fehl.
 @app.get("/healthz")
 async def healthz():
     """Läuft der Prozess noch? Hängt an keinem anderen Dienst.
@@ -132,9 +140,15 @@ def readyz():
     try:
         health_client.admin.command("ping")
     except PyMongoError as fehler:
-        raise HTTPException(
-            status_code=503, detail=f"MongoDB nicht erreichbar: {fehler}"
+        # Der Grund geht ins Log und nicht in die Antwort. Die Meldung von
+        # PyMongo nennt die Hostnamen der drei Mitglieder und den Zustand des
+        # ReplicaSets, und /readyz antwortet als Probe-Pfad ohne
+        # Herkunftsprüfung jedem im Cluster.
+        print(
+            f"readyz: MongoDB nicht erreichbar, {type(fehler).__name__}: {fehler}",
+            flush=True,
         )
+        raise HTTPException(status_code=503, detail="Nicht bereit")
     return {"status": "ok"}
 
 
@@ -182,7 +196,7 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
         "test_results": None,
         "versuche": 0,
         # Eigener Zähler statt versuche: versuche steigt nur bei einer
-        # tatsächlichen Übernahme (worker.py, _uebernehmen), ein Queue-Eintrag,
+        # tatsächlichen Übernahme (worker.py, _übernehmen), ein Queue-Eintrag,
         # der verlorenging, bevor ihn ein Worker zog, rührt ihn nie an. Ohne
         # requeue_versuche griffe MAX_VERSUCHE in durchlauf.py für #113 also
         # nie, und eine dauerhaft verlorene Einreichung würde unbegrenzt oft

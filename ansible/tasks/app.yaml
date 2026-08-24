@@ -23,6 +23,35 @@
     mode: "0644"
     directory_mode: "0755"
 
+# Vor dem Helm-Aufruf, denn ohne den Wert bricht das Backend beim Start ab
+# (app/backend/auth.py). Denselben Wert setzt das Gateway als Header, die
+# Middleware dafür steht in tasks/traefik-auth.yaml.
+#
+# Auf einem frischen Cluster genügt ein Lauf des ganzen Playbooks. Die Ingress
+# entsteht erst im Auth-Play danach, vorher erreicht niemand die API. Auf einem
+# laufenden Cluster gilt --tags auth vor --tags app, sonst verlangt das neue
+# Backend den Header, bevor die Middleware ihn setzt. Das alte Backend stört
+# der Header nicht.
+#
+# Ein Wechsel des Werts braucht dieselbe Reihenfolge und danach ein
+# kubectl rollout restart deployment/backend. secretKeyRef liest den Wert nur
+# beim Start des Containers, und das Deployment führt keine Prüfsumme über das
+# Secret.
+- name: Secret mit dem Herkunftswert des Gateways
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: gateway-auth
+        namespace: "{{ app_namespace }}"
+      type: Opaque
+      stringData:
+        secret: "{{ gateway_secret }}"
+  no_log: true
+
 - name: Anwendung über Helm ausrollen
   kubernetes.core.helm:
     name: online-judge

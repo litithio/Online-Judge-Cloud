@@ -47,4 +47,6 @@ sequenceDiagram
     W->>M: Urteil schreiben,<br/>nur mit gültigem Token
     D->>M: RUNNING mit<br/>abgelaufener Frist suchen
     D->>V: erneut einreihen
-    Note over V,D: Stirbt ein Worker nach der Übernahme, bleibt die Einreichung auf<br/>RUNNING stehen. Der Durchlauf setzt sie zurück auf PENDING und reiht<br/>sie erneut ein, nach MAX_VERSUCHE Versuchen auf einen Endzustand.
+    D->>M: PENDING ohne neuen<br/>Queue-Eintrag suchen
+    D->>V: fehlt der Eintrag,<br/>erneut einreihen
+    Note over V,D: Stirbt ein Worker nach der Übernahme, bleibt die Einreichung auf<br/>RUNNING stehen, bis die Frist abläuft. Stirbt er zwischen BLPOP und<br/>Übernahme, bleibt sie ohne Queue-Eintrag auf PENDING liegen. Der<br/>Durchlauf reiht beide erneut ein, nach MAX_VERSUCHE Versuchen setzt<br/>er einen Endzustand.

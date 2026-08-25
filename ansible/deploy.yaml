@@ -247,6 +247,13 @@
           spec:
             allowScheduling: false
             evictionRequested: true
+      # Longhorns Webhook lehnt einen Patch ab, solange er die Platten des
+      # Nodes einliest, mit "are being syncing and please retry later". Beim
+      # Erstaufbau am 25.08. traf das den zweiten Judge-Node.
+      register: longhorn_evict
+      until: longhorn_evict is not failed
+      retries: 12
+      delay: 10
       loop: "{{ longhorn_nodes.resources | map(attribute='metadata.name')
                 | select('in', judge_hostnames) | list }}"
       vars:

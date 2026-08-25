@@ -37,6 +37,23 @@
             cpu: "500m"
             memory: "256Mi"
 
+# Das Chart 0.13.0 rendert keinen nodeSelector, weder unter operator noch auf
+# oberster Ebene, deshalb der Patch danach. Helm überschreibt ihn bei jedem
+# Upgrade, und dieser Task setzt ihn im selben Lauf wieder.
+- name: Operator an die Dienste-Nodes binden
+  kubernetes.core.k8s:
+    state: patched
+    kubeconfig: "{{ kubeconfig_root }}"
+    kind: Deployment
+    namespace: "{{ app_namespace }}"
+    name: mongodb-kubernetes-operator
+    definition:
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              online-judge/rolle: dienste
+
 # === MongoDB Instance ===
 - name: Apply MongoDB password Secret
   kubernetes.core.k8s:

@@ -246,7 +246,7 @@ metadata:
   labels:
     {{- include "online-judge.labels" . | nindent 4 }}
 spec:
-  # Unter CLAIM_FRIST_SEKUNDEN aus worker.py, sonst liegt eine abgelaufene
+  # Unter CLAIM_FRIST_PUFFER_SEKUNDEN aus worker.py, sonst liegt eine abgelaufene
   # Einreichung zwischen zwei Läufen unnötig lange. Nicht enger, jeder Lauf
   # fragt MongoDB über alle Sprachen ab.
   schedule: {{ .Values.judge.durchlauf.schedule | quote }}

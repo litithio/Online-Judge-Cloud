@@ -25,6 +25,27 @@ metadata:
     app: backend
 spec:
   replicas: {{ .Values.backend.replicas }}
+  # maxUnavailable 1 statt der Vorgabe. Kubernetes rundet die 25 Prozent bei
+  # zwei Replicas auf null ab, dann darf kein alter Pod weichen, bevor der neue
+  # läuft. Der neue braucht wegen der Anti-Affinity unten aber einen Node ohne
+  # backend-Pod, und fehlt der, steht der Rollout still. Mit 1 läuft er auch
+  # auf zwei Nodes durch. In prod fällt die Verfügbarkeit dabei gemessen auf
+  # eine Replica und nie auf null, der Rollout nimmt die API also nicht aus dem
+  # Service. Redundanz hat sie in diesem Fenster keine mehr. In dev mit einer
+  # Replica fällt sie kurz auf null. Beides steht im README unter ## Grenzen.
+  #
+  # maxSurge bleibt bei der Vorgabe. Für die Verfügbarkeit macht ein maxSurge 0
+  # keinen Unterschied, gemessen steht in beiden Fällen kurz nur eine Replica
+  # im Service, weil der Controller das Budget aus maxUnavailable ausnutzt. Es
+  # spart nur den dritten Pod für ein paar Sekunden.
+  #
+  # Läuft ein Rollout nicht durch, bleibt eine Replica weg. Der Controller hat
+  # sie dann schon entfernt und holt sie nicht zurück. Siehe README
+  # ## Grenzen.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: backend
@@ -43,6 +64,22 @@ spec:
       # kubelet trotzdem ein Token des ServiceAccounts default in den Pod, und
       # der Judge-Worker verzichtet aus demselben Grund schon darauf.
       automountServiceAccountToken: false
+      # Die Replicas der API müssen auf verschiedenen Nodes liegen. In prod sind
+      # es zwei. Liegen beide auf demselben Node, nimmt ein Ausfall die ganze
+      # API mit, und die zweite Replica zahlt nicht auf P5 ein. required und
+      # nicht preferred, weil preferred einen Node ohne backend-Pod nur besser
+      # bewertet und nichts zusagt (Beschluss in #88).
+      #
+      # Der neue Pod eines Rollouts braucht deshalb einen Node ohne
+      # backend-Pod. Was passiert, wenn keiner frei ist, steht am strategy-Block
+      # oben.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: backend
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: backend
           image: {{ include "online-judge.image" (dict "root" . "repo" .Values.backend.repository) }}

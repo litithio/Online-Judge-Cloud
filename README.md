@@ -409,8 +409,8 @@ hinaus lässt die Frist von 120 Platz für das, was keine eigene Grenze hat, etw
 das `rmtree`.
 
 Die Probe kann einen Worker treffen, der noch arbeitet. Seine Einreichung bleibt
-dann auf RUNNING stehen, der Durchlauf holt sie zurück und verbraucht einen
-ihrer drei Versuche.
+dann auf RUNNING stehen, und der Durchlauf holt sie zurück. Einer ihrer drei
+Versuche ist damit verbraucht.
 
 
 ### Herkunftsprüfung an der API
@@ -511,8 +511,9 @@ das Worker-Deployment auf null, auch wenn ein Pod noch rechnet. Einen eigenen
 Wert für die Wartezeit davor setzt das Chart nicht, es gilt der Standard von 300
 Sekunden, gerechnet ab dem Leerwerden der Warteschlange. Die betroffene
 Einreichung bleibt auf RUNNING stehen, bis ihre Frist abläuft, danach reiht der
-Durchlauf sie erneut ein und verbraucht einen ihrer drei Versuche. Nach dem
-dritten endet sie auf UNRESOLVED, also ohne fachliches Urteil.
+Durchlauf sie erneut ein. Der Versuch ist da schon verbraucht, `_uebernehmen`
+zählt ihn beim Übernehmen hoch, nicht der Durchlauf. Nach dem dritten endet die
+Einreichung auf UNRESOLVED, also ohne fachliches Urteil.
 
 Mit den Aufgaben im Repo tritt der Fall nicht ein. Je Testfall wartet der Worker
 höchstens das Zeitlimit der Aufgabe plus 1,5 Sekunden, weil die Wall-Clock-Frist
@@ -541,6 +542,7 @@ geschriebenen Zeitwert in der Datei.
 Ein längerer Ausfall von MongoDB kostet Einreichungen ihre Versuche. Seit die
 Clients Zeitlimits haben, hängt der Worker nicht mehr, sondern stirbt, denn
 `_uebernehmen` steht ohne eigenes try in `process_queue`. Jeder Neustart zieht
-einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt und
-dabei einen der drei Versuche verbraucht. Der Tausch ist gewollt, ein hängender
-Worker zählt für KEDA weiter als Kapazität.
+einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt. Das
+kostet je nach Ausgang der Übernahme einen Versuch an `versuche` oder an
+`requeue_versuche`. Der Tausch ist gewollt, ein hängender Worker zählt für KEDA
+weiter als Kapazität.

@@ -1144,7 +1144,9 @@ def _urteil(sub_id, token, submission, task):
             # eines Urteils: process_queue schreibt dafür nichts und meldet
             # kein "verarbeitet", denn dieser Worker hat gar nichts mehr
             # beigetragen.
-            print(f"Einreichung {sub_id}: Übernahme verloren, Abbruch vor Testfall {i + 1}")
+            print(
+                f"Einreichung {sub_id}: Übernahme verloren, Abbruch vor Testfall {i + 1}"
+            )
             return None, None
 
         if verdict != "AC":

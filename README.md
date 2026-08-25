@@ -547,15 +547,16 @@ kostet je nach Ausgang der Übernahme einen Versuch an `versuche` oder an
 `requeue_versuche`. Der Tausch ist gewollt, ein hängender Worker zählt für KEDA
 weiter als Kapazität.
 
-Ein Rollout der API braucht einen Node mehr, als Replicas laufen. Das Deployment
-setzt keine strategy, und Kubernetes rundet maxSurge auf einen Pod auf und
-maxUnavailable auf null ab. Der neue Pod entsteht also, bevor ein alter weichen
-darf, und die Anti-Affinity verlangt für ihn einen Node ohne backend-Pod. In
-prod sind das drei Nodes für zwei Replicas, in dev zwei für eine. Die drei
-Nodes der Dienste decken beides ab (#160). Steht einer weniger zur Verfügung,
-bleibt der neue Pod Pending und der Rollout kommt nicht mehr voran. Gemessen an
-einem Deployment gleichen Zuschnitts, der Pod stand nach acht Stunden noch auf
-Pending mit dem Grund `didn't match pod anti-affinity rules` und die alten
-liefen weiter, mit einem Node mehr lief derselbe Rollout in Sekunden durch.
-Abhilfe wäre ein gesetztes `maxUnavailable: 1`, das nimmt für die Dauer des
-Rollouts eine Replica aus dem Service und in dev damit die einzige.
+Während eines Rollouts der API fehlt eine Replica. Das Deployment setzt
+`maxUnavailable: 1`, weil die Anti-Affinity für den neuen Pod einen Node ohne
+backend-Pod verlangt. Ist keiner frei, bleibt der Pod ohne diesen Wert Pending
+und der Rollout steht still, gemessen nach acht Stunden noch. Mit dem Wert läuft
+er, dafür trägt eine Replica die Last allein, gemessen auch mit drei freien
+Nodes. In diesem Fenster hat die API keine Redundanz mehr, in dev mit einer
+Replica fällt sie ganz aus.
+
+Bleibt ein Rollout hängen, hält der Zustand an. Wird das neue Image nicht ready,
+hat der Controller schon eine alte Replica entfernt und holt sie nicht zurück,
+ein automatisches Rollback gibt es nicht. Mit einem Tag, den die Registry nicht
+kennt, stand prod nach 45 Sekunden bei einer verfügbaren Replica und dev bei
+null. Ohne `maxUnavailable: 1` laufen die alten Pods in diesem Fall weiter.

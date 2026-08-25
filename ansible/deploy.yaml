@@ -24,7 +24,13 @@
   tags: [k3s]
   become: true
   roles:
+    # Der Server trägt nur die Steuerung, k3s setzt anders als kubeadm von sich
+    # aus kein Taint. Die Rolle hängt k3s_extra_exec_args allein an die
+    # Server-Argumente an, die Agents sehen den Wert nicht. Auf
+    # CriticalAddonsOnly sind coredns, metrics-server und der svclb von Traefik
+    # ausgelegt, Longhorn läuft damit nicht mehr auf dem Server.
     - role: k3s-dhbw-cloud-role
+      k3s_extra_exec_args: "--node-taint CriticalAddonsOnly=true:NoExecute"
   tasks:
     # always, damit der Fact auch bei einem Lauf mit --tags entsteht. Ohne das
     # Tag erbt die Aufgabe k3s vom Play, und ein Aufruf mit --tags mongodb
@@ -35,6 +41,46 @@
         kubeconfig_root: "{{ kubeconfig_root }}"
       when: k3s_role == 'server'
       tags: always
+
+    # Das Argument oben wirkt nur bei der Installation, und die Rolle
+    # überspringt sie, sobald /usr/local/bin/k3s liegt. Auf einem Server, der
+    # schon läuft, kommt der Taint deshalb über die API dazu. Vorhandene Taints
+    # bleiben stehen, weil ein Patch die Liste sonst ersetzt.
+    - name: Taints des Servers lesen
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_root }}"
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+      register: server_node
+      when: k3s_role == 'server'
+
+    - name: Server für Workloads sperren
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: "{{ kubeconfig_root }}"
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+        definition:
+          spec:
+            # rejectattr wirft einen Taint mit demselben Schlüssel und anderem
+            # Effekt weg. Kubernetes ließe beide nebeneinander stehen.
+            taints: >-
+              {{ (server_node.resources[0].spec.taints | default([])
+                  | rejectattr('key', 'equalto', server_taint.key) | list)
+                 + [server_taint] }}
+      vars:
+        server_taint:
+          key: CriticalAddonsOnly
+          value: "true"
+          effect: NoExecute
+      when:
+        - k3s_role == 'server'
+        - server_node.resources[0].spec.taints | default([])
+          | selectattr('key', 'equalto', server_taint.key)
+          | selectattr('effect', 'equalto', server_taint.effect)
+          | selectattr('value', 'defined')
+          | selectattr('value', 'equalto', server_taint.value)
+          | list | length == 0
 
 # Nur auf den Agents, der Server führt keine Einreichungen aus.
 - name: Sandbox-Laufzeit gVisor auf den Judge-Nodes einrichten

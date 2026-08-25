@@ -31,6 +31,8 @@
     # ausgelegt, Longhorn läuft damit nicht mehr auf dem Server.
     - role: k3s-dhbw-cloud-role
       k3s_extra_exec_args: "--node-taint CriticalAddonsOnly=true:NoExecute"
+      longhorn_node_selector:
+        online-judge/rolle: dienste
   tasks:
     # always, damit der Fact auch bei einem Lauf mit --tags entsteht. Ohne das
     # Tag erbt die Aufgabe k3s vom Play, und ein Aufruf mit --tags mongodb
@@ -116,25 +118,6 @@
   tags: [gvisor]
   become: true
   tasks:
-    # Nur die Judge-Nodes tragen das Label. Die RuntimeClass gvisor bindet
-    # jeden Pod mit runsc über scheduling.nodeSelector daran, und über die
-    # Obergruppe bekämen es auch die Dienste-Nodes. Dort liefe fremder Code
-    # dann neben MongoDB und Keycloak, gegen die Trennung aus #88. Der Name
-    # des Nodes ist sein Hostname, k3s übernimmt ihn unverändert.
-    - name: Judge-Nodes als Sandbox-Nodes kennzeichnen
-      kubernetes.core.k8s:
-        state: patched
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        kind: Node
-        name: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
-        definition:
-          metadata:
-            labels:
-              online-judge/sandbox: runsc
-      loop: "{{ groups['judge_k3s_agent_judge'] }}"
-      loop_control:
-        label: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
-
     # scheduling.nodeSelector bindet jeden Pod mit dieser RuntimeClass an die
     # gekennzeichneten Nodes. Der Weg über die RuntimeClass statt über jedes
     # Deployment hält die Bindung an einer Stelle. Wer runsc anfordert, kann
@@ -155,182 +138,18 @@
             nodeSelector:
               online-judge/sandbox: runsc
 
-# Das Label benennt die Rolle des Nodes. Die Judge-Nodes tragen mit
-# online-judge/sandbox schon eine Kennzeichnung, für die Dienste-Rolle fehlte
-# bisher eine. MongoDB, Valkey und Keycloak wählen ihre Nodes darüber aus,
-# deshalb läuft das Play mit always und nicht nur beim vollen Durchlauf. Der
-# Patch geht über den Server, den Namen liefert jeder Node selbst.
-- name: Dienste-Nodes kennzeichnen
-  hosts: judge_k3s_agent_dienste
-  tags: always
-  become: true
-  tasks:
-    - name: Rollen-Label setzen
-      kubernetes.core.k8s:
-        state: patched
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        kind: Node
-        name: "{{ ansible_facts['hostname'] }}"
-        definition:
-          metadata:
-            labels:
-              online-judge/rolle: dienste
-      delegate_to: "{{ groups['judge_k3s_server'][0] }}"
-
-# Longhorn kommt aus der k3s-Rolle und verwaltet dort jeden Node. Auf den
-# Judge-Nodes lägen damit Replikate der Daten von MongoDB, Keycloak und Valkey,
-# also auf genau den Nodes, die fremden Code ausführen (#205). Das Play läuft
-# vor den Datendiensten, weil Longhorn den Selector nur bei abgehängten Volumes
-# sofort übernimmt.
-- name: Longhorn auf die Dienste-Nodes beschränken
+# helm --wait in der Rolle wartet auf die Ressourcen des Charts, nicht auf die
+# instance-manager, die Longhorn danach selbst anlegt. Ein Volume, das in dieser
+# Luecke entsteht, findet keinen laufenden Prozess und wird faulted. Am 25.08.
+# lagen zwischen dem Ende des Helm-Laufs und den ersten PVCs neun Sekunden.
+- name: Auf Longhorn warten
   hosts: judge_k3s_server
   tags: [longhorn]
   become: true
   tasks:
-    # Longhorn legt je Node eine eigene Ressource an, sobald sein Manager dort
-    # läuft. Beim Erstaufbau steht der Helm-Lauf der Rolle davor, die Tasks
-    # unten fänden sie sonst nicht. Geprüft werden nur die Dienste-Nodes, die
-    # Judge-Nodes verschwinden weiter unten dauerhaft aus Longhorn.
-    - name: Warten, bis Longhorn die Dienste-Nodes kennt
-      kubernetes.core.k8s_info:
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        api_version: longhorn.io/v1beta2
-        kind: Node
-        namespace: longhorn-system
-      register: longhorn_nodes
-      until: longhorn_nodes.resources | map(attribute='metadata.name') | list
-             | select('in', dienste_hostnames) | list | length == dienste_hostnames | length
-      retries: 30
-      delay: 10
-      vars:
-        dienste_hostnames: "{{ groups['judge_k3s_agent_dienste']
-                               | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
-
-    - name: Volumes vorab lesen
-      kubernetes.core.k8s_info:
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        api_version: longhorn.io/v1beta2
-        kind: Volume
-        namespace: longhorn-system
-      register: longhorn_volumes_vorab
-
-    # Ein Volume, das gerade auf einem Judge-Node hängt, verlöre dort mit dem
-    # Selector unten sein csi-plugin und ließe sich weder abhängen noch
-    # umziehen. Auf einem Cluster aus der Zeit vor den Rollen trifft das zu,
-    # dort gehört ein Neuaufbau davor.
-    - name: Kein Volume darf an einem Judge-Node hängen
-      ansible.builtin.assert:
-        that:
-          - longhorn_volumes_vorab.resources
-            | selectattr('status.currentNodeID', 'in', judge_hostnames)
-            | list | length == 0
-        fail_msg: >-
-          Volumes hängen an Judge-Nodes. Erst die Datendienste auf die
-          Dienste-Nodes bringen oder den Cluster neu aufbauen.
-      vars:
-        judge_hostnames: "{{ groups['judge_k3s_agent_judge']
-                             | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
-
-    # Ohne diesen Schritt verlören Volumes ihre Replikate, sobald Longhorn die
-    # Judge-Nodes nicht mehr verwaltet. Die Rolle stellt defaultReplicaCount auf
-    # 1, ein Replikat auf einem Judge-Node ist also das einzige. Beim
-    # Erstaufbau liegt dort noch nichts und die Schleife wartet nicht.
-    - name: Replikate von den Judge-Nodes abziehen
-      kubernetes.core.k8s:
-        state: patched
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        api_version: longhorn.io/v1beta2
-        kind: Node
-        namespace: longhorn-system
-        name: "{{ item }}"
-        definition:
-          spec:
-            allowScheduling: false
-            evictionRequested: true
-      # Longhorns Webhook lehnt einen Patch ab, solange er die Platten des
-      # Nodes einliest, mit "are being syncing and please retry later". Beim
-      # Erstaufbau am 25.08. traf das den zweiten Judge-Node.
-      register: longhorn_evict
-      until: longhorn_evict is not failed
-      retries: 12
-      delay: 10
-      loop: "{{ longhorn_nodes.resources | map(attribute='metadata.name')
-                | select('in', judge_hostnames) | list }}"
-      vars:
-        judge_hostnames: "{{ groups['judge_k3s_agent_judge']
-                             | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
-
-    - name: Warten, bis kein Replikat mehr auf einem Judge-Node liegt
-      kubernetes.core.k8s_info:
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        api_version: longhorn.io/v1beta2
-        kind: Replica
-        namespace: longhorn-system
-      register: longhorn_replicas
-      until: longhorn_replicas.resources
-             | selectattr('spec.nodeID', 'in', judge_hostnames)
-             | list | length == 0
-      retries: 30
-      delay: 20
-      vars:
-        judge_hostnames: "{{ groups['judge_k3s_agent_judge']
-                             | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
-
-    # Ein leerer Judge-Node allein sagt nichts über das Volume. Die Ersatz-
-    # Replik kann noch im Aufbau sein, und der Selector unten nähme dem alten
-    # Node danach den Manager weg.
-    - name: Warten, bis jedes Volume wieder healthy ist
-      kubernetes.core.k8s_info:
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        api_version: longhorn.io/v1beta2
-        kind: Volume
-        namespace: longhorn-system
-      register: longhorn_volumes
-      until: longhorn_volumes.resources
-             | selectattr('status.robustness', 'in', ['degraded', 'faulted'])
-             | list | length == 0
-      retries: 30
-      delay: 20
-
-    # Longhorn trennt Schlüssel und Wert im Selector mit einem Doppelpunkt,
-    # nicht mit einem Gleichheitszeichen. Der Wert steht direkt am Objekt und
-    # nicht unter spec.
-    - name: Longhorn-Komponenten an die Dienste-Nodes binden
-      kubernetes.core.k8s:
-        state: patched
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        definition:
-          apiVersion: longhorn.io/v1beta2
-          kind: Setting
-          metadata:
-            name: system-managed-components-node-selector
-            namespace: longhorn-system
-          value: "online-judge/rolle:dienste"
-
-    # Longhorn führt einen Node weiter in seiner Liste, auch wenn dort kein
-    # Manager mehr läuft, und sucht dann alle 30 Sekunden vergeblich nach dem
-    # instance-manager. Ohne das Löschen bleibt der Fehler dauerhaft im Log.
-    - name: Judge-Nodes aus Longhorn entfernen
-      kubernetes.core.k8s:
-        state: absent
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        api_version: longhorn.io/v1beta2
-        kind: Node
-        namespace: longhorn-system
-        name: "{{ item }}"
-      loop: "{{ longhorn_nodes.resources | map(attribute='metadata.name')
-                | select('in', judge_hostnames) | list }}"
-      vars:
-        judge_hostnames: "{{ groups['judge_k3s_agent_judge']
-                             | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
-
-    # Longhorn ersetzt beim Setzen des Selectors jeden instance-manager. Ein
-    # Volume, das in dieser Lücke entsteht, findet keinen laufenden Prozess und
-    # wird faulted. Am 25.08. lagen zwischen dem Start der neuen Manager und
-    # den ersten PVCs von MongoDB neun Sekunden, das reichte nicht.
     - name: Warten, bis jeder Dienste-Node einen laufenden instance-manager hat
       kubernetes.core.k8s_info:
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kubeconfig: "{{ kubeconfig_root }}"
         api_version: longhorn.io/v1beta2
         kind: InstanceManager
         namespace: longhorn-system

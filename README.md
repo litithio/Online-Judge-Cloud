@@ -546,3 +546,16 @@ einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt. Das
 kostet je nach Ausgang der Übernahme einen Versuch an `versuche` oder an
 `requeue_versuche`. Der Tausch ist gewollt, ein hängender Worker zählt für KEDA
 weiter als Kapazität.
+
+Ein Rollout der API braucht einen Node mehr, als Replicas laufen. Das Deployment
+setzt keine strategy, und Kubernetes rundet maxSurge auf einen Pod auf und
+maxUnavailable auf null ab. Der neue Pod entsteht also, bevor ein alter weichen
+darf, und die Anti-Affinity verlangt für ihn einen Node ohne backend-Pod. In
+prod sind das drei Nodes für zwei Replicas, in dev zwei für eine. Die drei
+Nodes der Dienste decken beides ab (#160). Steht einer weniger zur Verfügung,
+bleibt der neue Pod Pending und der Rollout kommt nicht mehr voran. Gemessen an
+einem Deployment gleichen Zuschnitts, der Pod stand nach acht Stunden noch auf
+Pending mit dem Grund `didn't match pod anti-affinity rules` und die alten
+liefen weiter, mit einem Node mehr lief derselbe Rollout in Sekunden durch.
+Abhilfe wäre ein gesetztes `maxUnavailable: 1`, das nimmt für die Dauer des
+Rollouts eine Replica aus dem Service und in dev damit die einzige.

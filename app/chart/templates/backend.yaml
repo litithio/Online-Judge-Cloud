@@ -43,6 +43,25 @@ spec:
       # kubelet trotzdem ein Token des ServiceAccounts default in den Pod, und
       # der Judge-Worker verzichtet aus demselben Grund schon darauf.
       automountServiceAccountToken: false
+      # Die Replicas der API müssen auf verschiedenen Nodes liegen. In prod sind
+      # es zwei. Liegen beide auf demselben Node, nimmt ein Ausfall die ganze
+      # API mit, und die zweite Replica zahlt nicht auf P5 ein. required und
+      # nicht preferred, weil preferred einen Node ohne backend-Pod nur besser
+      # bewertet und nichts zusagt (Beschluss in #88).
+      #
+      # Das Deployment setzt keine strategy, es gilt die Vorgabe von Kubernetes.
+      # maxSurge rundet auf einen Pod auf, maxUnavailable auf null ab. Ein
+      # Rollout legt also einen weiteren Pod an, bevor ein alter weichen darf,
+      # und braucht dafür einen Node mehr, als Replicas laufen. Die drei Nodes
+      # der Dienste decken das ab (#160), mit einem weniger steht der Rollout
+      # still. Gemessen, siehe README ## Grenzen.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: backend
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: backend
           image: {{ include "online-judge.image" (dict "root" . "repo" .Values.backend.repository) }}

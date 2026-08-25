@@ -64,6 +64,13 @@ spec:
       # kubelet trotzdem ein Token des ServiceAccounts default in den Pod, und
       # der Judge-Worker verzichtet aus demselben Grund schon darauf.
       automountServiceAccountToken: false
+      # Wie die Datendienste auf die Dienste-Nodes. Die API hält zwar nichts auf
+      # Platte, aber die Zugangsdaten zu MongoDB und die Identität, die das
+      # Gateway ihr in den Headern übergibt. Die Trennung aus #88 gilt in beide
+      # Richtungen, und ohne diesen Selector landen beide Replicas auf den
+      # Judge-Nodes, gemessen am 25.08.
+      nodeSelector:
+        online-judge/rolle: dienste
       # Die Replicas der API müssen auf verschiedenen Nodes liegen. In prod sind
       # es zwei. Liegen beide auf demselben Node, nimmt ein Ausfall die ganze
       # API mit, und die zweite Replica zahlt nicht auf P5 ein. required und

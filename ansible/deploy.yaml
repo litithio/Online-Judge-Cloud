@@ -188,9 +188,10 @@
   become: true
   tasks:
     # Longhorn legt je Node eine eigene Ressource an, sobald sein Manager dort
-    # läuft. Beim Erstaufbau steht der Helm-Lauf der Rolle davor, der Patch
-    # unten fände sie sonst nicht und bräche mit Not Found ab.
-    - name: Warten, bis Longhorn alle Agents kennt
+    # läuft. Beim Erstaufbau steht der Helm-Lauf der Rolle davor, die Tasks
+    # unten fänden sie sonst nicht. Geprüft werden nur die Dienste-Nodes, die
+    # Judge-Nodes verschwinden weiter unten dauerhaft aus Longhorn.
+    - name: Warten, bis Longhorn die Dienste-Nodes kennt
       kubernetes.core.k8s_info:
         kubeconfig: /etc/rancher/k3s/k3s.yaml
         api_version: longhorn.io/v1beta2
@@ -198,12 +199,12 @@
         namespace: longhorn-system
       register: longhorn_nodes
       until: longhorn_nodes.resources | map(attribute='metadata.name') | list
-             | select('in', agent_hostnames) | list | length == agent_hostnames | length
+             | select('in', dienste_hostnames) | list | length == dienste_hostnames | length
       retries: 30
       delay: 10
       vars:
-        agent_hostnames: "{{ groups['judge_k3s_agent']
-                             | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
+        dienste_hostnames: "{{ groups['judge_k3s_agent_dienste']
+                               | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
 
     - name: Volumes vorab lesen
       kubernetes.core.k8s_info:
@@ -241,14 +242,16 @@
         api_version: longhorn.io/v1beta2
         kind: Node
         namespace: longhorn-system
-        name: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
+        name: "{{ item }}"
         definition:
           spec:
             allowScheduling: false
             evictionRequested: true
-      loop: "{{ groups['judge_k3s_agent_judge'] }}"
-      loop_control:
-        label: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
+      loop: "{{ longhorn_nodes.resources | map(attribute='metadata.name')
+                | select('in', judge_hostnames) | list }}"
+      vars:
+        judge_hostnames: "{{ groups['judge_k3s_agent_judge']
+                             | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
 
     - name: Warten, bis kein Replikat mehr auf einem Judge-Node liegt
       kubernetes.core.k8s_info:
@@ -296,6 +299,44 @@
             name: system-managed-components-node-selector
             namespace: longhorn-system
           value: "online-judge/rolle:dienste"
+
+    # Longhorn führt einen Node weiter in seiner Liste, auch wenn dort kein
+    # Manager mehr läuft, und sucht dann alle 30 Sekunden vergeblich nach dem
+    # instance-manager. Ohne das Löschen bleibt der Fehler dauerhaft im Log.
+    - name: Judge-Nodes aus Longhorn entfernen
+      kubernetes.core.k8s:
+        state: absent
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        api_version: longhorn.io/v1beta2
+        kind: Node
+        namespace: longhorn-system
+        name: "{{ item }}"
+      loop: "{{ longhorn_nodes.resources | map(attribute='metadata.name')
+                | select('in', judge_hostnames) | list }}"
+      vars:
+        judge_hostnames: "{{ groups['judge_k3s_agent_judge']
+                             | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
+
+    # Longhorn ersetzt beim Setzen des Selectors jeden instance-manager. Ein
+    # Volume, das in dieser Lücke entsteht, findet keinen laufenden Prozess und
+    # wird faulted. Am 25.08. lagen zwischen dem Start der neuen Manager und
+    # den ersten PVCs von MongoDB neun Sekunden, das reichte nicht.
+    - name: Warten, bis jeder Dienste-Node einen laufenden instance-manager hat
+      kubernetes.core.k8s_info:
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        api_version: longhorn.io/v1beta2
+        kind: InstanceManager
+        namespace: longhorn-system
+      register: longhorn_managers
+      until: longhorn_managers.resources
+             | selectattr('status.currentState', 'equalto', 'running')
+             | map(attribute='spec.nodeID') | list | sort
+             == dienste_hostnames | sort
+      retries: 30
+      delay: 10
+      vars:
+        dienste_hostnames: "{{ groups['judge_k3s_agent_dienste']
+                               | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
 
 # Der Namespace für die Anwendung, kommt vor den Datendiensten (MongoDB/Valkey)
 # und der App, weil die künftig hier reingehören -- vorerst

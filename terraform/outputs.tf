@@ -51,12 +51,18 @@ resource "local_file" "ansible_inventory" {
                 k3s_server_host = local.master_addr
               }
               children = {
+                # Die Labels kommen als k3s-Argument und stehen damit ab der
+                # Registrierung. Ueber die API gesetzt kaemen sie zu spaet, die
+                # Rolle installiert Longhorn im selben Lauf und dessen
+                # nodeSelector faende dann keinen Node.
                 judge_k3s_agent_dienste = {
+                  vars = { k3s_extra_agent_exec_args = "--node-label online-judge/rolle=dienste" }
                   hosts = { for n in openstack_compute_instance_v2.dienste :
                     local.conn_addr[n.name] => { ansible_user = "ubuntu" }
                   }
                 }
                 judge_k3s_agent_judge = {
+                  vars = { k3s_extra_agent_exec_args = "--node-label online-judge/sandbox=runsc" }
                   hosts = { for n in openstack_compute_instance_v2.judge :
                     local.conn_addr[n.name] => { ansible_user = "ubuntu" }
                   }

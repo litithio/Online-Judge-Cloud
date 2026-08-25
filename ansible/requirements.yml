@@ -8,8 +8,8 @@ roles:
   # läuft auf allen vier Nodes und greift sonst nach den iSCSI-Geräten, die
   # Longhorn einhängt, was das Mounten scheitern lässt.
   - name: k3s-dhbw-cloud-role
-    src: https://github.com/pfisterer/k3s-dhbw-cloud-role.git
-    version: 613b3c46d0428f99ddbfe65019cbb4b1afd10d3b
+    src: https://github.com/litithio/k3s-dhbw-cloud-role.git
+    version: 18f1ec1d1788f21e7a817e8a3a7517f2d8f6fd21
 
 # Die Rolle setzt auf dem Steuerrechner diese Collections voraus:
 # kubernetes.core für die Helm- und k8s-Module, ansible.posix für sysctl.

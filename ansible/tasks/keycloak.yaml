@@ -94,6 +94,9 @@
     timeout: 15m0s
     values:
       replicas: 1
+      # Wie bei MongoDB, siehe ansible/files/mongodb-instance.yaml.
+      nodeSelector:
+        online-judge/rolle: dienste
       image:
         tag: "{{ keycloak_image_tag }}"
       # Produktivmodus mit Import. dev-file als DB genügt für den einzelnen Pod.

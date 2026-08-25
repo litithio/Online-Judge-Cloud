@@ -409,14 +409,29 @@ hinaus lässt die Frist von 120 Platz für das, was keine eigene Grenze hat, etw
 das `rmtree`.
 
 Die Probe kann einen Worker treffen, der noch arbeitet. Seine Einreichung bleibt
-dann auf RUNNING stehen, der Durchlauf holt sie zurück und verbraucht einen
-ihrer drei Versuche.
+dann auf RUNNING stehen, und der Durchlauf holt sie zurück. Einer ihrer drei
+Versuche ist damit verbraucht.
+
+
+### Herkunftsprüfung an der API
+
+Die API liest die Identität aus den Gateway-Headern und prüft kein Token. Wer
+den `backend`-Service im Cluster direkt erreicht, konnte diese Header selbst
+setzen und unter jedem Namen einreichen. Das Gateway setzt deshalb zusätzlich
+`X-Gateway-Auth` mit einem festen Wert, den die API vergleicht. Die Alternative
+war, das Access-Token weiterzureichen und in der API gegen die JWKS von Keycloak
+zu prüfen. Sie träfe auch einen Angreifer, der an den festen Wert kommt. Gegen
+den, der hier zählt, wirken beide gleich, denn ein aus der Sandbox
+ausgebrochener Worker hält weder ein Token noch das Secret. Den Ausschlag gibt
+W6, das die Token-Prüfung am Gateway verlangt und nicht in der Anwendung. Der
+feste Wert läuft nie ab und steht im Secret wie im Middleware-Objekt, wer eines
+davon lesen darf, kommt an der Prüfung vorbei.
 
 
 ## Grenzen
 
-Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einem eigenen
-User und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
+Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je Lauf
+eigenen UID und mit eigenen Grenzen für Rechenzeit, Speicher, Ausgabemenge und
 Prozesszahl. Vier Lücken bleiben.
 
 Im Cluster bekommt der eingereichte Code über einen User-Namespace ein eigenes,
@@ -427,27 +442,40 @@ ihn gar nicht erst starten, wenn die Trennung nicht zustande kommt, statt sie
 still wegfallen zu lassen. Wo sie ausfiele, bliebe nur eine NetworkPolicy als
 Begrenzung.
 
-Die Speichergrenze von 128 MiB gilt für jeden Prozess einzeln. Startet eine
-Einreichung weitere Prozesse, bekommt jeder von ihnen erneut 128 MiB. Bei den
-erlaubten 64 Prozessen sind das zusammen 8 GiB. Das Speicherlimit des
-Worker-Containers (`resources.limits.memory`) deckelt diese Summe: wird sie
-überschritten, trifft der OOM-Killer den Pod.
+`RLIMIT_NPROC` steht auf 0 und begrenzt die Prozesse neben der Einreichung,
+ihr eigener ist nicht gemeint. Sie startet also weder einen zweiten Prozess
+noch einen zweiten Thread, Threads zählen mit, und beide Laufzeiten verhalten
+sich gleich. Eine Lösung mit einem Thread oder einem Hilfsprozess nimmt der
+Judge damit nicht mehr an, sie bekommt RE mit einer eigenen Meldung. Mit 1
+statt 0 liefe sie durch, dafür bekäme die Einreichung unter runsc einen
+zweiten Prozess. Die Speichergrenze gilt je Prozess, und zweimal die für eine
+Aufgabe erlaubten 256 MiB liegen über den 320Mi des Worker-Containers.
+Gemessen trifft der OOM-Kill dann den Pod und nicht die Einreichung. Ein
+Prozess, der einen Lauf übersteht, belegt das Kontingent des nächsten nicht,
+denn der Kernel führt es je UID und jeder Lauf bekommt eine eigene. Der Worker
+räumt die UID vor der Vergabe trotzdem leer und weicht auf die nächste aus,
+solange dort noch etwas läuft. Erst wenn keine UID mehr frei ist, wertet er
+das als Fehler der Umgebung. Die Einreichung bleibt dann auf RUNNING stehen
+und kostet einen Versuch.
 
 Begrenzt ist, was ein Programm verbraucht, nicht wohin es schreibt. Eine
-Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und
-das Aufräumen danach kennt nur ihr eigenes Verzeichnis. In unserer lokalen
-Umgebung waren so 5,4 GB aus einer einzelnen Einreichung erreichbar. Im
-Cluster deckelt das `sizeLimit` des emptyDir diese Menge für `/tmp` auf 64Mi,
-kubelet räumt den Pod bei Überschreitung ab und der Ersatz startet leer, siehe
-Entscheidungen. Drei Reste bleiben. kubelet erhebt die Belegung der Volumes
-nur etwa im Minutenabstand (`volumeStatsAggPeriod`), bis dahin passt deutlich
-mehr auf den Datenträger, mit der Eviction verschwindet es wieder. Der Scan
-zählt zudem nur, was im Verzeichnis steht. Eine Datei, die eine Einreichung
-löscht und offen behält, belegt weiter Platz am Limit vorbei. Frei wird er
-erst, wenn der haltende Prozess endet, normalerweise also mit dem Aufräumen
-nach dem Lauf, nur ein Prozess, der das Aufräumen übersteht, hält ihn länger. Und `/var/tmp`
-liegt außerhalb des emptyDir im Container-Layer, ist genauso weltbeschreibbar,
-und was dort landet, zählt der Deckel nicht.
+Einreichung kann außerhalb ihres Arbeitsverzeichnisses Dateien anlegen, und das
+Aufräumen danach kennt nur ihr eigenes Verzeichnis. In unserer lokalen Umgebung
+waren so 5,4 GB aus einer einzelnen Einreichung erreichbar. Zwei Deckel fangen
+das im Cluster. Ihr Arbeitsverzeichnis liegt unter `/work`, dort greift das
+`sizeLimit` des emptyDir mit 64Mi, kubelet räumt den Pod bei Überschreitung ab
+und der Ersatz startet leer, siehe Entscheidungen. Ihr `/tmp` ist ein eigenes
+tmpfs je Lauf mit 16 MiB und 4096 Dateien, und es verschwindet mit dem letzten
+Prozess, der seinen Namespace hält. Vier Reste bleiben. Übersteht ein Prozess
+das Aufräumen nach dem Lauf, hält er den Namespace und damit das tmpfs, dessen
+Speicher bleibt dann belegt, bis er endet. kubelet erhebt die Belegung der
+Volumes nur etwa im Minutenabstand (`volumeStatsAggPeriod`), bis dahin passt
+deutlich mehr auf den Datenträger, mit der Eviction verschwindet es wieder. Der
+Scan zählt zudem nur, was im Verzeichnis steht. Eine Datei, die eine Einreichung
+löscht und offen behält, belegt weiter Platz am Limit vorbei, und frei wird er
+erst, wenn der haltende Prozess endet. Und `/var/tmp` liegt außerhalb beider
+Volumes im Container-Layer, ist genauso weltbeschreibbar, und was dort landet,
+zählt kein Deckel.
 
 Das Limit für die Ausgabe begrenzt die Größe der Ausgabedatei, nicht die Menge
 der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt in Summe
@@ -483,8 +511,9 @@ das Worker-Deployment auf null, auch wenn ein Pod noch rechnet. Einen eigenen
 Wert für die Wartezeit davor setzt das Chart nicht, es gilt der Standard von 300
 Sekunden, gerechnet ab dem Leerwerden der Warteschlange. Die betroffene
 Einreichung bleibt auf RUNNING stehen, bis ihre Frist abläuft, danach reiht der
-Durchlauf sie erneut ein und verbraucht einen ihrer drei Versuche. Nach dem
-dritten endet sie auf UNRESOLVED, also ohne fachliches Urteil.
+Durchlauf sie erneut ein. Der Versuch ist da schon verbraucht, `_uebernehmen`
+zählt ihn beim Übernehmen hoch, nicht der Durchlauf. Nach dem dritten endet die
+Einreichung auf UNRESOLVED, also ohne fachliches Urteil.
 
 Mit den Aufgaben im Repo tritt der Fall nicht ein. Je Testfall wartet der Worker
 höchstens das Zeitlimit der Aufgabe plus 1,5 Sekunden, weil die Wall-Clock-Frist
@@ -513,6 +542,21 @@ geschriebenen Zeitwert in der Datei.
 Ein längerer Ausfall von MongoDB kostet Einreichungen ihre Versuche. Seit die
 Clients Zeitlimits haben, hängt der Worker nicht mehr, sondern stirbt, denn
 `_uebernehmen` steht ohne eigenes try in `process_queue`. Jeder Neustart zieht
-einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt und
-dabei einen der drei Versuche verbraucht. Der Tausch ist gewollt, ein hängender
-Worker zählt für KEDA weiter als Kapazität.
+einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt. Das
+kostet je nach Ausgang der Übernahme einen Versuch an `versuche` oder an
+`requeue_versuche`. Der Tausch ist gewollt, ein hängender Worker zählt für KEDA
+weiter als Kapazität.
+
+Während eines Rollouts der API fehlt eine Replica. Das Deployment setzt
+`maxUnavailable: 1`, weil die Anti-Affinity für den neuen Pod einen Node ohne
+backend-Pod verlangt. Ist keiner frei, bleibt der Pod ohne diesen Wert Pending
+und der Rollout steht still, gemessen nach acht Stunden noch. Mit dem Wert läuft
+er, dafür trägt eine Replica die Last allein, gemessen auch mit drei freien
+Nodes. In diesem Fenster hat die API keine Redundanz mehr, in dev mit einer
+Replica fällt sie ganz aus.
+
+Bleibt ein Rollout hängen, hält der Zustand an. Wird das neue Image nicht ready,
+hat der Controller schon eine alte Replica entfernt und holt sie nicht zurück,
+ein automatisches Rollback gibt es nicht. Mit einem Tag, den die Registry nicht
+kennt, stand prod nach 45 Sekunden bei einer verfügbaren Replica und dev bei
+null. Ohne `maxUnavailable: 1` laufen die alten Pods in diesem Fall weiter.

@@ -23,6 +23,10 @@ spec:
       labels:
         app: valkey
     spec:
+      # Wie bei MongoDB, die Warteschlange gehört nicht auf einen Node, der
+      # fremden Code ausführt.
+      nodeSelector:
+        online-judge/rolle: dienste
       containers:
         - name: valkey
           image: valkey/valkey:8-alpine

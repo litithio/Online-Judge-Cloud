@@ -40,7 +40,8 @@
       "required": [
         "mongoSecret",
         "redisUri",
-        "redisKedaAdresse"
+        "redisKedaAdresse",
+        "gatewaySecret"
       ],
       "description": "Anbindung der vorhandenen Datendienste. Das Chart legt sie nicht an, es verbindet sich nur.",
       "properties": {
@@ -70,6 +71,24 @@
           "type": "string",
           "minLength": 1,
           "description": "Queue als host:port mit vollem DNS-Namen. Der KEDA-Operator läuft in einem anderen Namespace, ein kurzer Name würde dort aufgelöst."
+        },
+        "gatewaySecret": {
+          "type": "object",
+          "required": [
+            "name",
+            "key"
+          ],
+          "description": "Secret mit dem Herkunftswert des Gateways. Angelegt von ansible/tasks/app.yaml, gelesen von app/backend/auth.py.",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       }
     },
@@ -94,6 +113,7 @@
       "required": [
         "runtimeClass",
         "tmpSizeLimit",
+        "workSizeLimit",
         "sprachen",
         "durchlauf",
         "heartbeatFrist"
@@ -108,6 +128,11 @@
           "type": "string",
           "pattern": "^([0-9]*[1-9][0-9]*(\\.[0-9]+)?|0+\\.[0-9]*[1-9][0-9]*)(Ki|Mi|Gi|Ti|k|M|G|T)?$",
           "description": "Deckel für das /tmp der Worker (emptyDir sizeLimit). Ohne ihn stünde das emptyDir offen, deshalb Pflicht. Das Muster verlangt eine positive Zahl mit optionaler Einheit, eine 0 würde kubelet als Limit ignorieren und beliebiger Text fiele erst am API-Server auf. Die Exponentenschreibweise von Kubernetes-Quantities bleibt bewusst draußen."
+        },
+        "workSizeLimit": {
+          "type": "string",
+          "pattern": "^([0-9]*[1-9][0-9]*(\\.[0-9]+)?|0+\\.[0-9]*[1-9][0-9]*)(Ki|Mi|Gi|Ti|k|M|G|T)?$",
+          "description": "Deckel für die Arbeitsverzeichnisse der Läufe unter /work (emptyDir sizeLimit). Dorthin schreibt die Einreichung, ohne den Deckel stünde das emptyDir offen, deshalb Pflicht. Muster wie bei tmpSizeLimit."
         },
         "sprachen": {
           "type": "array",

@@ -32,16 +32,37 @@ variable "flavor_server" {
   default     = "k8s.master"
 }
 
-variable "flavor_worker" {
-  description = "Flavor der Worker-Nodes"
+# Zwei Rollen mit unterschiedlichem Bedarf, beschlossen in #88. Einen Judge-Node
+# begrenzen die Kerne, weil jeder Judge-Worker einen ganzen Kern anfordert.
+# Einen Dienste-Node begrenzt der Speicher, den MongoDB und Keycloak halten.
+# Beide fahren heute denselben Flavor. Getrennte Variablen, damit eine Rolle
+# ohne die andere wechseln kann.
+variable "flavor_dienste" {
+  description = "Flavor der Dienste-Nodes"
   type        = string
   default     = "k8s.node"
 }
 
-variable "worker_count" {
-  description = "Anzahl der Worker, P4 verlangt mehrere"
+variable "flavor_judge" {
+  description = "Flavor der Judge-Nodes"
+  type        = string
+  default     = "k8s.node"
+}
+
+# Drei Dienste-Nodes, weil ein MongoDB-Replica-Set den Verlust eines Nodes nur
+# übersteht, wenn seine drei Members auf drei Nodes liegen. Zwei Judge-Nodes,
+# damit die Platzierung und die Skalierung über Nodes hinweg wirken und nicht
+# nur über Pods auf einem Node.
+variable "dienste_count" {
+  description = "Anzahl der Dienste-Nodes"
   type        = number
   default     = 3
+}
+
+variable "judge_count" {
+  description = "Anzahl der Judge-Nodes"
+  type        = number
+  default     = 2
 }
 
 # DHBWV6 ist dual-stack und shared: private IPv4 mit NAT nach außen, dazu eine

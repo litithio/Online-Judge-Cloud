@@ -32,6 +32,13 @@ spec:
     spec:
       template:
         spec:
+          # Die Trennung aus #88 gilt in beide Richtungen. Die RuntimeClass
+          # bindet die Judge-Worker an die Judge-Nodes, dieser Selector hält
+          # die Daten davon fern. Ohne ihn landet ein Member neben fremdem
+          # Code, und mit dem Longhorn-Selector aus #205 fände er dort auch
+          # kein csi-plugin mehr.
+          nodeSelector:
+            online-judge/rolle: dienste
           topologySpreadConstraints:
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname

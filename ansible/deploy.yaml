@@ -24,7 +24,15 @@
   tags: [k3s]
   become: true
   roles:
+    # Der Server trägt nur die Steuerung, k3s setzt anders als kubeadm von sich
+    # aus kein Taint. Die Rolle hängt k3s_extra_exec_args allein an die
+    # Server-Argumente an, die Agents sehen den Wert nicht. Auf
+    # CriticalAddonsOnly sind coredns, metrics-server und der svclb von Traefik
+    # ausgelegt, Longhorn läuft damit nicht mehr auf dem Server.
     - role: k3s-dhbw-cloud-role
+      k3s_extra_exec_args: "--node-taint CriticalAddonsOnly=true:NoExecute"
+      longhorn_node_selector:
+        online-judge/rolle: dienste
   tasks:
     # always, damit der Fact auch bei einem Lauf mit --tags entsteht. Ohne das
     # Tag erbt die Aufgabe k3s vom Play, und ein Aufruf mit --tags mongodb
@@ -35,6 +43,46 @@
         kubeconfig_root: "{{ kubeconfig_root }}"
       when: k3s_role == 'server'
       tags: always
+
+    # Das Argument oben wirkt nur bei der Installation, und die Rolle
+    # überspringt sie, sobald /usr/local/bin/k3s liegt. Auf einem Server, der
+    # schon läuft, kommt der Taint deshalb über die API dazu. Vorhandene Taints
+    # bleiben stehen, weil ein Patch die Liste sonst ersetzt.
+    - name: Taints des Servers lesen
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_root }}"
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+      register: server_node
+      when: k3s_role == 'server'
+
+    - name: Server für Workloads sperren
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: "{{ kubeconfig_root }}"
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+        definition:
+          spec:
+            # rejectattr wirft einen Taint mit demselben Schlüssel und anderem
+            # Effekt weg. Kubernetes ließe beide nebeneinander stehen.
+            taints: >-
+              {{ (server_node.resources[0].spec.taints | default([])
+                  | rejectattr('key', 'equalto', server_taint.key) | list)
+                 + [server_taint] }}
+      vars:
+        server_taint:
+          key: CriticalAddonsOnly
+          value: "true"
+          effect: NoExecute
+      when:
+        - k3s_role == 'server'
+        - server_node.resources[0].spec.taints | default([])
+          | selectattr('key', 'equalto', server_taint.key)
+          | selectattr('effect', 'equalto', server_taint.effect)
+          | selectattr('value', 'defined')
+          | selectattr('value', 'equalto', server_taint.value)
+          | list | length == 0
 
 # Nur auf den Agents, der Server führt keine Einreichungen aus.
 - name: Sandbox-Laufzeit gVisor auf den Judge-Nodes einrichten
@@ -70,24 +118,6 @@
   tags: [gvisor]
   become: true
   tasks:
-    # Das Label sagt aus, dass runsc auf diesem Node liegt. Es benennt damit
-    # die Laufzeit und nicht die Rolle des Nodes, die Aufteilung zwischen
-    # Judge und Diensten entscheidet #88 getrennt davon. Der Name des Nodes
-    # ist sein Hostname, k3s übernimmt ihn unverändert.
-    - name: Agent-Nodes als Sandbox-Nodes kennzeichnen
-      kubernetes.core.k8s:
-        state: patched
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        kind: Node
-        name: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
-        definition:
-          metadata:
-            labels:
-              online-judge/sandbox: runsc
-      loop: "{{ groups['judge_k3s_agent'] }}"
-      loop_control:
-        label: "{{ hostvars[item]['ansible_facts']['hostname'] }}"
-
     # scheduling.nodeSelector bindet jeden Pod mit dieser RuntimeClass an die
     # gekennzeichneten Nodes. Der Weg über die RuntimeClass statt über jedes
     # Deployment hält die Bindung an einer Stelle. Wer runsc anfordert, kann
@@ -107,6 +137,32 @@
           scheduling:
             nodeSelector:
               online-judge/sandbox: runsc
+
+# helm --wait in der Rolle wartet auf die Ressourcen des Charts, nicht auf die
+# instance-manager, die Longhorn danach selbst anlegt. Ein Volume, das in dieser
+# Luecke entsteht, findet keinen laufenden Prozess und wird faulted. Am 25.08.
+# lagen zwischen dem Ende des Helm-Laufs und den ersten PVCs neun Sekunden.
+- name: Auf Longhorn warten
+  hosts: judge_k3s_server
+  tags: [longhorn]
+  become: true
+  tasks:
+    - name: Warten, bis jeder Dienste-Node einen laufenden instance-manager hat
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_root }}"
+        api_version: longhorn.io/v1beta2
+        kind: InstanceManager
+        namespace: longhorn-system
+      register: longhorn_managers
+      until: longhorn_managers.resources
+             | selectattr('status.currentState', 'equalto', 'running')
+             | map(attribute='spec.nodeID') | list | sort
+             == dienste_hostnames | sort
+      retries: 30
+      delay: 10
+      vars:
+        dienste_hostnames: "{{ groups['judge_k3s_agent_dienste']
+                               | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
 
 # Der Namespace für die Anwendung, kommt vor den Datendiensten (MongoDB/Valkey)
 # und der App, weil die künftig hier reingehören -- vorerst
@@ -169,14 +225,16 @@
 # Judge-Kette. MongoDB, Valkey und der Seed sind Infrastruktur und kommen aus
 # den Plays davor, ebenso die KEDA-CRD, die das ScaledObject braucht. Läuft auf dem Server (dort liegt die kubeconfig)
 # und vor der Auth-Kette, damit der backend-Service steht, wenn die geschützte
-# Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml, Secrets
-# braucht die App keine.
+# Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml. Aus
+# auth-credentials.yaml kommt der Herkunftswert des Gateways, den das Play als
+# Secret anlegt und die API beim Start liest (#79).
 - name: Anwendung ausrollen
   hosts: judge_k3s_server
   tags: [app]
   become: true
   vars_files:
     - vars/app.yaml
+    - auth-credentials.yaml
   tasks:
     - name: Anwendung
       ansible.builtin.import_tasks: tasks/app.yaml

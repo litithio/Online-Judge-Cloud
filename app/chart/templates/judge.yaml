@@ -43,6 +43,19 @@ metadata:
 spec:
   # Ohne replicas, die Zahl gehört dem ScaledObject unten. Stünde sie hier,
   # setzte jedes helm upgrade den Stand zurück, den KEDA gerade eingestellt hat.
+  #
+  # maxSurge 0 statt der Vorgabe. Auf den Worker zeigt kein Service, er holt
+  # seine Arbeit aus der Warteschlange, ein zusätzlicher Pod während des
+  # Rollouts bringt nichts. Bei keda.max 5 ergäben die vorgegebenen 25 Prozent
+  # aufgerundet zwei zusätzliche Pods, zusammen 7000m auf zwei Judge-Nodes mit
+  # 8000m. Terminierende Pods halten ihre Anforderung dabei weiter, ein Rollout
+  # unter Last ließe Worker deshalb Pending stehen. Beide Werte auf 0 lässt die
+  # API nicht zu, deshalb maxUnavailable 1.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: code-worker-{{ .name }}
@@ -66,17 +79,23 @@ spec:
       # /var/run/secrets und könnte den Token lesen, der Worker selbst ruft die
       # Kubernetes-API nie.
       automountServiceAccountToken: false
-      # Stellt in dem emptyDir unten die /tmp-Rechte des Images her. kubelet
-      # legt ein emptyDir mit 0777 ohne Sticky-Bit an, und ohne das Bit darf
-      # die Einreichung fremde Einträge in /tmp umbenennen, auch /tmp/judge.
-      # Jeder weitere Lauf scheiterte dann am fehlenden Pfad. Mit 1777 löscht
-      # und verschiebt dort nur noch der Eigentümer, wie in /tmp üblich.
+      # Setzt die Rechte der beiden emptyDir unten. kubelet legt sie mit 0777
+      # ohne Sticky-Bit an, und ohne weiteres Zutun dürfte dort jeder fremde
+      # Einträge umbenennen. Für /work heißt das, die Einreichung könnte
+      # /work/judge verschieben und jeder weitere Lauf scheiterte am fehlenden
+      # Pfad. /tmp bekommt 1777 wie im Image, dort löscht und verschiebt dann
+      # nur noch der Eigentümer.
       initContainers:
-        - name: tmp-sticky
+        - name: verzeichnisse
           # Dasselbe Image wie der Worker, es liegt ohnehin auf dem Node.
           image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
-          command: ["chmod", "1777", "/tmp"]
+          # /tmp bekommt 1777 wie im Image, /work dagegen 0755. Die
+          # Arbeitsverzeichnisse unter /work gehören dem Worker, und die
+          # Einreichung hat dort nichts anzulegen. Ohne das chmod stünde auch
+          # /work auf den 0777 des emptyDir, und sie könnte /work/judge
+          # umbenennen, womit jeder weitere Lauf am fehlenden Pfad scheiterte.
+          command: ["sh", "-c", "chmod 1777 /tmp && chmod 755 /work"]
           securityContext:
             capabilities:
               drop: ["ALL"]
@@ -95,26 +114,30 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: work
+              mountPath: /work
       containers:
         - name: worker
           image: {{ include "online-judge.image" (dict "root" $ "repo" .repository) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           # Als root mit fast leerem Capability-Satz. Root muss sein, der
-          # Worker wechselt je Lauf per setuid auf den User sandbox,
+          # Worker wechselt je Lauf per setuid auf eine eigene UID,
           # runAsNonRoot stoppte ihn schon beim Start. Der Kommentar zu #55
           # nennt CHOWN, SETUID, SETGID und KILL, gemessen (docker run
           # --cap-drop ALL gegen run_code_in_sandbox) reichen die vier seit
           # dem chown und chmod 700 des Arbeitsverzeichnisses nicht mehr:
           # DAC_OVERRIDE braucht der Worker für jeden Blick in das
-          # Verzeichnis, sobald es sandbox gehört, samt dem rmtree danach,
-          # FOWNER für das chmod nach dem chown. Ohne die beiden endet jeder
-          # Lauf als Umgebungsfehler und das Arbeitsverzeichnis bleibt liegen.
+          # Verzeichnis, sobald es der Einreichung gehört, samt dem rmtree
+          # danach, FOWNER für das chmod nach dem chown. Ohne die beiden endet
+          # jeder Lauf als Umgebungsfehler und das Arbeitsverzeichnis bleibt
+          # liegen.
           securityContext:
             # allowPrivilegeEscalation false setzt NoNewPrivs. Die SUID-Binaries
             # im Image (su, mount) geben der Sandbox dann kein euid 0 mehr, auch
             # nicht über einen Eintrag in einer Datei, die der Worker sonst
-            # übergeben hätte. Der setuid-Wechsel des Workers auf sandbox ist
-            # davon nicht betroffen, er senkt Rechte statt sie zu heben. Siehe #185.
+            # übergeben hätte. Der setuid-Wechsel des Workers auf die UID des
+            # Laufs ist davon nicht betroffen, er senkt Rechte statt sie zu
+            # heben. Siehe #185.
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -160,6 +183,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: work
+              mountPath: /work
       volumes:
         # /tmp mit Deckel. Eine Einreichung darf dort schreiben, je Datei auf
         # 1 MiB begrenzt (RLIMIT_FSIZE), in der Zahl der Dateien aber nicht.
@@ -169,6 +194,14 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ $.Values.judge.tmpSizeLimit }}
+        # /work trägt die Arbeitsverzeichnisse der Läufe, früher lagen sie unter
+        # /tmp (#189). Sie mussten dort heraus, weil jeder Lauf sein eigenes /tmp
+        # als tmpfs bekommt und ein tmpfs alles darunter verdeckt. Eigenes
+        # Volume mit eigenem Deckel, denn die Einreichung schreibt in ihr
+        # Arbeitsverzeichnis, und der Worker räumt es nach dem Lauf.
+        - name: work
+          emptyDir:
+            sizeLimit: {{ $.Values.judge.workSizeLimit }}
 ---
 # minReplicaCount steht auf 0, weil die Last stoßweise ist und zwischen
 # Prüfungsterminen nahe null. Ohne Einreichungen soll kein Worker-Pod stehen

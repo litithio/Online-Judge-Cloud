@@ -1,5 +1,6 @@
 locals {
-  all_nodes = concat([openstack_compute_instance_v2.server], openstack_compute_instance_v2.worker)
+  agents    = concat(openstack_compute_instance_v2.dienste, openstack_compute_instance_v2.judge)
+  all_nodes = concat([openstack_compute_instance_v2.server], local.agents)
 
   # Verbindungsadresse je Node: IPv6, wenn jede Node eine hat, sonst die
   # NAT-IPv4. ip_family überlässt die k3s-Rolle sich selbst (Default auto).
@@ -14,8 +15,12 @@ output "master_ip" {
   value = local.master_addr
 }
 
-output "worker_ips" {
-  value = [for w in openstack_compute_instance_v2.worker : local.conn_addr[w.name]]
+output "dienste_ips" {
+  value = [for n in openstack_compute_instance_v2.dienste : local.conn_addr[n.name]]
+}
+
+output "judge_ips" {
+  value = [for n in openstack_compute_instance_v2.judge : local.conn_addr[n.name]]
 }
 
 # Inventory im Gruppenformat der k3s-Rolle. Persönliche Werte (E-Mail, Zone,
@@ -36,13 +41,32 @@ resource "local_file" "ansible_inventory" {
               vars  = { k3s_role = "server" }
               hosts = { (local.master_addr) = { ansible_user = "ubuntu" } }
             }
+            # Die beiden Untergruppen tragen die Rolle aus #88. Die k3s-Rolle
+            # sieht weiterhin nur judge_k3s_agent, die Untergruppen erben ihre
+            # Variablen. Sie sind die Handhabe für #66, das gVisor und die
+            # Labels auf die Judge-Nodes eingrenzt.
             judge_k3s_agent = {
               vars = {
                 k3s_role        = "agent"
                 k3s_server_host = local.master_addr
               }
-              hosts = { for w in openstack_compute_instance_v2.worker :
-                local.conn_addr[w.name] => { ansible_user = "ubuntu" }
+              children = {
+                # Die Labels kommen als k3s-Argument und stehen damit ab der
+                # Registrierung. Ueber die API gesetzt kaemen sie zu spaet, die
+                # Rolle installiert Longhorn im selben Lauf und dessen
+                # nodeSelector faende dann keinen Node.
+                judge_k3s_agent_dienste = {
+                  vars = { k3s_extra_agent_exec_args = "--node-label online-judge/rolle=dienste" }
+                  hosts = { for n in openstack_compute_instance_v2.dienste :
+                    local.conn_addr[n.name] => { ansible_user = "ubuntu" }
+                  }
+                }
+                judge_k3s_agent_judge = {
+                  vars = { k3s_extra_agent_exec_args = "--node-label online-judge/sandbox=runsc" }
+                  hosts = { for n in openstack_compute_instance_v2.judge :
+                    local.conn_addr[n.name] => { ansible_user = "ubuntu" }
+                  }
+                }
               }
             }
           }

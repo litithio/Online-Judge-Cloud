@@ -66,6 +66,12 @@ services:
       BIND_HOST: 0.0.0.0
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://valkey:6379
+      # Ohne diesen Wert startet die API nicht (app/backend/auth.py). Im
+      # Cluster setzt ihn Ansible als Secret, und die Middleware schickt
+      # denselben Wert als Header. Hier steht er im Klartext, weil der lokale
+      # Stand kein Gateway davor hat und der Aufrufer die Header selbst setzt.
+      # Er gilt nur lokal und ist kein Geheimnis.
+      GATEWAY_SECRET: nur-lokal-ohne-gateway-kein-geheimnis
     depends_on:
       - mongodb
       - valkey

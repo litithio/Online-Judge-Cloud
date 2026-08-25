@@ -546,3 +546,17 @@ einen weiteren Eintrag aus der Warteschlange, den der Durchlauf zurückholt. Das
 kostet je nach Ausgang der Übernahme einen Versuch an `versuche` oder an
 `requeue_versuche`. Der Tausch ist gewollt, ein hängender Worker zählt für KEDA
 weiter als Kapazität.
+
+Während eines Rollouts der API fehlt eine Replica. Das Deployment setzt
+`maxUnavailable: 1`, weil die Anti-Affinity für den neuen Pod einen Node ohne
+backend-Pod verlangt. Ist keiner frei, bleibt der Pod ohne diesen Wert Pending
+und der Rollout steht still, gemessen nach acht Stunden noch. Mit dem Wert läuft
+er, dafür trägt eine Replica die Last allein, gemessen auch mit drei freien
+Nodes. In diesem Fenster hat die API keine Redundanz mehr, in dev mit einer
+Replica fällt sie ganz aus.
+
+Bleibt ein Rollout hängen, hält der Zustand an. Wird das neue Image nicht ready,
+hat der Controller schon eine alte Replica entfernt und holt sie nicht zurück,
+ein automatisches Rollback gibt es nicht. Mit einem Tag, den die Registry nicht
+kennt, stand prod nach 45 Sekunden bei einer verfügbaren Replica und dev bei
+null. Ohne `maxUnavailable: 1` laufen die alten Pods in diesem Fall weiter.

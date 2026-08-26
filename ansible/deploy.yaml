@@ -28,9 +28,11 @@
     # aus kein Taint. Die Rolle hängt k3s_extra_exec_args allein an die
     # Server-Argumente an, die Agents sehen den Wert nicht. Auf
     # CriticalAddonsOnly sind coredns, metrics-server und der svclb von Traefik
-    # ausgelegt, Longhorn läuft damit nicht mehr auf dem Server.
+    # ausgelegt, Longhorn läuft damit nicht mehr auf dem Server. NoSchedule
+    # reicht, das Taint steht ab dem Start des Servers und es kommt nie ein Pod
+    # ohne Toleration dorthin.
     - role: k3s-dhbw-cloud-role
-      k3s_extra_exec_args: "--node-taint CriticalAddonsOnly=true:NoExecute"
+      k3s_extra_exec_args: "--node-taint CriticalAddonsOnly=true:NoSchedule"
       longhorn_node_selector:
         online-judge/rolle: dienste
   tasks:
@@ -74,7 +76,7 @@
         server_taint:
           key: CriticalAddonsOnly
           value: "true"
-          effect: NoExecute
+          effect: NoSchedule
       when:
         - k3s_role == 'server'
         - server_node.resources[0].spec.taints | default([])
@@ -186,7 +188,7 @@
         - plan: server-plan
           key: CriticalAddonsOnly
           value: "true"
-          effect: NoExecute
+          effect: NoSchedule
         - plan: agent-plan
           key: online-judge/sandbox
           value: runsc

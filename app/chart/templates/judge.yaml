@@ -69,6 +69,12 @@ spec:
       labels:
         {{- include "online-judge.labels" $ | nindent 8 }}
         app: code-worker-{{ .name }}
+        # Trägt jeder Worker, unabhängig von der Sprache. Die Verteilungsregel
+        # unten zählt darüber, denn die Worker aller Sprachen teilen sich
+        # dieselben Kerne auf den Judge-Nodes. Über app allein zählte sie nur
+        # je Sprache, und der erste Python- und der erste Java-Worker könnten
+        # auf demselben Node landen, während der andere leer steht.
+        komponente: judge-worker
     spec:
       # Der eingereichte Code läuft als Subprozess im Worker, nicht in einem
       # eigenen Container. Die Isolation kommt deshalb von der Laufzeit des
@@ -79,6 +85,27 @@ spec:
       # /var/run/secrets und könnte den Token lesen, der Worker selbst ruft die
       # Kubernetes-API nie.
       automountServiceAccountToken: false
+      # Die Worker verteilen sich über die Judge-Nodes. Ein Worker fordert einen
+      # ganzen Kern und läuft ihn bei einer Einreichung auch aus. Liegen mehrere
+      # auf einem Node und keiner auf dem anderen, hängt die gemessene Laufzeit
+      # einer Einreichung von der Nachbarschaft ab, und genau die Laufzeit
+      # bewertet der Judge. Ohne die Regel kann eine Skalierung von KEDA alle
+      # neuen Worker auf denselben Node legen, die Verteilung ist beim
+      # Scheduler sonst nur eine nachrangige Bewertung.
+      #
+      # ScheduleAnyway und nicht DoNotSchedule. Ein gedrainter Node zählt weiter
+      # als Domain, hart bliebe ein Worker dann Pending statt auf dem übrigen
+      # Node zu laufen. Denselben Fall hält #160 für MongoDB fest, dort ist er
+      # gewollt, hier nicht. Als harte Platzierungsentscheidung für P4 zählt
+      # diese Regel damit nicht, das tun die RuntimeClass und der nodeSelector
+      # der Datendienste.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              komponente: judge-worker
       # Setzt die Rechte der beiden emptyDir unten. kubelet legt sie mit 0777
       # ohne Sticky-Bit an, und ohne weiteres Zutun dürfte dort jeder fremde
       # Einträge umbenennen. Für /work heißt das, die Einreichung könnte

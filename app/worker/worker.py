@@ -52,6 +52,16 @@ MELDUNG_MAX = 2000  # so viel Fehlerausgabe übernimmt das Feld result der Einre
 REST_FRIST = 1.0  # Sekunden, die das Aufräumen auf beendete Prozesse wartet
 QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwortet
 
+# Sekunden, die run_code_in_sandbox nach dem SIGKILL beim Zeitlimit noch auf
+# das wait4 des eigenen Kindes wartet. SIGKILL ist nicht abzufangen, ein
+# Prozess in ununterbrechbarem Warten auf Ein- oder Ausgabe stirbt daran aber
+# trotzdem nicht sofort. Ohne diese Grenze bliebe der Worker an genau dieser
+# Stelle hängen, ohne Ende. Läuft die Frist ab, gibt run_code_in_sandbox das
+# Urteil ohne rusage zurück; der Prozess selbst holt _reste_beenden im
+# finally-Block, sobald er tatsächlich stirbt, so wie jeden anderen Rest der
+# Sandbox auch.
+SIGKILL_FRIST = 5.0
+
 # Zeitlimit des blpop unten. Der Wert bestimmt nur, wie oft die Schleife im
 # Leerlauf umläuft, aus den Grenzen der Aufgaben folgt er nicht. Er muss unter
 # dem socket_timeout des Clients liegen, sonst bricht der Socket das Warten ab,
@@ -811,13 +821,29 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
                 break
             if time.monotonic() > frist:
                 os.killpg(prozess.pid, signal.SIGKILL)
-                _, _, rusage = os.wait4(prozess.pid, 0)
+                # WNOHANG statt wait4(prozess.pid, 0): SIGKILL beendet einen
+                # Prozess in ununterbrechbarem Warten auf Ein- oder Ausgabe
+                # nicht sofort, ein blockierendes wait4 hinge dann ohne Ende.
+                kill_frist = time.monotonic() + SIGKILL_FRIST
+                speicher_kb = 0
+                while True:
+                    pid, status, rusage = os.wait4(prozess.pid, os.WNOHANG)
+                    if pid != 0:
+                        speicher_kb = rusage.ru_maxrss
+                        break
+                    if time.monotonic() > kill_frist:
+                        print(
+                            f"Prozess {prozess.pid} reagiert nicht auf SIGKILL, "
+                            f"vermutlich ununterbrechbares Warten auf E/A"
+                        )
+                        break
+                    time.sleep(0.02)
                 dauer_ms = round((time.monotonic() - start) * 1000)
                 return (
                     "TLE",
                     f"Zeitlimit von {zeit} Sekunden überschritten",
                     dauer_ms,
-                    rusage.ru_maxrss,
+                    speicher_kb,
                 )
             time.sleep(0.02)
 
@@ -1047,24 +1073,6 @@ def _urteil(sub_id, token, submission, task):
 
     zeit, speicher = grenzen_der_aufgabe(task)
 
-    # Löst die Frist von der Übernahme (_uebernehmen) ab, sobald die Aufgabe
-    # feststeht: zeit gilt je Testfall, die Summe über alle Testfälle ist die
-    # tatsächliche Obergrenze dieses Laufs, unabhängig von ihrer Zahl. Der
-    # bedingte Update lässt einen inzwischen erschöpften run_token in Ruhe,
-    # wie jeder andere Schreibzugriff hier.
-    db.submissions.update_one(
-        {"_id": sub_id, "status": "RUNNING", "run_token": token},
-        {
-            "$set": {
-                "frist": datetime.now(timezone.utc)
-                + timedelta(
-                    seconds=zeit * len(test_cases) + CLAIM_FRIST_PUFFER_SEKUNDEN
-                )
-            }
-        },
-    )
-    _heartbeat()
-
     # Platzhalter für alle Fälle, bevor der erste läuft. Damit trägt der
     # Fortschritt "2 von 5 erledigt" schon während des Laufs, nicht erst am
     # Ende.
@@ -1099,21 +1107,47 @@ def _urteil(sub_id, token, submission, task):
         else:
             detail = text
 
-        db.submissions.update_one(
-            {"_id": sub_id, "status": "RUNNING", "run_token": token},
-            {
-                "$set": {
-                    f"test_results.{i - 1}": {
-                        "test_id": i,
-                        "verdict": verdict,
-                        "detail": detail,
-                        "zeit_ms": dauer_ms,
-                        "speicher_kb": speicher_kb,
-                    }
+        update = {
+            "$set": {
+                f"test_results.{i - 1}": {
+                    "test_id": i,
+                    "verdict": verdict,
+                    "detail": detail,
+                    "zeit_ms": dauer_ms,
+                    "speicher_kb": speicher_kb,
                 }
-            },
+            }
+        }
+        if verdict == "AC":
+            # Verlängert nach jedem bestandenen Testfall statt einmal für die
+            # Summe aller Fälle vorab (#136, Beschluss aus #111): Ein Worker,
+            # der auf einem einzelnen Fall hängt, reißt so seine Frist nach
+            # spätestens einem Fall, statt erst nach der Summe aller. zeit ist
+            # dabei nicht die Obergrenze eines Laufs, laufen darf er bis
+            # zeit + 1 + ZEITFRIST_PUFFER (siehe run_code_in_sandbox), dazu
+            # kommen Rüstzeit, Aufräumen und dieser Schreibzugriff, gedeckt
+            # durch dieselbe Marge wie an der Übernahme.
+            update["$set"]["frist"] = datetime.now(timezone.utc) + timedelta(
+                seconds=zeit + 1 + ZEITFRIST_PUFFER + CLAIM_FRIST_PUFFER_SEKUNDEN
+            )
+        ergebnis = db.submissions.update_one(
+            {"_id": sub_id, "status": "RUNNING", "run_token": token}, update
         )
         _heartbeat()
+
+        if ergebnis.matched_count == 0:
+            # Die Übernahme ist nicht mehr gültig: Die Frist ist einem anderen
+            # Worker gerissen, durchlauf.py hat die Einreichung zurückgeholt
+            # und neu vergeben. Weiterzurechnen liefe nur noch gegen ein
+            # Ergebnis, das _ergebnis_schreiben ohnehin über denselben Filter
+            # verwirft, kostet aber echte Sandbox-Läufe. status None statt
+            # eines Urteils: process_queue schreibt dafür nichts und meldet
+            # kein "verarbeitet", denn dieser Worker hat gar nichts mehr
+            # beigetragen.
+            print(
+                f"Einreichung {sub_id}: Übernahme verloren, Abbruch vor Testfall {i + 1}"
+            )
+            return None, None
 
         if verdict != "AC":
             return "FAILED", (
@@ -1232,6 +1266,12 @@ def process_queue():
             print(
                 f"Einreichung {sub_id}: Umgebungsfehler, wartet auf den Durchlauf: {text}"
             )
+            continue
+
+        if status is None:
+            # _urteil hat die Übernahme währenddessen verloren und das schon
+            # selbst geloggt. Nichts mehr zu schreiben, und "verarbeitet"
+            # träfe nicht zu, dieser Worker hat kein Urteil beigetragen.
             continue
 
         _ergebnis_schreiben(sub_id, token, status, text)

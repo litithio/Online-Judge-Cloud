@@ -14,9 +14,26 @@ from auth import get_current_user, herkunft_pruefen
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 
 # DB Connections
-mongo_client = MongoClient(MONGO_URI)
+#
+# connectTimeoutMS/socketTimeoutMS wie am Worker (app/worker/worker.py):
+# serverSelectionTimeoutMS bleibt bei der Vorgabe von 30 Sekunden, das deckt
+# eine Neuwahl des Primary im ReplicaSet ab. Ohne die beiden anderen Werte
+# wartet ein Aufruf unbegrenzt, sobald MongoDB die Verbindung annimmt und
+# danach nicht mehr antwortet, und blockiert damit einen Thread im
+# Threadpool auf Dauer statt für einige Sekunden.
+mongo_client = MongoClient(
+    MONGO_URI,
+    connectTimeoutMS=5000,
+    socketTimeoutMS=10000,
+)
 db = mongo_client["coding_platform"]
-redis_client = redis.Redis.from_url(os.getenv("REDIS_URI", "redis://localhost:6379"))
+# Kein blpop hier, nur rpush in /submit, deshalb reichen fünf Sekunden für
+# beide Werte, anders als am Worker.
+redis_client = redis.Redis.from_url(
+    os.getenv("REDIS_URI", "redis://localhost:6379"),
+    socket_connect_timeout=5,
+    socket_timeout=5,
+)
 
 # Eigene Verbindung nur für /readyz, mit kurzen Zeitlimits.
 #

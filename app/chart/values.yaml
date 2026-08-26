@@ -165,6 +165,6 @@ judge:
       limits:
         cpu: "500m"
         memory: "128Mi"
-    # Unter CLAIM_FRIST_SEKUNDEN aus worker.py, siehe Kommentar im Template.
+    # Unter CLAIM_FRIST_PUFFER_SEKUNDEN aus worker.py, siehe Kommentar im Template.
     schedule: "*/2 * * * *"
     maxVersuche: 3

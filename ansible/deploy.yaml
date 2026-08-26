@@ -137,10 +137,109 @@
           scheduling:
             nodeSelector:
               online-judge/sandbox: runsc
+            # Die Judge-Nodes tragen ein Taint mit demselben Schlüssel, gesetzt
+            # über --node-taint in terraform/outputs.tf. Damit landet dort nur,
+            # was den Taint toleriert, und das ist über diese RuntimeClass genau
+            # der eingereichte Code. Vorher lief dort auch, was niemand bestellt
+            # hatte, Traefik, cert-manager, external-dns und die KEDA-Pods.
+            # Die Toleration steht hier und nicht am Deployment, dann gilt sie
+            # für jeden Pod mit dieser RuntimeClass.
+            tolerations:
+              - key: online-judge/sandbox
+                operator: Equal
+                value: runsc
+                effect: NoSchedule
+
+# Der system-upgrade-controller bindet seinen Job an den Node, den er
+# aktualisiert, und die Plans der Rolle tragen keine tolerations. Ohne diesen
+# Patch bliebe der Job auf jedem getainteten Node Pending, und die Nodes
+# bekämen keine k3s-Upgrades mehr. Betrifft auch den Server, dessen Taint schon
+# länger steht. Die Rolle schreibt die Plans bei jedem Lauf neu, dieses Play
+# setzt die tolerations direkt danach wieder.
+#
+# Damit läuft der Upgrade-Job auch auf den Judge-Nodes, privilegiert und neben
+# dem eingereichten Code. Das ist der Preis für automatische Upgrades, siehe
+# README ## Grenzen.
+- name: Upgrade-Plans die Taints tolerieren lassen
+  hosts: judge_k3s_server
+  # Auch unter k3s und upgrade, sonst legt die Rolle bei einem Lauf mit diesen
+  # Tags die Plans neu an und dieses Play liefe nicht mit.
+  tags: [gvisor, k3s, upgrade]
+  become: true
+  tasks:
+    - name: Toleration am Plan setzen
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        api_version: upgrade.cattle.io/v1
+        kind: Plan
+        namespace: system-upgrade
+        name: "{{ item.plan }}"
+        definition:
+          spec:
+            tolerations:
+              - key: "{{ item.key }}"
+                operator: Equal
+                value: "{{ item.value }}"
+                effect: "{{ item.effect }}"
+      loop:
+        - plan: server-plan
+          key: CriticalAddonsOnly
+          value: "true"
+          effect: NoExecute
+        - plan: agent-plan
+          key: online-judge/sandbox
+          value: runsc
+          effect: NoSchedule
+      loop_control:
+        label: "{{ item.plan }}"
 
 # helm --wait in der Rolle wartet auf die Ressourcen des Charts, nicht auf die
 # instance-manager, die Longhorn danach selbst anlegt. Ein Volume, das in dieser
 # Luecke entsteht, findet keinen laufenden Prozess und wird faulted. Am 25.08.
+# Das Taint aus terraform/outputs.tf setzt k3s beim Start des Agents. Auf einem
+# Node, der schon läuft, überspringt die Rolle die Installation und der Wert
+# käme nie an. Deshalb hier derselbe Weg wie beim Server, über die API.
+- name: Judge-Nodes für fremde Workloads sperren
+  hosts: judge_k3s_agent_judge
+  tags: [gvisor]
+  become: true
+  tasks:
+    - name: Taints des Judge-Nodes lesen
+      kubernetes.core.k8s_info:
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+      register: judge_node
+      delegate_to: "{{ groups['judge_k3s_server'][0] }}"
+
+    - name: Taint setzen
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+        definition:
+          spec:
+            # Ein Taint mit demselben Schlüssel und anderem Effekt fliegt raus,
+            # Kubernetes ließe sonst beide nebeneinander stehen.
+            taints: >-
+              {{ (judge_node.resources[0].spec.taints | default([])
+                  | rejectattr('key', 'equalto', judge_taint.key) | list)
+                 + [judge_taint] }}
+      delegate_to: "{{ groups['judge_k3s_server'][0] }}"
+      vars:
+        judge_taint:
+          key: online-judge/sandbox
+          value: runsc
+          effect: NoSchedule
+      when: judge_node.resources[0].spec.taints | default([])
+            | selectattr('key', 'equalto', judge_taint.key)
+            | selectattr('effect', 'equalto', judge_taint.effect)
+            | selectattr('value', 'defined')
+            | selectattr('value', 'equalto', judge_taint.value)
+            | list | length == 0
+
 # lagen zwischen dem Ende des Helm-Laufs und den ersten PVCs neun Sekunden.
 - name: Auf Longhorn warten
   hosts: judge_k3s_server

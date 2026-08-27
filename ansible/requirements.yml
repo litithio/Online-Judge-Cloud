@@ -13,7 +13,7 @@ roles:
   # v1.21.1 bekommt dafür beim nächsten Lauf ein Downgrade.
   - name: k3s-dhbw-cloud-role
     src: https://github.com/litithio/k3s-dhbw-cloud-role.git
-    version: 30903b06814c7a33e25b5997fa1db09f351f7edd
+    version: c2b7260676567eeaee2d3de9d3485b1b9dc669a5
 
 # Die Rolle setzt auf dem Steuerrechner diese Collections voraus:
 # kubernetes.core für die Helm- und k8s-Module, ansible.posix für sysctl.

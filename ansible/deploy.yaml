@@ -23,6 +23,63 @@
   hosts: all
   tags: [k3s]
   become: true
+  vars:
+    # Die einzige Helm-Version im Repo. Der Server rollt die Charts damit aus,
+    # und scripts/chart-check.sh liest den Wert aus dieser Zeile, damit die
+    # Prüfung dieselbe Version nimmt. Eigener Name statt helm_version, weil die
+    # Rolle einen gleichnamigen Default trägt und das Skript sonst zwei Zeilen
+    # fände.
+    judge_helm_version: "v3.21.4"
+  # Vor der Rolle, nicht danach. Die Rolle rollt cert-manager und Longhorn
+  # selbst über helm aus, ein Nachzug in tasks käme dafür zu spät. Die Tasks
+  # tragen always, sonst liefe ein Aufruf mit --tags app am k3s-Play vorbei und
+  # das App-Play nutzte weiter das alte Binary. Der Nachzug greift nur auf dem
+  # Server, die Agents rollen keine Charts aus.
+  pre_tasks:
+    - name: Helm-Version auf dem Server lesen
+      ansible.builtin.command: helm version --short
+      register: helm_vorhanden
+      changed_when: false
+      failed_when: false
+      # Liest auch bei --check, sonst bliebe stdout leer und der Lauf meldete
+      # eine Installation, die gar nicht ansteht.
+      check_mode: false
+      when: k3s_role == 'server'
+      tags: always
+
+    # Die Rolle installiert curl selbst, aber erst in ihrem Bootstrap und damit
+    # nach diesen Tasks. get-helm-3 unten braucht es, auf einem Node ohne curl
+    # risse der Aufruf den ganzen Lauf mit.
+    - name: Curl für das Installationsskript sicherstellen
+      ansible.builtin.apt:
+        name: curl
+        state: present
+        update_cache: true
+        cache_valid_time: 86400
+      when:
+        - k3s_role == 'server'
+        - (helm_vorhanden.stdout | default('')).split('+')[0] != judge_helm_version
+      tags: always
+
+    # Greift auch, wenn helm ganz fehlt. Der Task davor liefert dann einen
+    # leeren stdout, und ein Lauf mit --tags app käme sonst ohne helm zum
+    # App-Play, das ein Chart ausrollt. Der Task der Rolle überspringt danach
+    # wegen creates, installiert wird also einmal und mit demselben Skript.
+    - name: Helm auf den gepinnten Stand bringen
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+          | DESIRED_VERSION={{ judge_helm_version }} bash
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when:
+        - k3s_role == 'server'
+        # helm version --short liefert "v3.21.4+g813176c", der Teil vor dem
+        # Pluszeichen ist die Version. Fehlt helm, ist stdout leer und der
+        # Vergleich schlägt ebenfalls an.
+        - (helm_vorhanden.stdout | default('')).split('+')[0] != judge_helm_version
+      tags: always
   roles:
     # Der Server trägt nur die Steuerung, k3s setzt anders als kubeadm von sich
     # aus kein Taint. Die Rolle hängt k3s_extra_exec_args allein an die
@@ -33,6 +90,7 @@
     # ohne Toleration dorthin.
     - role: k3s-dhbw-cloud-role
       k3s_extra_exec_args: "--node-taint CriticalAddonsOnly=true:NoSchedule"
+      helm_version: "{{ judge_helm_version }}"
       longhorn_node_selector:
         online-judge/rolle: dienste
   tasks:

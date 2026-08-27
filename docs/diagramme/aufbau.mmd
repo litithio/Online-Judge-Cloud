@@ -19,12 +19,12 @@ flowchart TB
     end
 
     subgraph openstack["☁️ OpenStack Kursprojekt, Netz DHBWV6, öffentliche IPv6"]
+        traefik["🚪 Traefik Ingress<br/>TLS und OIDC-Plugin<br/>Server oder Dienste-Node"]
         subgraph server["🖥️ Server-VM, 2 vCPU, 4 GB"]
             cp["k3s Control Plane"]
         end
-        subgraph workers["🖥️ 3 Worker-VMs, je 4 vCPU, 8 GB, Pods über die Nodes verteilt"]
+        subgraph dienste["🖥️ 3 Dienste-VMs, je 4 vCPU, 8 GB"]
             subgraph rolle["von der k3s-Rolle installiert"]
-                traefik["🚪 Traefik Ingress<br/>TLS und OIDC-Plugin"]
                 certm["cert-manager"]
                 extdns["ExternalDNS"]
                 longhorn["💾 Longhorn<br/>Node-lokaler Storage"]
@@ -33,11 +33,13 @@ flowchart TB
                 keycloak["🔐 Keycloak<br/>Anmeldung"]
                 api["⚡ API-Service<br/>FastAPI"]
                 valkey["📨 Valkey<br/>eine Warteschlange je Sprache"]
-                judge["⚖️ Judge-Worker<br/>Sandbox je Testlauf"]
                 keda["📈 KEDA<br/>skaliert nach Länge der Warteschlange"]
                 durchlauf["🔁 Durchlauf<br/>CronJob alle zwei Minuten"]
                 mongo[("🗄️ MongoDB<br/>ReplicaSet mit 3 Members,<br/>Longhorn-PVC")]
             end
+        end
+        subgraph judgenodes["🖥️ 2 Judge-VMs, je 4 vCPU, 8 GB"]
+            judge["⚖️ Judge-Worker<br/>Sandbox je Testlauf,<br/>RuntimeClass gvisor"]
         end
     end
 
@@ -46,8 +48,6 @@ flowchart TB
         ca["🔏 ACME-CA der DHBW<br/>certificates.dhbw.cloud"]
         ghcr["📦 ghcr.io<br/>Container-Images"]
     end
-
-    cp ~~~ traefik
 
     studierende ==>|"HTTPS über IPv6"| traefik
     traefik -.->|"Anmeldung prüfen"| keycloak
@@ -64,7 +64,8 @@ flowchart TB
     tf -.->|"provisioniert VMs und Keypair"| openstack
     ansible -.->|"installiert den Cluster"| cp
     ci -.->|"pusht nach"| ghcr
-    workers -.->|"Image-Pull beim Pod-Start"| ghcr
+    dienste -.->|"Image-Pull beim Pod-Start"| ghcr
+    judgenodes -.->|"Image-Pull beim Pod-Start"| ghcr
     mongo -.->|"PVC"| longhorn
     valkey -.->|"PVC"| longhorn
     extdns -.->|"pflegt die Einträge"| dns
@@ -88,6 +89,7 @@ flowchart TB
     style umgebung fill:#f4f5f7,stroke:#9aa4b2,color:#2f3a48
     style openstack fill:#f0f6ff,stroke:#5b8def,color:#1b3a6b
     style server fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
-    style workers fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
+    style dienste fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
+    style judgenodes fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
     style rolle fill:#f6f1fc,stroke:#b39ddb,color:#4a3a7a
     style app fill:#f0faf3,stroke:#81c995,color:#1e5b3a

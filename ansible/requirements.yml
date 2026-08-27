@@ -3,16 +3,17 @@
 # eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht.
 ---
 roles:
-  # Eigener Fork, Branch longhorn-node-selector, zusammengeführt mit dem Stand
-  # von Pfisterer vom 25.08. Aus dem Fork kommen k3s_node_labels und die
-  # Longhorn-Voraussetzungen nur auf den Dienste-Nodes, aus dem Upstream der
-  # Fix, mit dem die Tags der Rolle ihre Tasks erreichen, ein nutzbarer
-  # --check-Lauf und der auf v1.20.3 gepinnte cert-manager-Chart. Der Pin hebt
-  # cert-manager nicht mehr mit dem Kalender, ein Cluster auf v1.21.1 bekommt
-  # dafür beim nächsten Lauf ein Downgrade.
+  # Eigener Fork, Branch main, zusammengeführt mit dem Stand von Pfisterer vom
+  # 26.08. Aus dem Fork kommen k3s_node_labels, die Longhorn-Voraussetzungen
+  # nur auf den Dienste-Nodes und der Umbau des Overlay-Preflights, der einen
+  # gescheiterten Sender von einem blockierten Port unterscheidet. Aus dem
+  # Upstream kommen der Fix, mit dem die Tags der Rolle ihre Tasks erreichen,
+  # ein nutzbarer --check-Lauf und der auf v1.20.3 gepinnte cert-manager-Chart.
+  # Der Pin hebt cert-manager nicht mehr mit dem Kalender, ein Cluster auf
+  # v1.21.1 bekommt dafür beim nächsten Lauf ein Downgrade.
   - name: k3s-dhbw-cloud-role
     src: https://github.com/litithio/k3s-dhbw-cloud-role.git
-    version: 4b93b2dce7fb42baad87d0617736bc6c77d74a09
+    version: 30903b06814c7a33e25b5997fa1db09f351f7edd
 
 # Die Rolle setzt auf dem Steuerrechner diese Collections voraus:
 # kubernetes.core für die Helm- und k8s-Module, ansible.posix für sysctl.

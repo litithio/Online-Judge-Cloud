@@ -145,29 +145,6 @@ else
   done
 fi
 
-# ---------- Helm ----------
-# Der Chart der eigenen Dienste (app/chart). Geprüft wird gegen beide
-# values-Overlays, weil sie sich in Replicas und resources unterscheiden und ein
-# Fehler nur in einem auftreten kann. Der Image-Tag wird gesetzt: values.yaml
-# lässt ihn leer, und das Schema lehnt einen leeren Tag ab -- ohne --set schlüge
-# lint deshalb schon an dieser Vorgabe fehl statt an einem echten Fehler.
-if [ ! -d app/chart ]; then
-  step "Helm: kein app/chart, übersprungen"
-elif ! command -v helm >/dev/null; then
-  echo "helm nicht gefunden" >&2
-  echo "         Abhilfe: https://helm.sh/docs/intro/install/" >&2
-  fail=1
-else
-  for env in dev prod; do
-    step "helm lint app/chart (values-$env.yaml)"
-    # --strict: auch Warnungen gelten als Fehler, damit eine schludrige Vorlage
-    # nicht durchrutscht. Der Tag ist ein Prüfwert, nicht der ausgelieferte.
-    helm lint app/chart --strict \
-      -f "app/chart/values-$env.yaml" --set image.tag=pruef
-    result $?
-  done
-fi
-
 printf '\n'
 if [ "$fail" -ne 0 ]; then
   echo "Infra-Check fehlgeschlagen."

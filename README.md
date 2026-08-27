@@ -74,9 +74,12 @@ Nodes über deren öffentliches IPv6 aus dem Internet, und der Full-Tunnel
 kappt genau das. Voraussetzung ist IPv6 am eigenen Anschluss, sonst bleibt
 nur der Campus.
 
-Auf dem eigenen Rechner liegen Python 3.12, Terraform, Helm und Docker.
-`terraform` und `helm` ruft `scripts/infra-check.sh` auf, `docker` ruft
-`scripts/diagramme.sh` auf. Die Versionen von Terraform und Helm stehen in
+Auf dem eigenen Rechner liegen Python 3.12, Terraform und Docker. `terraform`
+ruft `scripts/infra-check.sh` auf, `docker` rufen `scripts/diagramme.sh` und
+`scripts/chart-check.sh` auf. Helm liegt nicht lokal, es läuft im Container.
+Seine Version steht einmal im Repo, als `judge_helm_version` in
+`ansible/deploy.yaml`, und `scripts/chart-check.sh` liest sie von dort. Die
+Terraform-Version steht in
 `.github/workflows/infra.yml`, die Python-Version in beiden Workflows. venv
 erzwingt sie nicht, es übernimmt das `python3` aus der PATH.
 

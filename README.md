@@ -23,11 +23,13 @@ eigene schlanke Laufzeitumgebung, ohne den Host-Worker mit Abhängigkeiten zu
 ## Architektur
 
 Terraform legt die VMs im Kursprojekt an, Ansible rollt darauf mit der
-k3s-Rolle den Cluster aus, die Anwendung läuft als Pods auf den
-Worker-Nodes. Von außen führt ein einziger Weg hinein: Die DNS-Zone
-zeigt auf die öffentliche IPv6 der Nodes, dort nimmt Traefik jede
-Anfrage entgegen und lässt sie erst nach geprüfter Anmeldung zur API
-durch.
+k3s-Rolle den Cluster aus. Die sechs VMs verteilen sich auf drei
+Rollen. Der Server trägt die Steuerung und nimmt sonst nur Addons auf,
+drei Dienste-Nodes tragen MongoDB, Valkey, Keycloak und die API, zwei
+Judge-Nodes führen eingereichten Code aus. Von außen führt ein
+einziger Weg hinein: Die DNS-Zone zeigt auf die öffentliche IPv6 der
+Nodes, dort nimmt Traefik jede Anfrage entgegen und lässt sie erst
+nach geprüfter Anmeldung zur API durch.
 
 ### Aufbau
 
@@ -63,7 +65,7 @@ Queue-Eintrag, reiht er sie erneut ein, bis MAX_VERSUCHE erreicht ist
 ## Betrieb
 
 Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster samt der
-Datendienste (MongoDB, Redis), dem Judge-Worker und dem Seed der Aufgaben und
+Datendienste (MongoDB, Valkey), dem Judge-Worker und dem Seed der Aufgaben und
 rollt die eigene API als Helm-Release aus (`app/chart`). Die Images baut
 `images.yml` nach ghcr.io, sie sind öffentlich und lassen sich ohne Zugangsdaten
 ziehen.
@@ -74,9 +76,14 @@ Nodes über deren öffentliches IPv6 aus dem Internet, und der Full-Tunnel
 kappt genau das. Voraussetzung ist IPv6 am eigenen Anschluss, sonst bleibt
 nur der Campus.
 
-Auf dem eigenen Rechner liegen Python 3.12, Terraform, Helm und Docker.
-`terraform` und `helm` ruft `scripts/infra-check.sh` auf, `docker` ruft
-`scripts/diagramme.sh` auf. Die Versionen von Terraform und Helm stehen in
+Auf dem eigenen Rechner liegen Python 3.12, Terraform, Docker und kubectl.
+`terraform` ruft `scripts/infra-check.sh` auf, `docker` rufen
+`scripts/diagramme.sh` und `scripts/chart-check.sh` auf, mit `kubectl` prüft
+man den Cluster nach dem Ausrollen. Helm liegt nicht lokal, es läuft im
+Container.
+Seine Version steht einmal im Repo, als `judge_helm_version` in
+`ansible/deploy.yaml`, und `scripts/chart-check.sh` liest sie von dort. Die
+Terraform-Version steht in
 `.github/workflows/infra.yml`, die Python-Version in beiden Workflows. venv
 erzwingt sie nicht, es übernimmt das `python3` aus der PATH.
 
@@ -115,6 +122,33 @@ kubectl get nodes
 das Playbook legt die kubeconfig daneben. Wird das Ubuntu-Image auf newstack
 neu hochgeladen, bekommt es eine neue ID: den Wert aus `openstack image list`
 in die tfvars eintragen.
+
+Die Dienste- und die Judge-Nodes tragen ihre Rolle als Label ab der
+Registrierung. Die Werte stehen in `terraform/outputs.tf` und gehen als
+`k3s_node_labels` an die k3s-Rolle. Die Dienste-Nodes tragen
+`online-judge/rolle=dienste`, daran binden MongoDB, Valkey, Keycloak, die API
+und Longhorn ihren nodeSelector. Die Judge-Nodes tragen
+`online-judge/sandbox=runsc` und denselben Wert noch einmal als Taint mit
+NoSchedule. Auf einen Judge-Node kommt damit nur, was dieses Taint toleriert,
+und das tun die RuntimeClass `gvisor` und der `agent-plan` des
+system-upgrade-controller. Der Server trägt kein Rollen-Label, ihn grenzt
+allein `CriticalAddonsOnly=true:NoSchedule` ab. Dieses Taint tolerieren die
+Addons von k3s, darunter coredns, metrics-server und Traefik. Ein nodeSelector
+bindet sie nicht an den Server, Traefik kann deshalb auch auf einem
+Dienste-Node liegen.
+
+Labels wirken nur bei der Installation von k3s. Auf einem Node, der schon
+läuft, überspringt die Rolle die Installation, ein geändertes Label erreicht
+ihn also nicht mehr. Die beiden Taints zieht das Playbook über die
+Kubernetes-API nach, für die Labels gibt es keinen solchen Task. Wer noch
+einen Cluster mit den drei Worker-Nodes fährt, baut ihn deshalb neu auf. Die
+Ressourcen heißen in `terraform/instances.tf` jetzt `dienste` und `judge`, und
+es gibt keinen `moved`-Block. Ein Apply zerstört die drei Worker und legt fünf
+Nodes an. Ihre Longhorn-Replikate gehen mit ihnen verloren, also die Daten von
+MongoDB, Valkey und Keycloak. Die Aufgaben kommen über `--tags seed` zurück,
+die Einreichungen nicht. Ohne vorheriges `terraform destroy` bleibt zudem der
+Server stehen, und mit ihm die Node-Objekte der verschwundenen Worker in
+Kubernetes und in Longhorn. Kein Task im Playbook entfernt sie.
 
 ### Anwendung
 
@@ -233,6 +267,26 @@ eine geänderte `.mmd` ohne mitcommittete SVG macht den Pull Request rot.
 meldet, wenn eine `.mmd` neuer ist als ihr SVG.
 
 ## Entscheidungen
+
+### Zuschnitt der Nodes
+
+Der Cluster hat drei Dienste-Nodes und zwei Judge-Nodes, der Server nimmt nur
+noch die Addons von k3s auf. Drei Dienste-Nodes, weil das MongoDB-Replica-Set
+den Verlust eines Nodes nur übersteht, wenn seine drei Members auf drei Nodes
+liegen. Zwei Judge-Nodes wegen des Durchsatzes. `keda.max` steht auf 5, und
+ein Judge-Worker fordert einen ganzen Kern. Auf einem Judge-Node sind 4 Kerne
+verfügbar und ohne Einreichungen 0 davon angefordert, weil dort weder Longhorn
+noch Traefik, cert-manager, external-dns oder KEDA laufen. Zwei Nodes tragen
+die fünf Worker also mit Reserve, ein einzelner Node käme auf vier und
+`keda.max` müsste herunter.
+
+Die Alternative ohne zusätzliche Nodes war eine podAntiAffinity am Worker
+gegen die Pods von MongoDB und Keycloak. Mit `required` bliebe der Worker
+Pending, sobald alle drei Agents ein Member tragen, und `preferred` bewertet
+einen freien Node nur besser, statt etwas zuzusagen. In beiden Fällen liefen
+Judge und Dienste weiter auf denselben Nodes, ein Ausbruch aus gVisor
+erreichte also weiter die Secrets von MongoDB und Keycloak. Der Zuschnitt
+kostet dafür zwei Instanzen, sechs statt vier.
 
 ### Ressourcen der Judge-Worker
 
@@ -493,6 +547,15 @@ nähme die Zugangsdaten aus dem Pod. Dagegen steht der Aufwand. Die Übernahme n
 auf `status: PENDING` und der Schreibvorgang nur bei passendem `run_token`
 stecken heute in je einer Operation und wären über HTTP neu zu bauen, und die
 API läge im Judge-Pfad, ihr Ausfall träfe jeden Lauf.
+
+Ein k3s-Upgrade trifft laufende Judge-Worker. Der `agent-plan` des
+system-upgrade-controller räumt den Node mit `drain.force` leer, bevor der
+Upgrade-Job startet, und `ansible/deploy.yaml` gibt ihm dafür die Toleration
+des Judge-Taints. Ohne sie bliebe der Job Pending und die Judge-Nodes bekämen
+keine k3s-Upgrades mehr. Ein Worker, der beim Räumen rechnet, verliert seinen
+Pod. Die Einreichung bleibt dann auf RUNNING stehen, bis ihre Frist abläuft,
+und der Versuch ist verbraucht. Das Fenster steht täglich von 02:00 bis 04:00
+Europe/Berlin.
 
 Außerhalb der Sandbox liegt eine Grenze bei der Verfügbarkeit der API. Die
 readinessProbe fragt `/readyz`, und dieser Endpunkt prüft MongoDB. Fällt die

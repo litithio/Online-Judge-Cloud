@@ -1,17 +1,40 @@
 #!/usr/bin/env bash
-# Prüft das Helm-Chart unter app/chart: Lint, Rendern mit values.yaml sowie
-# dem dev- und dem prod-Overlay, kubeconform über die Renders und Negativtests
-# am values-Schema. Der chart-Job in lint.yml ruft genau dieses Skript auf,
-# lokal läuft es über ./scripts/check.sh, damit prüfen beide dasselbe.
+# Prüft das Helm-Chart unter app/chart. Lint und Rendern je mit values.yaml
+# allein sowie mit dem dev- und dem prod-Overlay, kubeconform über die Renders
+# und Negativtests am values-Schema. Der chart-Job in lint.yml ruft genau
+# dieses Skript auf, lokal läuft es über ./scripts/check.sh, damit prüfen beide
+# dasselbe.
 #
-# helm und kubeconform laufen im Container statt als lokale Binaries: auf den
-# Entwicklungsrechnern ist kein helm installiert, und die gepinnten Images
-# halten CI und lokalen Lauf auf demselben Stand. Wer eine Version wechselt,
-# ändert sie nur hier.
+# helm und kubeconform laufen im Container statt als lokale Binaries. Auf den
+# Entwicklungsrechnern ist kein helm installiert, und der Container hält CI und
+# lokalen Lauf auf demselben Stand.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-helm_image=alpine/helm:3.19.0
+# Die Helm-Version wird aus ansible/deploy.yaml gelesen statt hier hinterlegt.
+# Dort pinnt sie den k3s-Server, der die Charts ausrollt, und geprüft werden
+# soll mit derselben Version. Das Muster ist an beiden Enden verankert und
+# nimmt den Wert mit beiden Anführungszeichen, ohne sie und mit einem
+# nachgestellten Kommentar. Ein unvollständiger oder umschlossener Wert wird
+# nicht gekürzt, sondern abgelehnt. Gekürzt zöge er einen Image-Tag, den es
+# wirklich gibt, und die Prüfung liefe still gegen einen anderen Stand als das
+# Ausrollen. Drei Ausdrücke statt einer Rückwärtsreferenz, weil das Ergebnis
+# dann auf BSD und GNU sed dasselbe ist.
+helm_version=$(
+    sed -nE \
+        -e 's/^[[:space:]]*judge_helm_version:[[:space:]]*"v([0-9]+\.[0-9]+\.[0-9]+)"[[:space:]]*(#.*)?$/\1/p' \
+        -e "s/^[[:space:]]*judge_helm_version:[[:space:]]*'v([0-9]+\.[0-9]+\.[0-9]+)'[[:space:]]*(#.*)?\$/\1/p" \
+        -e 's/^[[:space:]]*judge_helm_version:[[:space:]]*v([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*(#.*)?$/\1/p' \
+        ansible/deploy.yaml
+)
+# Genau ein Treffer. Eine zweite judge_helm_version in einem anderen Play wäre
+# der Weg zurück zu zwei Ständen, und das Skript nähme stumm den ersten.
+treffer=$(printf '%s\n' "$helm_version" | grep -c .)
+if [ "$treffer" -ne 1 ]; then
+    echo "judge_helm_version in ansible/deploy.yaml nicht genau einmal als vX.Y.Z lesbar, Treffer $treffer" >&2
+    exit 1
+fi
+helm_image=alpine/helm:$helm_version
 kubeconform_image=ghcr.io/yannh/kubeconform:v0.8.0
 
 # Unter /tmp statt $TMPDIR: Docker auf macOS teilt /tmp, die mktemp-Vorgabe
@@ -24,9 +47,14 @@ helm() {
 }
 
 # Der Image-Tag hat im Schema bewusst keine Vorgabe, ohne --set bricht schon
-# das Lint ab.
+# das Lint ab. --strict macht Warnungen zu Fehlern, damit eine schludrige
+# Vorlage nicht durchrutscht. Gelintet wird gegen dieselben drei Stände wie
+# gerendert, weil dev und prod sich in Replicas und resources unterscheiden und
+# ein Fehler nur in einem auftreten kann.
 echo "== helm lint =="
-helm lint /chart --set image.tag=0.0.0-test
+helm lint /chart --strict --set image.tag=0.0.0-test
+helm lint /chart --strict -f /chart/values-dev.yaml --set image.tag=0.0.0-test
+helm lint /chart --strict -f /chart/values-prod.yaml --set image.tag=0.0.0-test
 
 # Drei Stände: values.yaml allein, dazu je das dev- und das prod-Overlay.
 # kubeconform prüft die gerenderten Manifeste gegen die Kubernetes-Schemas.

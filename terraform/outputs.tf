@@ -54,15 +54,28 @@ resource "local_file" "ansible_inventory" {
                 # Die Labels kommen als k3s-Argument und stehen damit ab der
                 # Registrierung. Ueber die API gesetzt kaemen sie zu spaet, die
                 # Rolle installiert Longhorn im selben Lauf und dessen
-                # nodeSelector faende dann keinen Node.
+                # nodeSelector faende dann keinen Node. Als Mapping und nicht als
+                # --node-label in k3s_extra_agent_exec_args, weil die Rolle die
+                # Labels selbst liest. Sie entscheidet damit schon im Bootstrap,
+                # also bevor der Node existiert, welcher Node die iSCSI-Pakete
+                # von Longhorn bekommt.
                 judge_k3s_agent_dienste = {
-                  vars = { k3s_extra_agent_exec_args = "--node-label online-judge/rolle=dienste" }
+                  vars = { k3s_node_labels = { "online-judge/rolle" = "dienste" } }
                   hosts = { for n in openstack_compute_instance_v2.dienste :
                     local.conn_addr[n.name] => { ansible_user = "ubuntu" }
                   }
                 }
+                # Das Taint kehrt die Auswahl um. Auf einen Judge-Node kommt
+                # nur noch, was es toleriert, und das tut allein die
+                # RuntimeClass gvisor. Vorher lief dort auch, was niemand
+                # dorthin gestellt hatte, Traefik, cert-manager, external-dns
+                # und die KEDA-Pods. Bei einem Node, der eingereichten Code
+                # ausfuehrt, ist die Aufnahme die Ausnahme und nicht die Regel.
                 judge_k3s_agent_judge = {
-                  vars = { k3s_extra_agent_exec_args = "--node-label online-judge/sandbox=runsc" }
+                  vars = {
+                    k3s_node_labels           = { "online-judge/sandbox" = "runsc" }
+                    k3s_extra_agent_exec_args = "--node-taint online-judge/sandbox=runsc:NoSchedule"
+                  }
                   hosts = { for n in openstack_compute_instance_v2.judge :
                     local.conn_addr[n.name] => { ansible_user = "ubuntu" }
                   }

@@ -3,13 +3,17 @@
 # eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht.
 ---
 roles:
-  # Stand main vom 2026-08-03. Der Sprung holt external-dns v0.21.0 und die
-  # jetzt gepinnte Chart-Version, dazu die multipathd-Blacklist: multipathd
-  # läuft auf allen vier Nodes und greift sonst nach den iSCSI-Geräten, die
-  # Longhorn einhängt, was das Mounten scheitern lässt.
+  # Eigener Fork, Branch main, zusammengeführt mit dem Stand von Pfisterer vom
+  # 26.08. Aus dem Fork kommen k3s_node_labels, die Longhorn-Voraussetzungen
+  # nur auf den Dienste-Nodes und der Umbau des Overlay-Preflights, der einen
+  # gescheiterten Sender von einem blockierten Port unterscheidet. Aus dem
+  # Upstream kommen der Fix, mit dem die Tags der Rolle ihre Tasks erreichen,
+  # ein nutzbarer --check-Lauf und der auf v1.20.3 gepinnte cert-manager-Chart.
+  # Der Pin hebt cert-manager nicht mehr mit dem Kalender, ein Cluster auf
+  # v1.21.1 bekommt dafür beim nächsten Lauf ein Downgrade.
   - name: k3s-dhbw-cloud-role
     src: https://github.com/litithio/k3s-dhbw-cloud-role.git
-    version: 18f1ec1d1788f21e7a817e8a3a7517f2d8f6fd21
+    version: c2b7260676567eeaee2d3de9d3485b1b9dc669a5
 
 # Die Rolle setzt auf dem Steuerrechner diese Collections voraus:
 # kubernetes.core für die Helm- und k8s-Module, ansible.posix für sysctl.

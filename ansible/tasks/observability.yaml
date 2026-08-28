@@ -1,0 +1,225 @@
+# === Prometheus und Grafana ===
+# Fundament für den Nachweis aus #11, dass Last sichtbar zusätzliche Worker
+# erzeugt. Zwei Kurven tragen ihn, die Zahl der Worker-Replicas aus
+# kube-state-metrics und die Länge von judge:python aus dem KEDA-Operator.
+# Die eigene Anwendung liefert dafür keine Metriken, ein /metrics-Endpunkt in
+# API und Worker gehört zum offenen Rest von #11.
+- name: Add prometheus-community Helm repository
+  kubernetes.core.helm_repository:
+    name: prometheus-community
+    repo_url: https://prometheus-community.github.io/helm-charts
+
+# Wie bei Keycloak fünf Versuche mit 30 Sekunden Abstand. Der Chart lädt seine
+# Abhängigkeiten aus dem Netz, und dieselben Wellen abgewiesener Verbindungen
+# treffen ihn.
+- name: Install kube-prometheus-stack
+  register: observability_helm
+  retries: 5
+  delay: 30
+  until: observability_helm is succeeded
+  kubernetes.core.helm:
+    name: observability
+    chart_ref: prometheus-community/kube-prometheus-stack
+    chart_version: "88.5.4"
+    release_namespace: monitoring
+    create_namespace: true
+    wait: true
+    timeout: 15m0s
+    kubeconfig: "{{ kubeconfig_root }}"
+    values:
+      # Der Alertmanager gehört zu B1 und bleibt aus, solange die Gruppe den
+      # Bonus nicht beansprucht. Entschieden wird das in #152.
+      alertmanager:
+        enabled: false
+
+      # Der node-exporter liefe als DaemonSet auch auf den Judge-Nodes und
+      # bräuchte dafür eine Toleration für online-judge/sandbox. Dort läuft nach
+      # #215 nur der Judge, und keine der beiden Kurven braucht Node-Metriken.
+      nodeExporter:
+        enabled: false
+
+      # k3s führt Scheduler, Controller-Manager, etcd und kube-proxy im eigenen
+      # Prozess aus statt als eigene Pods. Die ServiceMonitors dafür fänden kein
+      # Ziel und meldeten dauerhaft fehlgeschlagene Scrapes.
+      kubeEtcd:
+        enabled: false
+      kubeControllerManager:
+        enabled: false
+      kubeScheduler:
+        enabled: false
+      kubeProxy:
+        enabled: false
+
+      # Alle Zahlen für requests und limits unten stammen aus zwei Messungen am
+      # 27. und 28.08.2026, die zweite nach 23 Stunden Laufzeit. Darin lag ein
+      # Lastlauf mit 180 Einreichungen. Quelle ist der cAdvisor über Prometheus
+      # selbst, also container_memory_working_set_bytes und
+      # rate(container_cpu_usage_seconds_total[2m]). Je Container steht der
+      # gemessene Höchstwert im Kommentar daneben.
+      #
+      # container_memory_working_set_bytes lässt den inaktiven Dateicache aus,
+      # während das cgroup-Limit ihn mitzählt. Für diese Pods macht das keinen
+      # Unterschied, container_memory_usage_bytes liefert über sechs Stunden
+      # dieselben Werte bis auf die Nachkommastelle.
+      prometheusOperator:
+        # 22,5 MiB und 6,2m. Der Operator wacht über die CRDs und rührt sich
+        # nur, wenn eine davon sich ändert.
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "32Mi"
+          limits:
+            cpu: "50m"
+            memory: "64Mi"
+        # 15,0 MiB und 0,3m. Lädt die Prometheus-Konfiguration neu, wenn ein
+        # ServiceMonitor dazukommt.
+        prometheusConfigReloader:
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "24Mi"
+            limits:
+              cpu: "50m"
+              memory: "48Mi"
+        # Die beiden Hook-Jobs bei jeder Installation, sie erzeugen das
+        # Zertifikat des Webhooks und tragen es ein. Nicht gemessen, sie leben
+        # nur Sekunden und fallen durch jedes Messfenster. Die Werte sind
+        # hergeleitet aus dem, was sie tun, ein kleines Go-Programm mit einem
+        # Zertifikat und zwei API-Aufrufen. Ohne Angabe liefen sie als
+        # BestEffort.
+        admissionWebhooks:
+          patch:
+            resources:
+              requests:
+                cpu: "10m"
+                memory: "32Mi"
+              limits:
+                cpu: "50m"
+                memory: "64Mi"
+        nodeSelector:
+          online-judge/rolle: dienste
+
+      kube-state-metrics:
+        # 26,2 MiB und 1,5m. Der Wert hängt an der Zahl der Objekte im Cluster
+        # und wächst mit ihr, nicht mit der Last auf dem Judge.
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "32Mi"
+          limits:
+            cpu: "50m"
+            memory: "64Mi"
+        nodeSelector:
+          online-judge/rolle: dienste
+
+      grafana:
+        # 250,8 MiB, und 41,7m als höchster Zweiminutenmittelwert bei 7,8m im
+        # Schnitt. Ein Mittelwert verdeckt kurze Spitzen, der wahre
+        # CPU-Höchstwert liegt also darüber. Das Limit steht deshalb beim
+        # Fünffachen des Gemessenen.
+        resources:
+          requests:
+            cpu: "20m"
+            memory: "256Mi"
+          limits:
+            cpu: "200m"
+            memory: "384Mi"
+        nodeSelector:
+          online-judge/rolle: dienste
+        # Ohne gesetztes Passwort legt der Chart ein zufälliges an. Auslesen mit
+        # kubectl get secret observability-grafana -n monitoring
+        #   -o jsonpath='{.data.admin-password}' | base64 -d
+        # Die mitgelieferten Kubernetes-Dashboards bleiben aus, gebraucht wird
+        # nur das eigene aus files/dashboard-judge.json.
+        defaultDashboardsEnabled: false
+        sidecar:
+          # Gilt für beide Sidecars, den für Dashboards und den für
+          # Datenquellen. Beide stehen konstant bei 72,6 MiB und unter 1m, im
+          # Leerlauf wie beim Einlesen der ConfigMap.
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "96Mi"
+            limits:
+              cpu: "50m"
+              memory: "128Mi"
+          dashboards:
+            enabled: true
+            label: grafana_dashboard
+            searchNamespace: ALL
+
+      prometheus:
+        prometheusSpec:
+          # 708,2 MiB und 28,1m. Der Speicher ist der einzige Wert hier, der
+          # nach dem Start noch wächst. Nach 95 Minuten waren es 610,5 MiB,
+          # nach 23 Stunden 708,2 MiB, und die Zahl der Zeitreihen blieb dabei
+          # zwischen 145.782 und 149.499. Der Anstieg kommt also nicht von mehr
+          # Daten, sondern vom Go-Heap, der Speicher nicht sofort zurückgibt.
+          # Über die letzten sechs Stunden pendelt der Wert um 700 MiB, der
+          # Request liegt knapp darüber. Das Limit lässt das Zweifache, weil
+          # ein Wachstum der Zeitreihen den Wert wieder verschiebt.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "768Mi"
+            limits:
+              cpu: "500m"
+              memory: "1536Mi"
+          nodeSelector:
+            online-judge/rolle: dienste
+          # Der Standardselector nimmt nur ServiceMonitors mit dem Label des
+          # eigenen Release. Der ServiceMonitor von KEDA trägt es nicht, und
+          # ohne diese beiden Werte sammelte Prometheus die Länge der
+          # Warteschlange stillschweigend nicht ein.
+          serviceMonitorSelectorNilUsesHelmValues: false
+          podMonitorSelectorNilUsesHelmValues: false
+          # Zeitreihen im Pod statt auf einem Longhorn-Volume. Die Kurve entsteht
+          # im Screencast live, ein Neustart des Pods löscht die Historie. Die
+          # Grenze steht im README.
+          retention: 6h
+
+# Der ServiceMonitor für KEDA steht hier und nicht im KEDA-Chart, damit ein
+# Lauf mit --tags keda ohne diesen Task auskommt. Der Chart öffnet dort nur den
+# Metrikport, die Zuordnung zu Prometheus gehört zu Prometheus.
+#
+# Läuft der Task vor KEDA, findet der ServiceMonitor keinen Service. Prometheus
+# meldet dann ein Ziel weniger, ein Fehler entsteht nicht.
+- name: ServiceMonitor für den KEDA-Operator anlegen
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition:
+      apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: keda-operator
+        namespace: monitoring
+      spec:
+        namespaceSelector:
+          matchNames:
+            - keda
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: keda-operator
+        endpoints:
+          - port: metrics
+
+# Das Dashboard liegt als Code im Repo. Der Sidecar von Grafana liest jede
+# ConfigMap mit dem Label grafana_dashboard ein, unabhängig vom Namespace.
+#
+# lookup('file', ...) liest auf dem Kontrollknoten, wie in tasks/valkey.yaml.
+# Auf dem Zielhost liegt die Datei nicht.
+- name: Dashboard als ConfigMap anlegen
+  kubernetes.core.k8s:
+    state: present
+    namespace: monitoring
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dashboard-judge
+        labels:
+          grafana_dashboard: "1"
+      data:
+        dashboard-judge.json: "{{ lookup('file', 'files/dashboard-judge.json') }}"

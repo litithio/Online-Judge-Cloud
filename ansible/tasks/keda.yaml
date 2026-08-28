@@ -18,3 +18,17 @@
     create_namespace: true
     wait: true
     kubeconfig: "{{ kubeconfig_root }}"
+    values:
+      # Der Operator kennt die Länge von judge:python, er fragt sie für die
+      # Skalierung ohnehin ab. Ohne diesen Wert hält er sie für sich, der Port
+      # bleibt zu und keda_scaler_metrics_value entsteht nie. Das Dashboard aus
+      # tasks/observability.yaml zeigt genau diesen Wert.
+      #
+      # Nur der Port, kein ServiceMonitor aus diesem Chart. Ein ServiceMonitor
+      # braucht die CRD von kube-prometheus-stack, und dann liefe dieser Task
+      # allein, also mit --tags keda auf einem frischen Cluster, gegen eine
+      # unbekannte Ressource. Den ServiceMonitor legt tasks/observability.yaml
+      # an, wo die CRD ohnehin herkommt.
+      prometheus:
+        operator:
+          enabled: true

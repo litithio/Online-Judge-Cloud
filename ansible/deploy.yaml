@@ -359,6 +359,22 @@
     - name: Valkey Deployment und Service einrichten
       ansible.builtin.import_tasks: tasks/valkey.yaml
 
+# Prometheus und Grafana für den Nachweis aus #11, dass Last sichtbar
+# zusätzliche Worker erzeugt. Steht vor KEDA, damit der ServiceMonitor aus
+# diesem Play den Metrikport des Operators von Anfang an findet.
+#
+# Den Port öffnen erst die Werte in tasks/keda.yaml. Auf einem Cluster, dessen
+# KEDA-Release davor liegt, trägt der Service nur metricsservice=9666, der
+# ServiceMonitor findet kein Ziel und das Panel zur Warteschlange bleibt leer.
+# Deshalb beide Tags zusammen fahren, also --tags observability,keda.
+- name: Prometheus und Grafana ausrollen
+  hosts: judge_k3s_server
+  tags: [observability]
+  become: true
+  tasks:
+    - name: Prometheus, Grafana und das Dashboard einrichten
+      ansible.builtin.import_tasks: tasks/observability.yaml
+
 - name: KEDA ausrollen
   hosts: judge_k3s_server
   tags: [keda]

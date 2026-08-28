@@ -155,7 +155,7 @@ STATUS_KLASSE = {
 
 
 def _relative_zeit(zeitpunkt):
-    """"vor X s/min/h/d", einmalig zum Zeitpunkt der Anfrage berechnet.
+    """ "vor X s/min/h/d", einmalig zum Zeitpunkt der Anfrage berechnet.
 
     Ohne HTMX aktualisiert sich die Seite nicht von selbst, der Wert bleibt
     also bis zum nächsten Laden stehen. Das entspricht dem heutigen Stand
@@ -263,10 +263,14 @@ def get_task(task_id: str, user=Depends(get_current_user)):
 
 @app.get("/aufgabe/{task_id}", response_class=HTMLResponse)
 def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)):
-    task = db.tasks.find_one({"_id": ObjectId(task_id)})  # dieselbe Abfrage wie /tasks/{task_id}
+    task = db.tasks.find_one(
+        {"_id": ObjectId(task_id)}
+    )  # dieselbe Abfrage wie /tasks/{task_id}
     if not task:
         raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
-    anzahl_testfaelle = len(task.pop("test_cases", []))  # Inhalt bleibt verborgen, wie in /tasks
+    anzahl_testfaelle = len(
+        task.pop("test_cases", [])
+    )  # Inhalt bleibt verborgen, wie in /tasks
     return templates.TemplateResponse(
         "aufgabe.html",
         {
@@ -424,7 +428,9 @@ def einreichungen_seite(request: Request, user=Depends(get_current_user)):
         "einreichungen.html",
         {
             "request": request,
-            "submissions": [_einreichung_ansicht(s, aufgaben_titel) for s in submissions],
+            "submissions": [
+                _einreichung_ansicht(s, aufgaben_titel) for s in submissions
+            ],
             "user": user,
         },
     )

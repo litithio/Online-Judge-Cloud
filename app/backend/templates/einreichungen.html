@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meine Einreichungen, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>{{ user.preferred_username }}</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a href="/aufgaben">Aufgaben</a>
+    <a class="aktiv" href="/einreichungen">Meine Einreichungen</a>
+  </div>
+</nav>
+
+<main>
+{% if submissions %}
+    <div class="kopfzeile">
+      <h1>Meine Einreichungen</h1>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 10%">Nummer</th>
+          <th style="width: 28%">Aufgabe</th>
+          <th>Sprache</th>
+          <th>Eingereicht</th>
+          <th>Ergebnis</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sub in submissions %}
+        <tr>
+          <td class="num">#{{ sub.id[-6:] }}</td>
+          <td class="titel-zelle"><a href="/aufgabe/{{ sub.task_id }}">{{ sub.task_titel }}</a></td>
+          <td>{{ sub.sprache }}</td>
+          <td class="num">{{ sub.eingereicht }}</td>
+          <td>
+            <span class="status {{ sub.status_klasse }}">
+              {% if sub.status_klasse == "laeuft" %}<span class="puls"></span>
+              {% elif sub.status_klasse == "ok" %}<span class="zeichen">&#10003;</span>
+              {% elif sub.status_klasse == "fehler" %}<span class="zeichen">&#10007;</span>
+              {% else %}<span class="zeichen">&#9711;</span>
+              {% endif %}{{ sub.status_text }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+{% else %}
+    <div class="kopfzeile"><h1>Meine Einreichungen</h1></div>
+    <div class="leer">
+      <h3>Noch keine Einreichung</h3>
+      <p>Sobald Sie eine Lösung abgeben, erscheint sie hier mit ihrem
+         aktuellen Stand.</p>
+      <a href="/aufgaben" class="knopf zweit">Zu den Aufgaben</a>
+    </div>
+{% endif %}
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

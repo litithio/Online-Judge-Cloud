@@ -1,15 +1,22 @@
 import os
+import pathlib
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from bson import ObjectId
 import redis
 
 from auth import get_current_user, herkunft_pruefen
+
+BASIS_VERZEICHNIS = pathlib.Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=BASIS_VERZEICHNIS / "templates")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 
@@ -106,6 +113,8 @@ app = FastAPI(lifespan=lifespan)
 # Namespace. Die beiden Probes nimmt auth.OFFENE_PFADE aus.
 app.middleware("http")(herkunft_pruefen)
 
+app.mount("/static", StaticFiles(directory=BASIS_VERZEICHNIS / "static"), name="static")
+
 # Bauplan der Plattform: alle Sprachen, die einmal einen Worker bekommen
 # sollen (#107). /submit prüft nicht gegen diese Liste, denn eine Einreichung
 # in einer Sprache ohne Worker landete in einer Queue, die niemand bedient,
@@ -124,6 +133,66 @@ def parse_json(data):
     data["id"] = str(data["_id"])
     del data["_id"]
     return data
+
+
+# Anzeigetext je Status, sofern die Einreichung noch kein result trägt (siehe
+# worker.py: PENDING/RUNNING haben nie eines, SUCCESS/FAILED/UNRESOLVED
+# schreibt _ergebnis_schreiben immer mit dem Urteil hinein).
+STATUS_TEXT = {
+    "PENDING": "in der Warteschlange",
+    "RUNNING": "wird ausgeführt",
+    "UNRESOLVED": "kein Urteil möglich",
+}
+
+# CSS-Klasse aus dhbw.css je Status (.status.wartet/.laeuft/.ok/.fehler).
+STATUS_KLASSE = {
+    "PENDING": "wartet",
+    "RUNNING": "laeuft",
+    "SUCCESS": "ok",
+    "FAILED": "fehler",
+    "UNRESOLVED": "fehler",
+}
+
+
+def _relative_zeit(zeitpunkt):
+    """ "vor X s/min/h/d", einmalig zum Zeitpunkt der Anfrage berechnet.
+
+    Ohne HTMX aktualisiert sich die Seite nicht von selbst, der Wert bleibt
+    also bis zum nächsten Laden stehen. Das entspricht dem heutigen Stand
+    ohne Polling, siehe #56.
+
+    zeitpunkt kommt naiv aus MongoDB zurück (pymongo ohne tz_aware=True),
+    geschrieben wurde es als UTC (main.py, submit_code). replace statt
+    astimezone, denn ein naiver Wert trägt keine Zeitzone, die sich
+    umrechnen ließe.
+    """
+    zeitpunkt = zeitpunkt.replace(tzinfo=timezone.utc)
+    sekunden = max(0, int((datetime.now(timezone.utc) - zeitpunkt).total_seconds()))
+    if sekunden < 60:
+        return f"vor {sekunden} s"
+    minuten = sekunden // 60
+    if minuten < 60:
+        return f"vor {minuten} min"
+    stunden = minuten // 60
+    if stunden < 24:
+        return f"vor {stunden} h"
+    return f"vor {stunden // 24} d"
+
+
+def _einreichung_ansicht(submission, aufgaben_titel):
+    return {
+        "id": str(submission["_id"]),
+        "task_id": submission["task_id"],
+        "task_titel": aufgaben_titel.get(submission["task_id"], "Aufgabe gelöscht"),
+        "sprache": submission["sprache"],
+        "eingereicht": _relative_zeit(submission["created_at"]),
+        "status_klasse": STATUS_KLASSE.get(submission["status"], "fehler"),
+        # result trägt bei SUCCESS/FAILED/UNRESOLVED bereits den fertigen
+        # deutschen Satz (worker.py, _urteil). Nur bei PENDING/RUNNING fehlt
+        # es, dafür greift STATUS_TEXT.
+        "status_text": submission.get("result")
+        or STATUS_TEXT.get(submission["status"], submission["status"]),
+    }
 
 
 # Die beiden Endpunkte für die Probes tragen bewusst kein
@@ -175,12 +244,42 @@ def get_tasks(user=Depends(get_current_user)):
     return [parse_json(t) for t in tasks]
 
 
+@app.get("/aufgaben", response_class=HTMLResponse)
+def aufgaben_seite(request: Request, user=Depends(get_current_user)):
+    tasks = list(db.tasks.find({}, {"test_cases": 0}))  # dieselbe Abfrage wie /tasks
+    return templates.TemplateResponse(
+        "aufgaben.html",
+        {"request": request, "tasks": [parse_json(t) for t in tasks], "user": user},
+    )
+
+
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str, user=Depends(get_current_user)):
     task = db.tasks.find_one({"_id": ObjectId(task_id)}, {"test_cases": 0})
     if not task:
         raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
     return parse_json(task)
+
+
+@app.get("/aufgabe/{task_id}", response_class=HTMLResponse)
+def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)):
+    task = db.tasks.find_one(
+        {"_id": ObjectId(task_id)}
+    )  # dieselbe Abfrage wie /tasks/{task_id}
+    if not task:
+        raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
+    anzahl_testfaelle = len(
+        task.pop("test_cases", [])
+    )  # Inhalt bleibt verborgen, wie in /tasks
+    return templates.TemplateResponse(
+        "aufgabe.html",
+        {
+            "request": request,
+            "task": parse_json(task),
+            "anzahl_testfaelle": anzahl_testfaelle,
+            "user": user,
+        },
+    )
 
 
 @app.post("/submit")
@@ -297,3 +396,41 @@ def get_submission_status(sub_id: str, user=Depends(get_current_user)):
     if not sub:
         raise HTTPException(status_code=404, detail="Submission nicht gefunden")
     return parse_json(sub)
+
+
+@app.get("/einreichungen", response_class=HTMLResponse)
+def einreichungen_seite(request: Request, user=Depends(get_current_user)):
+    submissions = list(
+        db.submissions.find(
+            {"user_id": user.get("sub")}, {"code": 0, "test_results": 0}
+        ).sort("created_at", -1)
+    )
+    # /submit prüft task_id nicht gegen die Aufgaben (main.py, submit_code),
+    # is_valid statt ObjectId(...) im Try, damit eine kaputte ID hier nicht
+    # die ganze Liste mit 500 abbricht, sondern nur als "Aufgabe gelöscht"
+    # erscheint.
+    aufgaben_titel = {
+        str(t["_id"]): t["title"]
+        for t in db.tasks.find(
+            {
+                "_id": {
+                    "$in": [
+                        ObjectId(s["task_id"])
+                        for s in submissions
+                        if ObjectId.is_valid(s["task_id"])
+                    ]
+                }
+            },
+            {"title": 1},
+        )
+    }
+    return templates.TemplateResponse(
+        "einreichungen.html",
+        {
+            "request": request,
+            "submissions": [
+                _einreichung_ansicht(s, aufgaben_titel) for s in submissions
+            ],
+            "user": user,
+        },
+    )

@@ -62,7 +62,7 @@
       # Unterschied, container_memory_usage_bytes liefert über sechs Stunden
       # dieselben Werte bis auf die Nachkommastelle.
       prometheusOperator:
-        # 22,5 MiB und 6,2m. Der Operator wacht über die CRDs und rührt sich
+        # 23,8 MiB und 6,2m. Der Operator wacht über die CRDs und rührt sich
         # nur, wenn eine davon sich ändert.
         resources:
           requests:
@@ -71,7 +71,7 @@
           limits:
             cpu: "50m"
             memory: "64Mi"
-        # 15,0 MiB und 0,3m. Lädt die Prometheus-Konfiguration neu, wenn ein
+        # 16,5 MiB und 0,3m. Lädt die Prometheus-Konfiguration neu, wenn ein
         # ServiceMonitor dazukommt.
         prometheusConfigReloader:
           resources:

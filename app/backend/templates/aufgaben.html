@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aufgaben, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>{{ user.preferred_username }}</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a class="aktiv" href="/aufgaben">Aufgaben</a>
+    <a href="/einreichungen">Meine Einreichungen</a>
+  </div>
+</nav>
+
+<main>
+<div class="kopfzeile">
+      <h1>Aufgaben</h1>
+      <p>Reichen Sie Ihre Lösung ein. Jede Einreichung wird gegen die
+         hinterlegten Testfälle ausgeführt, das Ergebnis erscheint
+         wenige Sekunden später.</p>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 70%">Aufgabe</th>
+          <th>Zeitlimit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in tasks %}
+        <tr>
+          <td class="titel-zelle">
+            <a href="/aufgabe/{{ task.id }}">{{ task.title }}</a>
+            <span class="zusatz">{{ task.description }}</span>
+          </td>
+          <td class="num">
+            {% if task.time_limit_seconds %}{{ "%.1f"|format(task.time_limit_seconds)|replace(".", ",") }} s{% else %}&ndash;{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

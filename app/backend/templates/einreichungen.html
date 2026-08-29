@@ -47,7 +47,7 @@
         {% for sub in submissions %}
         <tr>
           <td class="num">#{{ sub.id[-6:] }}</td>
-          <td class="titel-zelle"><a href="/aufgabe/{{ sub.task_id }}">{{ sub.task_titel }}</a></td>
+          <td class="titel-zelle"><a href="/einreichung/{{ sub.id }}">{{ sub.task_titel }}</a></td>
           <td>{{ sub.sprache }}</td>
           <td class="num">{{ sub.eingereicht }}</td>
           <td>

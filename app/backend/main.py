@@ -242,7 +242,13 @@ HTTP_STATUS_TEXT = {503: "Service Unavailable", 404: "Not Found"}
 
 
 def _fehlerseite(
-    request, status_code, titel, meldung, zusicherung=None, knopf_text="Erneut versuchen", knopf_href="/aufgaben"
+    request,
+    status_code,
+    titel,
+    meldung,
+    zusicherung=None,
+    knopf_text="Erneut versuchen",
+    knopf_href="/aufgaben",
 ):
     return templates.TemplateResponse(
         "fehler.html",
@@ -339,7 +345,9 @@ def get_tasks(user=Depends(get_current_user)):
 @app.get("/aufgaben", response_class=HTMLResponse)
 def aufgaben_seite(request: Request, user=Depends(get_current_user)):
     try:
-        tasks = list(db.tasks.find({}, {"test_cases": 0}))  # dieselbe Abfrage wie /tasks
+        tasks = list(
+            db.tasks.find({}, {"test_cases": 0})
+        )  # dieselbe Abfrage wie /tasks
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/aufgaben")
     return templates.TemplateResponse(

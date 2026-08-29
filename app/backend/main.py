@@ -195,6 +195,104 @@ def _einreichung_ansicht(submission, aufgaben_titel):
     }
 
 
+# Klartext je Testfall-Urteil (worker.py: run_code_in_sandbox/​_urteil). AC ist
+# der einzige positive Fall, alles andere zeigt dieselbe Fehlerfarbe, nur mit
+# passendem Text.
+VERDICT_TEXT = {
+    "AC": "bestanden",
+    "WA": "falsche Ausgabe",
+    "TLE": "Zeitlimit überschritten",
+    "MLE": "Speicherlimit überschritten",
+    "RE": "Laufzeitfehler",
+}
+
+
+def _testfaelle_ansicht(test_results):
+    """Ansicht je Testfall für ergebnis.html und ergebnis-laeuft.html.
+
+    NOT_RUN heißt bei einer fertigen Einreichung "wegen Abbruch nie
+    gelaufen" und bei einer laufenden "noch nicht dran" (worker.py, _urteil:
+    Platzhalter vor dem ersten Fall, Abbruch beim ersten Fehlschlag). Beides
+    zeigt dieselbe Zeile "steht aus", welcher der beiden Fälle vorliegt, sagt
+    schon status_klasse der Einreichung.
+    """
+    ansicht = []
+    for t in test_results or []:
+        eintrag = {
+            "nummer": t["test_id"],
+            "offen": t.get("verdict") == "NOT_RUN",
+            "zeit_ms": t.get("zeit_ms"),
+            "speicher_mb": (
+                t["speicher_kb"] / 1024 if t.get("speicher_kb") is not None else None
+            ),
+        }
+        if not eintrag["offen"]:
+            eintrag["klasse"] = "ok" if t["verdict"] == "AC" else "fehler"
+            eintrag["text"] = VERDICT_TEXT.get(t["verdict"], t["verdict"])
+            eintrag["zusatz"] = None if t["verdict"] == "AC" else t.get("detail")
+        ansicht.append(eintrag)
+    return ansicht
+
+
+# Klartext für fehler.html, siehe README ("Herkunftsprüfung"/#15): MongoDB
+# oder Valkey nicht erreichbar, oder eine Aufgabe/Einreichung ohne Treffer.
+# Kein eigener Dienst, keine Traefik-Middleware, siehe #15 - das hier deckt
+# nur ab, was die Anwendung selbst an ihren eigenen Routen bemerkt.
+HTTP_STATUS_TEXT = {503: "Service Unavailable", 404: "Not Found"}
+
+
+def _fehlerseite(
+    request,
+    status_code,
+    titel,
+    meldung,
+    zusicherung=None,
+    knopf_text="Erneut versuchen",
+    knopf_href="/aufgaben",
+):
+    return templates.TemplateResponse(
+        "fehler.html",
+        {
+            "request": request,
+            "titel": titel,
+            "meldung": meldung,
+            "zusicherung": zusicherung,
+            "knopf_text": knopf_text,
+            "knopf_href": knopf_href,
+            "status_code": status_code,
+            "status_text": HTTP_STATUS_TEXT.get(status_code, ""),
+        },
+        status_code=status_code,
+    )
+
+
+def _dienst_nicht_erreichbar(request, fehler, ort):
+    """MongoDB nicht erreichbar an einer HTML-Route (#15).
+
+    Nur für die HTML-Seiten: Die JSON-Endpunkte (/tasks, /submission, ...)
+    bleiben unverändert und werfen bei einem PyMongoError weiterhin einen
+    unbehandelten 500, wie bisher.
+    """
+    print(
+        f"{ort}: MongoDB nicht erreichbar, {type(fehler).__name__}: {fehler}",
+        flush=True,
+    )
+    return _fehlerseite(
+        request,
+        503,
+        "Der Online Judge ist gerade nicht erreichbar",
+        "Die Anwendung wird im Moment nicht bedient. Das passiert bei einem "
+        "Neustart und dauert meist nur wenige Sekunden.",
+        zusicherung=(
+            "Bereits abgegebene Einreichungen sind davon nicht betroffen. Sie "
+            "bleiben in der Warteschlange und werden ausgeführt, sobald wieder "
+            "ein Worker bereitsteht."
+        ),
+        knopf_text="Erneut versuchen",
+        knopf_href=request.url.path,
+    )
+
+
 # Die beiden Endpunkte für die Probes tragen bewusst kein
 # Depends(get_current_user) und stehen in auth.OFFENE_PFADE. Das kubelet ruft
 # den Pod direkt auf, an der Auth-Kette vorbei, und schickt weder die
@@ -246,7 +344,12 @@ def get_tasks(user=Depends(get_current_user)):
 
 @app.get("/aufgaben", response_class=HTMLResponse)
 def aufgaben_seite(request: Request, user=Depends(get_current_user)):
-    tasks = list(db.tasks.find({}, {"test_cases": 0}))  # dieselbe Abfrage wie /tasks
+    try:
+        tasks = list(
+            db.tasks.find({}, {"test_cases": 0})
+        )  # dieselbe Abfrage wie /tasks
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, "/aufgaben")
     return templates.TemplateResponse(
         "aufgaben.html",
         {"request": request, "tasks": [parse_json(t) for t in tasks], "user": user},
@@ -263,11 +366,24 @@ def get_task(task_id: str, user=Depends(get_current_user)):
 
 @app.get("/aufgabe/{task_id}", response_class=HTMLResponse)
 def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)):
-    task = db.tasks.find_one(
-        {"_id": ObjectId(task_id)}
-    )  # dieselbe Abfrage wie /tasks/{task_id}
+    try:
+        task = db.tasks.find_one(
+            {"_id": ObjectId(task_id)}
+        )  # dieselbe Abfrage wie /tasks/{task_id}
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, f"/aufgabe/{task_id}")
     if not task:
-        raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
+        # Anders als /tasks/{task_id}: eine HTML-Seite statt eines nackten
+        # JSON-404, siehe #56. Der JSON-Endpunkt selbst bleibt unverändert.
+        return _fehlerseite(
+            request,
+            404,
+            "Diese Aufgabe gibt es nicht",
+            "Die Aufgabe wurde nicht gefunden. Möglicherweise wurde sie "
+            "entfernt oder der Link ist nicht mehr gültig.",
+            knopf_text="Zu den Aufgaben",
+            knopf_href="/aufgaben",
+        )
     anzahl_testfaelle = len(
         task.pop("test_cases", [])
     )  # Inhalt bleibt verborgen, wie in /tasks
@@ -400,30 +516,33 @@ def get_submission_status(sub_id: str, user=Depends(get_current_user)):
 
 @app.get("/einreichungen", response_class=HTMLResponse)
 def einreichungen_seite(request: Request, user=Depends(get_current_user)):
-    submissions = list(
-        db.submissions.find(
-            {"user_id": user.get("sub")}, {"code": 0, "test_results": 0}
-        ).sort("created_at", -1)
-    )
-    # /submit prüft task_id nicht gegen die Aufgaben (main.py, submit_code),
-    # is_valid statt ObjectId(...) im Try, damit eine kaputte ID hier nicht
-    # die ganze Liste mit 500 abbricht, sondern nur als "Aufgabe gelöscht"
-    # erscheint.
-    aufgaben_titel = {
-        str(t["_id"]): t["title"]
-        for t in db.tasks.find(
-            {
-                "_id": {
-                    "$in": [
-                        ObjectId(s["task_id"])
-                        for s in submissions
-                        if ObjectId.is_valid(s["task_id"])
-                    ]
-                }
-            },
-            {"title": 1},
+    try:
+        submissions = list(
+            db.submissions.find(
+                {"user_id": user.get("sub")}, {"code": 0, "test_results": 0}
+            ).sort("created_at", -1)
         )
-    }
+        # /submit prüft task_id nicht gegen die Aufgaben (main.py, submit_code),
+        # is_valid statt ObjectId(...) im Try, damit eine kaputte ID hier nicht
+        # die ganze Liste mit 500 abbricht, sondern nur als "Aufgabe gelöscht"
+        # erscheint.
+        aufgaben_titel = {
+            str(t["_id"]): t["title"]
+            for t in db.tasks.find(
+                {
+                    "_id": {
+                        "$in": [
+                            ObjectId(s["task_id"])
+                            for s in submissions
+                            if ObjectId.is_valid(s["task_id"])
+                        ]
+                    }
+                },
+                {"title": 1},
+            )
+        }
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, "/einreichungen")
     return templates.TemplateResponse(
         "einreichungen.html",
         {
@@ -434,3 +553,85 @@ def einreichungen_seite(request: Request, user=Depends(get_current_user)):
             "user": user,
         },
     )
+
+
+@app.get("/einreichung/{sub_id}", response_class=HTMLResponse)
+def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_user)):
+    """Ergebnis einer einzelnen Einreichung, laufend oder fertig.
+
+    Eine Route für beide Zustände statt zweier, wie schon /einreichungen die
+    leere Liste mitträgt: dieselbe Einreichung, nur zu unterschiedlichem
+    Zeitpunkt abgefragt, keine zwei verschiedenen Ressourcen.
+
+    Dieselbe Abfrage wie /submission/{sub_id}, auch bei einer ungültigen
+    sub_id: kein zusätzlicher Schutz vor einer kaputten ObjectId, der JSON-
+    Endpunkt hat ihn ebenfalls nicht. Ebenso ohne Prüfung auf user_id, wie
+    /submission/{sub_id} - diese Seite zeigt nur an, was der bestehende
+    JSON-Endpunkt ohnehin preisgibt.
+    """
+    try:
+        submission = db.submissions.find_one({"_id": ObjectId(sub_id)})
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
+    if not submission:
+        return _fehlerseite(
+            request,
+            404,
+            "Diese Einreichung gibt es nicht",
+            "Die Einreichung wurde nicht gefunden. Möglicherweise wurde sie "
+            "entfernt oder der Link ist nicht mehr gültig.",
+            knopf_text="Zu meinen Einreichungen",
+            knopf_href="/einreichungen",
+        )
+
+    try:
+        aufgabe = (
+            db.tasks.find_one({"_id": ObjectId(submission["task_id"])})
+            if ObjectId.is_valid(submission["task_id"])
+            else None
+        )
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
+
+    kontext = {
+        "request": request,
+        "user": user,
+        "sub_id": str(submission["_id"]),
+        "task_titel": aufgabe["title"] if aufgabe else "Aufgabe gelöscht",
+        "sprache": submission["sprache"],
+        "testfaelle": _testfaelle_ansicht(submission.get("test_results")),
+    }
+
+    if submission["status"] in ("PENDING", "RUNNING"):
+        kontext.update(
+            {
+                "status": submission["status"],
+                "eingereicht": _relative_zeit(submission["created_at"]),
+                "worker_id": submission.get("worker_id"),
+                "erledigt": sum(1 for t in kontext["testfaelle"] if not t["offen"]),
+                "gesamt": len(kontext["testfaelle"]),
+                # versuche > 1: ein früherer Versuch hat die Einreichung nicht
+                # zu Ende gebracht (Frist gerissen, durchlauf.py hat sie
+                # requeued), ein Worker übernahm sie erneut. Kein Valkey-
+                # Stream mehr seit #82, die Queue trägt nur die ID, versuche
+                # zählt die Übernahmen (worker.py, _uebernehmen).
+                "wiederaufnahme": submission.get("versuche", 0) > 1,
+            }
+        )
+        return templates.TemplateResponse("ergebnis-laeuft.html", kontext)
+
+    test_results = submission.get("test_results") or []
+    gesamtlaufzeit_ms = sum(
+        t["zeit_ms"] for t in test_results if t.get("zeit_ms") is not None
+    )
+    kontext.update(
+        {
+            "status": submission["status"],
+            "result": submission.get("result"),
+            "bestanden": sum(1 for t in test_results if t.get("verdict") == "AC"),
+            "gesamt": len(test_results),
+            "eingereicht": submission["created_at"].strftime("%d.%m.%Y, %H:%M"),
+            "gesamtlaufzeit_s": gesamtlaufzeit_ms / 1000 if gesamtlaufzeit_ms else None,
+        }
+    )
+    return templates.TemplateResponse("ergebnis.html", kontext)

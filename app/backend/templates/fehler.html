@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ titel }}, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<div class="stoerung">
+  <div class="karte">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+
+    <h1>{{ titel }}</h1>
+    <p>{{ meldung }}</p>
+
+    {% if zusicherung %}
+    <p class="zusicherung">{{ zusicherung }}</p>
+    {% endif %}
+
+    <a href="{{ knopf_href }}" class="knopf" style="display: inline-block; text-decoration: none;">{{ knopf_text }}</a>
+
+    <p class="kennung">HTTP {{ status_code }} &#183; {{ status_text }}</p>
+  </div>
+</div>
+
+</body>
+</html>

@@ -89,8 +89,8 @@
     kubeconfig: /etc/rancher/k3s/k3s.yaml
     # wait bleibt aus, auf die Bereitschaft wartet der rollout-status-Task
     # nach diesem Task. Mit wait würden die retries oben jeden Timeout
-    # mitwiederholen, ein Pod, der nicht bereit wird, hielte den Lauf fünfmal
-    # je bis zu 15 Minuten auf.
+    # mitwiederholen, ein Pod, der nicht bereit wird, würde den Lauf fünfmal
+    # je bis zu 15 Minuten aufhalten.
     wait: false
     timeout: 15m0s
     # Festgeschriebener Default. Werte, die nicht mehr in der Datei stehen,

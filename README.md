@@ -503,9 +503,9 @@ Keycloak übernimmt die drei Probes des keycloakx-Charts unverändert, startup
 auf `/health` mit 315 Sekunden Fenster, liveness auf `/health/live` mit 5
 Sekunden Frist, readiness auf `/health/ready` mit 1 Sekunde, alle am
 Management-Port 9000. Vorher waren sie über leere Strings abgeschaltet, ohne
-rekonstruierbaren Grund (#147). Ohne readiness schickte Traefik den OIDC-Flow
-an einen Pod, der den Realm noch importiert, ohne liveness bliebe ein
-hängender Keycloak stehen.
+rekonstruierbaren Grund (#147). Ohne readiness würde Traefik den OIDC-Flow an
+einen Pod schicken, der den Realm noch importiert, ohne liveness würde ein
+hängender Keycloak stehen bleiben.
 
 Die Übernahme stützt sich auf Messungen, denn eine zu enge Probe hätte den
 einzigen Pod mitten in der Anmeldespitze für den 55-Sekunden-Neustart aus
@@ -514,8 +514,8 @@ zum ersten 200, mit Realm-Import 43. Unter Anmeldelast mit bis zu 22
 Anmeldungen je Sekunde lieferten 1170 Abfragen der beiden Endpunkte
 durchgehend 200 in höchstens 168 Millisekunden. Helm wartet weiter nicht
 (`wait: false`), auf die Bereitschaft wartet ein eigener
-rollout-status-Schritt, sonst wiederholten die retries des Helm-Tasks auch
-jeden Warte-Timeout.
+rollout-status-Schritt, sonst würden die retries des Helm-Tasks auch jeden
+Warte-Timeout wiederholen.
 
 
 ### Liveness-Probe am Judge-Worker

@@ -497,6 +497,27 @@ Leerlauf bei 2m, eine vollständige Anmeldung kostet 59 Kern-Millisekunden,
 rechnerisch entsprechen die 250m damit gut vier Anmeldungen je Sekunde.
 
 
+### Probes an Keycloak
+
+Keycloak übernimmt die drei Probes des keycloakx-Charts unverändert, startup
+auf `/health` mit 315 Sekunden Fenster, liveness auf `/health/live` mit 5
+Sekunden Frist, readiness auf `/health/ready` mit 1 Sekunde, alle am
+Management-Port 9000. Vorher waren sie über leere Strings abgeschaltet, ohne
+rekonstruierbaren Grund (#147). Ohne readiness schickte Traefik den OIDC-Flow
+an einen Pod, der den Realm noch importiert, ohne liveness bliebe ein
+hängender Keycloak stehen.
+
+Die Übernahme stützt sich auf Messungen, denn eine zu enge Probe hätte den
+einzigen Pod mitten in der Anmeldespitze für den 55-Sekunden-Neustart aus
+#163 aus dem Verkehr genommen. Der Start braucht höchstens 35 Sekunden bis
+zum ersten 200, mit Realm-Import 43. Unter Anmeldelast mit bis zu 22
+Anmeldungen je Sekunde lieferten 1170 Abfragen der beiden Endpunkte
+durchgehend 200 in höchstens 168 Millisekunden. Helm wartet weiter nicht
+(`wait: false`), auf die Bereitschaft wartet ein eigener
+rollout-status-Schritt, sonst wiederholten die retries des Helm-Tasks auch
+jeden Warte-Timeout.
+
+
 ### Liveness-Probe am Judge-Worker
 
 Auf den Worker zeigt kein Service, er holt seine Arbeit selbst aus

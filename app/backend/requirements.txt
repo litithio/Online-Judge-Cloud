@@ -3,3 +3,4 @@ uvicorn==0.28.0
 pymongo==4.6.2
 redis==5.0.3
 pydantic==2.6.4
+jinja2==3.1.6

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Einreichung #{{ sub_id[-6:] }}, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>{{ user.preferred_username }}</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a href="/aufgaben">Aufgaben</a>
+    <a class="aktiv" href="/einreichungen">Meine Einreichungen</a>
+  </div>
+</nav>
+
+<main>
+<a href="/einreichungen" class="zurueck">&#8592; Meine Einreichungen</a>
+    <div class="kopfzeile"><h1>Einreichung #{{ sub_id[-6:] }}</h1></div>
+
+    <div class="ergebnis-kopf offen">
+      <div class="laufanzeige">
+        <span class="puls"></span>
+        <span>
+          {% if status == "RUNNING" %}Wird ausgeführt{% else %}In der Warteschlange{% endif %}
+          {% if gesamt %}<small>{{ erledigt }} von {{ gesamt }} Testfällen erledigt</small>{% endif %}
+        </span>
+      </div>
+      <div class="ergebnis-meta">
+        <div><span>Aufgabe</span><strong>{{ task_titel }}</strong></div>
+        <div><span>Sprache</span><strong>{{ sprache }}</strong></div>
+        <div><span>Eingereicht</span><strong>{{ eingereicht }}</strong></div>
+        {% if worker_id %}<div><span>Worker</span><strong>{{ worker_id }}</strong></div>{% endif %}
+      </div>
+    </div>
+
+    {% if testfaelle %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 42%">Testfall</th>
+          <th>Ergebnis</th>
+          <th>Laufzeit</th>
+          <th>Speicher</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in testfaelle %}
+        <tr{% if t.offen %} class="offen"{% endif %}>
+          <td>Testfall {{ t.nummer }}</td>
+          {% if t.offen %}
+          <td>steht aus</td>
+          <td class="num">&#183;</td>
+          <td class="num">&#183;</td>
+          {% else %}
+          <td><span class="status {{ t.klasse }}"><span class="zeichen">{% if t.klasse == "ok" %}&#10003;{% else %}&#10007;{% endif %}</span>{{ t.text }}</span></td>
+          <td class="num">{{ t.zeit_ms }} ms</td>
+          <td class="num">{{ "%.1f"|format(t.speicher_mb)|replace(".", ",") }} MB</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if wiederaufnahme %}
+    <p class="wiederaufnahme">
+      Diese Einreichung wurde von einem anderen Worker übernommen,
+      nachdem der vorherige ausgefallen war. Bereits gelaufene Testfälle
+      werden wiederholt.
+    </p>
+    {% endif %}
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

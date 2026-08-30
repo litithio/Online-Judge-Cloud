@@ -541,6 +541,19 @@ Die Probe kann einen Worker treffen, der noch arbeitet. Seine Einreichung bleibt
 dann auf RUNNING stehen, und der Durchlauf holt sie zurück. Einer ihrer drei
 Versuche ist damit verbraucht.
 
+### Geordneter Auslauf der Judge-Worker
+
+Der Worker fängt SIGTERM ab, übernimmt nichts Neues mehr, legt einen schon
+gezogenen Queue-Eintrag zurück und rechnet die laufende Bewertung zu Ende,
+der Pod bekommt `terminationGracePeriodSeconds` 300, hergeleitet in
+`app/chart/values.yaml`. Die Alternative war, den Verlust unter Grenzen zu
+dokumentieren wie zuvor beim Herunterskalieren durch KEDA. Ein
+abgeschossener Lauf kostet aber einen der drei Versuche einer Einreichung,
+in einer Klausur entschiede der Zeitpunkt des Rollouts mit über das Urteil.
+Der Preis ist ein langsamer Rollout, je Pod bis zu 300 Sekunden. Gemessen
+im Cluster, ein Rollout bei laufender Bewertung, Urteil SUCCESS mit einem
+Versuch, Pod nach acht Sekunden beendet.
+
 
 ### Herkunftsprüfung an der API
 
@@ -555,6 +568,17 @@ ausgebrochener Worker hält weder ein Token noch das Secret. Den Ausschlag gibt
 W6, das die Token-Prüfung am Gateway verlangt und nicht in der Anwendung. Der
 feste Wert läuft nie ab und steht im Secret wie im Middleware-Objekt, wer eines
 davon lesen darf, kommt an der Prüfung vorbei.
+
+### Unit-Tests im Worker-Image
+
+`tests/` läuft mit pytest über `scripts/unit-tests.sh` im Worker-Image, in
+der CI ein Pflicht-Check. Die Alternative unittest spart die Abhängigkeit,
+pytest führt unittest-Bestand aber mit und bleibt bei wachsender Suite
+knapper. Im Image, weil worker.py beim Import die Sandbox initialisiert und
+pymongo braucht, geprüft wird gegen dieselbe Python-Version und glibc wie
+im Cluster. Der Preis, der CI-Job baut je Lauf das Worker-Image und holt
+pytest von PyPI. `tests/` liegt auf oberster Ebene, unter `app/worker`
+wanderte es über das COPY mit ins ausgelieferte Image.
 
 
 ## Grenzen

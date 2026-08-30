@@ -33,10 +33,31 @@ spec:
           args: ["valkey-server", "--appendonly", "yes"]
           ports:
             - containerPort: 6379
+          # Gemessen unter Last am 27.08. über Prometheus, ein Lauf des
+          # Lastgenerators mit 180 Einreichungen, Warteschlange bis 77.
+          # Spitze 5,0m und 8,8 MiB, im Leerlauf 4m und 7 MiB. Valkey hält
+          # nur die IDs wartender Einreichungen, der Speicher wächst darum
+          # auch mit der Warteschlange kaum.
+          #
+          # Der Speicher-Request rechnet die Spitze doppelt, denn der
+          # AOF-Rewrite forkt den Prozess, und Copy-on-Write kann den
+          # Verbrauch währenddessen bis zur Verdopplung treiben. Das wären
+          # 18 MiB, aufgerundet auf 32Mi. Solange der Verbrauch unter dem
+          # Request bleibt, räumt der Node den Pod bei Speichermangel
+          # zuletzt ab.
+          #
+          # Der CPU-Request verdoppelt die gemessene Spitze auf 10m. Er ist
+          # eine Zusage an den Scheduler und keine Obergrenze, kurze Spitzen
+          # wie ein AOF-Rewrite laufen darüber hinaus und finden ihre Grenze
+          # erst im Limit. Gemessen ist der Rewrite nicht, das AOF war für
+          # die Mindestgröße von 64 MB zu klein.
+          #
+          # Die Limits bleiben unverändert, gemessen ist nichts, was ihnen
+          # nahekommt, sie begrenzen nur den Schaden.
           resources:
             requests:
-              cpu: "50m"
-              memory: "64Mi"
+              cpu: "10m"
+              memory: "32Mi"
             limits:
               cpu: "250m"
               memory: "256Mi"

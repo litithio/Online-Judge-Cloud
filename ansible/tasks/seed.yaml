@@ -67,6 +67,20 @@
                 # Worker denselben Stand fahren.
                 image: "ghcr.io/litithio/online-judge-worker:{{ app_image_tag }}"
                 command: ["python", "/seed/laden.py"]
+                # Wie der Durchlauf im Chart (values.yaml, judge.durchlauf).
+                # Gleiches Image, gleiche Art Arbeit ohne Sandbox, laden.py
+                # liest die Aufgaben aus der ConfigMap und schreibt sie nach
+                # MongoDB. Für eine Messung ist der Job zu kurz, er ist nach
+                # Sekunden durch, der metrics-server tastet alle 15 Sekunden
+                # ab. Der Speicher entspricht dem Leerlauf des Workers,
+                # gemessen 44 MiB, das CPU-Limit lässt den Lauf schnell durch.
+                resources:
+                  requests:
+                    cpu: "50m"
+                    memory: "64Mi"
+                  limits:
+                    cpu: "500m"
+                    memory: "128Mi"
                 env:
                   - name: MONGO_URI
                     valueFrom:

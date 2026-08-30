@@ -1,25 +1,15 @@
 {
   "title": "Judge unter Last",
   "uid": "judge-last",
-  "tags": ["online-judge"],
+  "tags": [
+    "online-judge"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "refresh": "10s",
   "time": {
     "from": "now-30m",
     "to": "now"
-  },
-  "templating": {
-    "list": [
-      {
-        "name": "datasource",
-        "label": "Datenquelle",
-        "type": "datasource",
-        "query": "prometheus",
-        "current": {},
-        "hide": 0
-      }
-    ]
   },
   "panels": [
     {
@@ -29,7 +19,7 @@
       "description": "Wie viele Judge-Worker KEDA angefordert hat und wie viele davon bereit sind. Die Kurve zeigt die Wirkung der Last.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "h": 9,
@@ -76,7 +66,7 @@
       "description": "Wie viele Einreichungen in judge:python liegen. KEDA skaliert an diesem Wert, ein Worker je fünf Einträge.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "h": 9,

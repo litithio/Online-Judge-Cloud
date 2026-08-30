@@ -108,13 +108,29 @@ KUBECONFIG relativ zum aktuellen Verzeichnis.
 Cluster hochbringen:
 
 ```bash
+scripts/deploy.sh
+```
+
+Das Skript prüft erst die vier Kopien und die Werkzeuge, wartet mit VPN an
+auf die OpenStack-API und lässt `terraform init` und `terraform apply`
+laufen. Dann hält es an der VPN-Grenze, fordert zum Ausschalten auf und
+wartet, bis der Server über IPv6 auf Port 22 antwortet. Danach laufen
+`ansible-galaxy` und `ansible-playbook` mit `deploy.yaml` durch, am Ende
+zeigt `kubectl get nodes` den Stand.
+
+Nicht jeder Lauf braucht den ganzen Stack. Die Schritte einzeln, jeweils
+aus dem Wurzelverzeichnis:
+
+```bash
 # VPN an
-cd terraform && terraform init && terraform apply
+terraform -chdir=terraform init && terraform -chdir=terraform apply
 
 # VPN aus
-cd ../ansible && ansible-galaxy install -r requirements.yml --force
+cd ansible
+ansible-galaxy install -r requirements.yml --force
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml
+cd ..
 kubectl get nodes
 ```
 
@@ -162,6 +178,7 @@ auf den Server und ruft `helm upgrade --install`.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
+cd ansible
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags app
 ```
@@ -202,6 +219,7 @@ braucht.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
+cd ansible
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags seed
 ```
@@ -233,6 +251,7 @@ Traefik-Anbindung (Middleware + Ingress) rollt das Play mit dem Tag `auth` aus:
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
+cd ansible
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags auth
 ```

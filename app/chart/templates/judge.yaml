@@ -85,6 +85,12 @@ spec:
       # /var/run/secrets und könnte den Token lesen, der Worker selbst ruft die
       # Kubernetes-API nie.
       automountServiceAccountToken: false
+      # Frist für den geordneten Auslauf nach SIGTERM (#199). Der Worker nimmt
+      # nach dem Signal keine Einreichung mehr an und rechnet die laufende
+      # Bewertung zu Ende, siehe _sigterm in app/worker/worker.py. Gilt für
+      # Rollout, KEDA-Scale-down und Drain, alle drei löschen den Pod über
+      # denselben Weg. Die Herleitung des Werts steht in values.yaml.
+      terminationGracePeriodSeconds: {{ $.Values.judge.terminationGracePeriodSeconds }}
       # Die Worker verteilen sich über die Judge-Nodes. Ein Worker fordert einen
       # ganzen Kern und läuft ihn bei einer Einreichung auch aus. Liegen mehrere
       # auf einem Node und keiner auf dem anderen, hängt die gemessene Laufzeit

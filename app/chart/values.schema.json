@@ -116,7 +116,8 @@
         "workSizeLimit",
         "sprachen",
         "durchlauf",
-        "heartbeatFrist"
+        "heartbeatFrist",
+        "terminationGracePeriodSeconds"
       ],
       "description": "Worker, ScaledObject und Rückhol-CronJob. Der Seed der Aufgaben läuft aus Ansible.",
       "properties": {
@@ -218,6 +219,11 @@
           "type": "integer",
           "minimum": 63,
           "description": "Alter in Sekunden, ab dem der Heartbeat eines Workers als zu alt gilt. Das Minimum von 63 ist die berechenbare Untergrenze aus worker.py, ein Sandbox-Lauf endet nach GRENZE_ZEIT_MAX + 1 + ZEITFRIST_PUFFER und danach wartet REST_FRIST auf das Aufräumen. Darunter tötet die Probe einen Worker mitten in einem Testfall."
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 68,
+          "description": "Frist in Sekunden zwischen SIGTERM und SIGKILL am Worker-Pod. Der Worker rechnet die laufende Bewertung nach dem SIGTERM zu Ende, die Herleitung des tragfähigen Werts steht in values.yaml. Das Minimum von 68 ist die berechenbare Untergrenze aus worker.py für den reinen Sandbox-Anteil eines einzelnen Testfalls am maximalen Zeitlimit samt Aufräumen, GRENZE_ZEIT_MAX + 1 + ZEITFRIST_PUFFER plus SIGKILL_FRIST plus REST_FRIST, also 67,5. Die MongoDB-Zugriffe einer Bewertung kommen obendrauf, sie stehen in der Herleitung in values.yaml. Es ist eine Untergrenze gegen offensichtlichen Unsinn und kein tragfähiger Wert, darunter kann schon ein einzelner Testfall am maximalen Zeitlimit nicht zu Ende gerechnet werden."
         }
       }
     }

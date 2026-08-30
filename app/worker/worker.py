@@ -16,6 +16,48 @@ import redis
 from bson import ObjectId
 from pymongo import MongoClient, ReturnDocument
 
+# Kubernetes beendet einen Worker-Pod beim Rollout, beim Scale-down durch KEDA
+# und beim Drain eines Nodes zuerst mit SIGTERM. Der Worker läuft im Container
+# als PID 1, und PID 1 stellt der Kernel ein Signal nur zu, wenn ein Handler
+# registriert ist. Ohne Handler verpufft das SIGTERM, der Worker übernimmt und
+# rechnet weiter, und nach terminationGracePeriodSeconds beendet ihn SIGKILL
+# mitten im Lauf (#199).
+#
+# Der Handler setzt ein Flag und schreibt seine Zeile über os.write, denn ein
+# print aus einem Handler kann in einen laufenden print geraten und bricht
+# dann mit RuntimeError an einer beliebigen Stelle ab. Eine Exception aus dem
+# Handler träfe auch einen Sandbox-Lauf oder einen Schreibzugriff, und genau
+# die sollen zu Ende kommen. process_queue prüft das Flag, bevor es einen
+# Eintrag übernimmt. Ein wartendes blpop bricht das Signal nicht ab, Python
+# setzt den Aufruf fort, bis zur Prüfung vergehen also höchstens QUEUE_WARTEN
+# Sekunden. Überholt eine Übernahme das Signal knapp, läuft diese eine
+# Bewertung noch ganz durch. Die Grace-Period im Chart deckt beide Wege, die
+# Herleitung steht an judge.terminationGracePeriodSeconds in
+# app/chart/values.yaml.
+_beenden = False
+
+
+def _sigterm(signalnummer, frame):
+    global _beenden
+    _beenden = True
+    # Gefangen wie in _heartbeat. Ein geschlossener Deskriptor dürfte sonst
+    # als OSError aus dem Handler in den laufenden Pfad schlagen.
+    try:
+        os.write(
+            1,
+            "SIGTERM erhalten, keine Übernahme mehr, "
+            "eine laufende Bewertung endet noch\n".encode(),
+        )
+    except OSError:
+        pass
+
+
+# Schon beim Import und nicht erst unter __main__. Das Modul räumt beim Laden
+# Reste unter SANDBOX_BASIS ab und startet die Namespace-Probe, und ein
+# SIGTERM in dieser Zeit verpuffte sonst, bis SIGKILL nach der vollen
+# Grace-Period folgt.
+signal.signal(signal.SIGTERM, _sigterm)
+
 # Grenzen je Lauf. Sie stehen hier und nicht nur am Pod, weil ein Pod-Limit für
 # alle Läufe zusammen gilt: Eine speicherhungrige Einreichung würde sonst den
 # Worker mit in den OOM-Kill nehmen, samt der Einreichung, die er gerade
@@ -268,10 +310,10 @@ SANDBOX_BEREICH = _sandbox_bereich()
 # ihr. Beides lag vorher im selben emptyDir.
 SANDBOX_BASIS = pathlib.Path(os.getenv("SANDBOX_BASIS", "/work/judge"))
 # Geleert und nicht nur angelegt. Stirbt der Worker zwischen dem Popen und dem
-# rmtree, etwa durch den SIGKILL beim Scaledown oder durch den OOM-Killer,
-# bleibt das Arbeitsverzeichnis des laufenden Laufs liegen. Ohne das Leeren
-# fände der neu gestartete Worker es vor, und sobald der Bereich einmal umläuft,
-# träfe es wieder auf seine eigene UID (#87).
+# rmtree, etwa durch den SIGKILL nach Ablauf der Grace-Period oder durch den
+# OOM-Killer, bleibt das Arbeitsverzeichnis des laufenden Laufs liegen. Ohne
+# das Leeren fände der neu gestartete Worker es vor, und sobald der Bereich
+# einmal umläuft, träfe es wieder auf seine eigene UID (#87).
 if SANDBOX_BASIS.exists():
     shutil.rmtree(SANDBOX_BASIS)
 # parents, damit auch /work entsteht. Im Cluster legt der Volume-Mount es an,
@@ -1199,7 +1241,7 @@ def process_queue():
             "lokal blockiert das seccomp-Profil von Docker den nötigen Aufruf."
         )
     print(f"Worker gestartet ({WORKER_SPRACHE}), warte auf {QUEUE_KEY}...")
-    while True:
+    while not _beenden:
         # Am Anfang der Runde und nicht erst nach dem blpop. Ein Valkey, das
         # nicht antwortet, ist kein Fehler dieses Workers, und ohne den Aufruf
         # hier töte die Probe bei einem Ausfall der Queue jeden Worker, ohne
@@ -1220,6 +1262,19 @@ def process_queue():
         if eintrag is None:
             continue
         _, item = eintrag
+
+        # Das SIGTERM kam, während blpop wartete. Der schon gezogene Eintrag
+        # geht an den Kopf der Liste zurück, der nächste Worker zieht ihn also
+        # sofort und die Reihenfolge bleibt. Schlägt das Zurücklegen fehl,
+        # steht die Einreichung auf PENDING ohne Queue-Eintrag, und der
+        # Durchlauf reiht sie über #113 wieder ein, um den Preis eines
+        # requeue-Versuchs.
+        if _beenden:
+            try:
+                redis_client.lpush(QUEUE_KEY, item)
+            except Exception as e:
+                print(f"Eintrag nicht zurückgelegt: {type(e).__name__}: {e}")
+            break
 
         try:
             sub_id = _sub_id_lesen(item)
@@ -1277,6 +1332,8 @@ def process_queue():
         _ergebnis_schreiben(sub_id, token, status, text)
         _heartbeat()
         print(f"Einreichung {sub_id} verarbeitet: {status}")
+
+    print("Worker beendet sich nach SIGTERM")
 
 
 if __name__ == "__main__":

@@ -91,6 +91,8 @@ schritt "ruff format" "beheben mit: ruff format ." \
         ruff format --check .
 schritt "Diagramme" "beheben mit: ./scripts/diagramme.sh" \
         diagramme_pruefen
+schritt "Unit-Tests" "einzeln erneut: ./scripts/unit-tests.sh" \
+        ./scripts/unit-tests.sh
 schritt "Helm-Chart" "einzeln erneut: ./scripts/chart-check.sh" \
         ./scripts/chart-check.sh
 

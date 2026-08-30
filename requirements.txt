@@ -15,3 +15,7 @@
 ruff==0.15.22
 ansible-lint==26.6.0
 ansible-core==2.21.2
+# Läuft nicht in dieser venv, sondern im Worker-Image. scripts/unit-tests.sh
+# liest die Version von hier und installiert sie in den Wegwerf-Container,
+# damit die Pins an einer Stelle stehen.
+pytest==9.1.1

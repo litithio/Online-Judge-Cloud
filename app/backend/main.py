@@ -3,14 +3,16 @@ import pathlib
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Depends, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from bson import ObjectId
+from bson.errors import InvalidId
 import redis
 
 from auth import get_current_user, herkunft_pruefen
@@ -128,12 +130,27 @@ SPRACHEN = ("python", "java", "cpp", "rust")
 AKTIVE_SPRACHEN = ("python",)
 STANDARD_SPRACHE = "python"
 
+# Vorgaben des Workers, wenn eine Aufgabe kein eigenes Limit trägt
+# (app/worker/worker.py, grenzen_der_aufgabe: SANDBOX_TIMEOUT/
+# SANDBOX_SPEICHER_MB). Hier dupliziert, weil der Worker in einem anderen
+# Image liegt und aufgabe_seite nur zur Anzeige braucht, was tatsächlich
+# gilt - "–" wäre falsch, der Worker setzt in diesem Fall durch, nicht ab.
+WORKER_STANDARD_ZEIT_S = 5
+WORKER_STANDARD_SPEICHER_MB = 128
+
 
 def parse_json(data):
     data["id"] = str(data["_id"])
     del data["_id"]
     return data
 
+
+# Für die absolute Zeitangabe auf der fertigen Ergebnisseite: created_at
+# steht als UTC in MongoDB (submit_code), eine deutsche Uhrzeit ohne
+# Umrechnung läge zur Sommerzeit zwei Stunden daneben. Die relative Angabe
+# in _relative_zeit unten braucht das nicht, eine Zeitdifferenz ist in jeder
+# Zeitzone gleich lang.
+BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
 # Anzeigetext je Status, sofern die Einreichung noch kein result trägt (siehe
 # worker.py: PENDING/RUNNING haben nie eines, SUCCESS/FAILED/UNRESOLVED
@@ -204,6 +221,7 @@ VERDICT_TEXT = {
     "TLE": "Zeitlimit überschritten",
     "MLE": "Speicherlimit überschritten",
     "RE": "Laufzeitfehler",
+    "OLE": "zu viel Ausgabe",
 }
 
 
@@ -336,6 +354,15 @@ def readyz():
     return {"status": "ok"}
 
 
+@app.get("/")
+def index():
+    """https://app.<zone> landet hier nach der Anmeldung (traefik-auth.yaml),
+    /aufgaben ist die eigentliche Einstiegsseite. Ohne diese Route endete der
+    dokumentierte Aufruf in einem JSON-404.
+    """
+    return RedirectResponse(url="/aufgaben")
+
+
 @app.get("/tasks")
 def get_tasks(user=Depends(get_current_user)):
     tasks = list(db.tasks.find({}, {"test_cases": 0}))  # Testcases verbergen
@@ -350,9 +377,16 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
         )  # dieselbe Abfrage wie /tasks
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/aufgaben")
+    ansicht = []
+    for t in tasks:
+        t = parse_json(t)
+        # Dieselbe Vorgabe wie auf der Detailseite (aufgabe_seite): ohne
+        # eigenes Limit setzt der Worker durch, nicht ab, "–" wäre falsch.
+        t["zeit_s"] = t.get("time_limit_seconds") or WORKER_STANDARD_ZEIT_S
+        ansicht.append(t)
     return templates.TemplateResponse(
         "aufgaben.html",
-        {"request": request, "tasks": [parse_json(t) for t in tasks], "user": user},
+        {"request": request, "tasks": ansicht, "user": user},
     )
 
 
@@ -366,15 +400,7 @@ def get_task(task_id: str, user=Depends(get_current_user)):
 
 @app.get("/aufgabe/{task_id}", response_class=HTMLResponse)
 def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)):
-    try:
-        task = db.tasks.find_one(
-            {"_id": ObjectId(task_id)}
-        )  # dieselbe Abfrage wie /tasks/{task_id}
-    except PyMongoError as fehler:
-        return _dienst_nicht_erreichbar(request, fehler, f"/aufgabe/{task_id}")
-    if not task:
-        # Anders als /tasks/{task_id}: eine HTML-Seite statt eines nackten
-        # JSON-404, siehe #56. Der JSON-Endpunkt selbst bleibt unverändert.
+    def aufgabe_404():
         return _fehlerseite(
             request,
             404,
@@ -384,6 +410,22 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
             knopf_text="Zu den Aufgaben",
             knopf_href="/aufgaben",
         )
+
+    try:
+        task = db.tasks.find_one(
+            {"_id": ObjectId(task_id)}
+        )  # dieselbe Abfrage wie /tasks/{task_id}
+    except InvalidId:
+        # Anders als /tasks/{task_id}, das hier ebenfalls ungefangen ließe:
+        # eine kaputte ID aus einem verstümmelten Link ist für einen
+        # Seitenaufruf kein Serverfehler, sondern derselbe Fall wie unten.
+        return aufgabe_404()
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, f"/aufgabe/{task_id}")
+    if not task:
+        # Anders als /tasks/{task_id}: eine HTML-Seite statt eines nackten
+        # JSON-404, siehe #56. Der JSON-Endpunkt selbst bleibt unverändert.
+        return aufgabe_404()
     anzahl_testfaelle = len(
         task.pop("test_cases", [])
     )  # Inhalt bleibt verborgen, wie in /tasks
@@ -393,13 +435,20 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
             "request": request,
             "task": parse_json(task),
             "anzahl_testfaelle": anzahl_testfaelle,
+            # Was der Worker tatsächlich durchsetzt, wenn die Aufgabe selbst
+            # kein Limit trägt (grenzen_der_aufgabe) - "–" wäre hier falsch,
+            # betrifft derzeit summe.json.
+            "zeit_s": task.get("time_limit_seconds") or WORKER_STANDARD_ZEIT_S,
+            "speicher_mb": task.get("memory_limit_mb") or WORKER_STANDARD_SPEICHER_MB,
             "user": user,
         },
     )
 
 
 @app.post("/submit")
-def submit_code(payload: dict, user=Depends(get_current_user)):
+def submit_code(
+    payload: dict, request: Request, response: Response, user=Depends(get_current_user)
+):
     task_id = payload.get("task_id")
     code = payload.get("code")
     sprache = payload.get("sprache", STANDARD_SPRACHE)
@@ -503,6 +552,14 @@ def submit_code(payload: dict, user=Depends(get_current_user)):
                 flush=True,
             )
 
+    # Nur für den Aufruf per HTMX von aufgabe.html (#56): der Editor postet
+    # per hx-post auf diese Route und folgt dem Redirect auf die Ergebnisseite
+    # selbst. Jeder andere Aufrufer - lastgenerator.py, curl, künftige
+    # Clients - bekommt weiterhin genau die JSON-Antwort von vorher, ohne
+    # diesen Header.
+    if request.headers.get("HX-Request") == "true":
+        response.headers["HX-Redirect"] = f"/einreichung/{sub_id}"
+
     return {"submission_id": str(sub_id), "status": "PENDING"}
 
 
@@ -563,17 +620,15 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     leere Liste mitträgt: dieselbe Einreichung, nur zu unterschiedlichem
     Zeitpunkt abgefragt, keine zwei verschiedenen Ressourcen.
 
-    Dieselbe Abfrage wie /submission/{sub_id}, auch bei einer ungültigen
-    sub_id: kein zusätzlicher Schutz vor einer kaputten ObjectId, der JSON-
-    Endpunkt hat ihn ebenfalls nicht. Ebenso ohne Prüfung auf user_id, wie
-    /submission/{sub_id} - diese Seite zeigt nur an, was der bestehende
-    JSON-Endpunkt ohnehin preisgibt.
+    Dieselbe Abfrage wie /submission/{sub_id}, aber anders als der JSON-
+    Endpunkt fängt diese Seite eine kaputte ObjectId (aus einem verstümmelten
+    Link) ab und zeigt die 404-Seite statt eines 500 - eine Seite für Menschen
+    darf das, der JSON-Endpunkt bleibt unverändert. Ebenso ohne Prüfung auf
+    user_id, wie /submission/{sub_id} - diese Seite zeigt nur an, was der
+    bestehende JSON-Endpunkt ohnehin preisgibt.
     """
-    try:
-        submission = db.submissions.find_one({"_id": ObjectId(sub_id)})
-    except PyMongoError as fehler:
-        return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
-    if not submission:
+
+    def einreichung_404():
         return _fehlerseite(
             request,
             404,
@@ -583,6 +638,15 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
             knopf_text="Zu meinen Einreichungen",
             knopf_href="/einreichungen",
         )
+
+    try:
+        submission = db.submissions.find_one({"_id": ObjectId(sub_id)})
+    except InvalidId:
+        return einreichung_404()
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
+    if not submission:
+        return einreichung_404()
 
     try:
         aufgabe = (
@@ -627,10 +691,17 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     kontext.update(
         {
             "status": submission["status"],
-            "result": submission.get("result"),
+            # durchlauf.py schreibt bei UNRESOLVED (Versuche ausgeschöpft)
+            # kein result, sonst stünde hier wörtlich "None" auf der Seite.
+            # Derselbe Rückgriff auf STATUS_TEXT wie in _einreichung_ansicht.
+            "result": submission.get("result")
+            or STATUS_TEXT.get(submission["status"], submission["status"]),
             "bestanden": sum(1 for t in test_results if t.get("verdict") == "AC"),
             "gesamt": len(test_results),
-            "eingereicht": submission["created_at"].strftime("%d.%m.%Y, %H:%M"),
+            "eingereicht": submission["created_at"]
+            .replace(tzinfo=timezone.utc)
+            .astimezone(BERLIN_TZ)
+            .strftime("%d.%m.%Y, %H:%M"),
             "gesamtlaufzeit_s": gesamtlaufzeit_ms / 1000 if gesamtlaufzeit_ms else None,
         }
     )

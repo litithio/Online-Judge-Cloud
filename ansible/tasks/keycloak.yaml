@@ -87,11 +87,15 @@
     chart_version: "{{ keycloak_chart_version }}"
     release_namespace: "{{ auth_namespace }}"
     kubeconfig: /etc/rancher/k3s/k3s.yaml
-    # Ohne Readiness-Probe gilt der Pod schon als bereit, sobald der Container
-    # läuft -- wait wartet also nicht mehr auf den fertigen Realm-Import, sondern
-    # nur darauf, dass der Pod planbar ist und startet.
+    # wait bleibt aus, auf die Bereitschaft wartet der rollout-status-Task
+    # nach diesem Task. Mit wait würden die retries oben jeden Timeout
+    # mitwiederholen, ein Pod, der nicht bereit wird, würde den Lauf fünfmal
+    # je bis zu 15 Minuten aufhalten.
     wait: false
     timeout: 15m0s
+    # Festgeschriebener Default. Werte, die nicht mehr in der Datei stehen,
+    # fallen damit bei jedem Lauf auch aus dem Release, statt dort liegenzubleiben.
+    reset_values: true
     values:
       replicas: 1
       # Wie bei MongoDB, siehe ansible/files/mongodb-instance.yaml.
@@ -100,22 +104,15 @@
       image:
         tag: "{{ keycloak_image_tag }}"
       # Produktivmodus mit Import. dev-file als DB genügt für den einzelnen Pod.
-      # --health-enabled lässt den /health-Endpunkt eingeschaltet. Die
-      # Chart-Probes unten sind abgeschaltet und fragen ihn nicht ab, er bleibt
-      # für Prüfungen von Hand erreichbar.
+      # Die Health-Endpunkte schaltet der Chart selbst über KC_HEALTH_ENABLED
+      # ein, ein eigenes Flag im command braucht es dafür nicht. Die Probes
+      # kommen unverändert aus dem Chart, startup auf /health, liveness auf
+      # /health/live, readiness auf /health/ready, alle am Management-Port 9000.
       command:
         - "/opt/keycloak/bin/kc.sh"
         - "start"
         - "--http-port=8080"
-        - "--health-enabled=true"
         - "--import-realm"
-      # Keine Probes. Der Chart rendert startup-, liveness- und readinessProbe
-      # nur, wenn der jeweilige Wert gesetzt ist, leere Strings schalten sie
-      # ab. Der /health-Endpunkt aus dem command bleibt bestehen, abgefragt
-      # wird er nur von Hand.
-      startupProbe: ""
-      livenessProbe: ""
-      readinessProbe: ""
       database:
         vendor: dev-file
       # Setzt KC_PROXY_HEADERS=forwarded und KC_HTTP_ENABLED=true, damit Keycloak
@@ -206,3 +203,15 @@
         tls:
           - hosts:
               - "{{ keycloak_host }}"
+
+# Wie bei MongoDB und Valkey. Der Schritt steht außerhalb des Helm-Tasks,
+# damit dessen retries das Warten auf die Bereitschaft nicht mitwiederholen.
+# 420 Sekunden liegen über dem Startfenster der startupProbe von 315 Sekunden
+# plus Scheduling und PVC-Anbindung, ein Pod scheitert also erst an der Probe
+# und nicht vorher an diesem Timeout.
+- name: Auf die Bereitschaft von Keycloak warten
+  ansible.builtin.command:
+    argv: [kubectl, rollout, status, statefulset/keycloak-keycloakx, -n, "{{ auth_namespace }}", --timeout=420s]
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false

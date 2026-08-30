@@ -15,7 +15,7 @@
       Angemeldet als<strong>{{ user.preferred_username }}</strong>
       <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
            Keycloak, nicht auf eine Seite des API-Service. -->
-      <a href="login.html">Abmelden</a>
+      <a href="/logout">Abmelden</a>
     </div>
   </div>
 </header>
@@ -50,7 +50,7 @@
             <span class="zusatz">{{ task.description }}</span>
           </td>
           <td class="num">
-            {% if task.time_limit_seconds %}{{ "%.1f"|format(task.time_limit_seconds)|replace(".", ",") }} s{% else %}&ndash;{% endif %}
+            {{ "%.1f"|format(task.zeit_s)|replace(".", ",") }} s
           </td>
         </tr>
         {% endfor %}

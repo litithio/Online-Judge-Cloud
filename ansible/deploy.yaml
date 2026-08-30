@@ -371,6 +371,12 @@
   hosts: judge_k3s_server
   tags: [observability]
   become: true
+  # Aus vars/auth.yaml kommt grafana_host, aus auth-credentials.yaml das
+  # Passwort des Grafana-Admins. Beide Dateien tragen auch die Auth-Kette, die
+  # Hostnamen stehen dort nach der Entscheidung aus #92 an einer Stelle.
+  vars_files:
+    - vars/auth.yaml
+    - auth-credentials.yaml
   tasks:
     - name: Prometheus, Grafana und das Dashboard einrichten
       ansible.builtin.import_tasks: tasks/observability.yaml

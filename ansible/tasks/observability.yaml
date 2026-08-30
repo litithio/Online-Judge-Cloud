@@ -9,6 +9,37 @@
     name: prometheus-community
     repo_url: https://prometheus-community.github.io/helm-charts
 
+# Vor dem Chart, weil das Secret darunter den Namespace schon braucht. Der
+# Helm-Task legte ihn sonst erst selbst an.
+- name: Namespace für Prometheus und Grafana
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: monitoring
+
+# Wie beim Bootstrap-Admin von Keycloak ein eigenes Secret statt eines Werts in
+# den Helm-Werten. kubernetes.core.helm gibt die Werte eines Release im
+# Ergebnis zurück, und bei einem Lauf mit -v stünde das Passwort im Log.
+- name: Secret für den Grafana-Admin
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: grafana-admin
+        namespace: monitoring
+      type: Opaque
+      stringData:
+        admin-user: admin
+        admin-password: "{{ grafana_admin_password }}"
+  no_log: true
+
 # Wie bei Keycloak fünf Versuche mit 30 Sekunden Abstand. Der Chart lädt seine
 # Abhängigkeiten aus dem Netz, und dieselben Wellen abgewiesener Verbindungen
 # treffen ihn.
@@ -62,7 +93,7 @@
       # Unterschied, container_memory_usage_bytes liefert über sechs Stunden
       # dieselben Werte bis auf die Nachkommastelle.
       prometheusOperator:
-        # 22,5 MiB und 6,2m. Der Operator wacht über die CRDs und rührt sich
+        # 23,8 MiB und 6,2m. Der Operator wacht über die CRDs und rührt sich
         # nur, wenn eine davon sich ändert.
         resources:
           requests:
@@ -71,7 +102,7 @@
           limits:
             cpu: "50m"
             memory: "64Mi"
-        # 15,0 MiB und 0,3m. Lädt die Prometheus-Konfiguration neu, wenn ein
+        # 16,5 MiB und 0,3m. Lädt die Prometheus-Konfiguration neu, wenn ein
         # ServiceMonitor dazukommt.
         prometheusConfigReloader:
           resources:
@@ -126,12 +157,40 @@
             memory: "384Mi"
         nodeSelector:
           online-judge/rolle: dienste
-        # Ohne gesetztes Passwort legt der Chart ein zufälliges an. Auslesen mit
-        # kubectl get secret observability-grafana -n monitoring
-        #   -o jsonpath='{.data.admin-password}' | base64 -d
+        # Eigener Host auf der Ebene unter der Zone, wie die Anwendung und
+        # Keycloak. Der Beschluss dazu steht in #92. DNS und TLS kommen von
+        # external-dns und dem Wildcard der Rolle, ein eigenes TLS-Secret
+        # braucht die Ingress deshalb nicht.
+        ingress:
+          enabled: true
+          hosts:
+            - "{{ grafana_host }}"
+          tls:
+            - hosts:
+                - "{{ grafana_host }}"
+        # Grafana prüft die Anmeldung selbst. Die Kette aus #20 davorzuschalten
+        # hieße, Grafana über auth.proxy einem Header zu glauben, den jeder Pod
+        # im Cluster setzen kann, solange die default-deny-NetworkPolicy aus
+        # #62 fehlt. Das Passwort steht im Secret oben, ohne diesen Verweis
+        # erzeugte der Chart ein zufälliges.
+        admin:
+          existingSecret: grafana-admin
         # Die mitgelieferten Kubernetes-Dashboards bleiben aus, gebraucht wird
         # nur das eigene aus files/dashboard-judge.json.
         defaultDashboardsEnabled: false
+        # Die Startseite zeigt direkt das eigene Dashboard, damit im Screencast
+        # eine Adresse ohne Pfad genügt. Der Pfad ist der Ablageort des
+        # Sidecars, er kommt aus grafana.sidecar.dashboards.folder und ist im
+        # Chart auf /tmp/dashboards vorbelegt.
+        #
+        # Grafana liest die Datei dafür ein zweites Mal und legt sie unter der
+        # uid default-home-dashboard ab. Die Suche zeigt weiter nur die
+        # provisionierte Fassung unter der uid judge, beide stammen aus
+        # derselben Datei. Über die uid ginge es nur als Einstellung in der
+        # Oberfläche, und die verlangt die Aufgabenstellung als Code.
+        grafana.ini:
+          dashboards:
+            default_home_dashboard_path: /tmp/dashboards/dashboard-judge.json
         sidecar:
           # Gilt für beide Sidecars, den für Dashboards und den für
           # Datenquellen. Beide stehen konstant bei 72,6 MiB und unter 1m, im
@@ -147,6 +206,12 @@
             enabled: true
             label: grafana_dashboard
             searchNamespace: ALL
+            # Ausdrücklich gesetzt, obwohl der Chart denselben Wert vorgibt.
+            # default_home_dashboard_path unten nennt einen Pfad in diesem
+            # Ordner. Stünde hier nichts, hinge die Startseite an einer
+            # Vorgabe des Charts, und ein Update, das sie ändert, bräche sie
+            # ohne Fehlermeldung.
+            folder: /tmp/dashboards
 
       prometheus:
         prometheusSpec:
@@ -206,6 +271,12 @@
 
 # Das Dashboard liegt als Code im Repo. Der Sidecar von Grafana liest jede
 # ConfigMap mit dem Label grafana_dashboard ein, unabhängig vom Namespace.
+#
+# Seine Panels zeigen fest auf die Datenquelle mit der uid prometheus statt auf
+# eine Dashboard-Variable. Der Chart legt diese uid selbst an, sie steht als
+# grafana.sidecar.datasources.uid in seinen Vorgabewerten. Über eine Variable
+# hinge die Anzeige daran, dass Grafana sie beim Öffnen auflöst, und ein leeres
+# Panel fiele erst in der Screencast-Aufnahme auf.
 #
 # lookup('file', ...) liest auf dem Kontrollknoten, wie in tasks/valkey.yaml.
 # Auf dem Zielhost liegt die Datei nicht.

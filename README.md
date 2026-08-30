@@ -108,13 +108,29 @@ KUBECONFIG relativ zum aktuellen Verzeichnis.
 Cluster hochbringen:
 
 ```bash
+scripts/deploy.sh
+```
+
+Das Skript prüft erst die vier Kopien und die Werkzeuge, wartet mit VPN an
+auf die OpenStack-API und lässt `terraform init` und `terraform apply`
+laufen. Dann hält es an der VPN-Grenze, fordert zum Ausschalten auf und
+wartet, bis der Server über IPv6 auf Port 22 antwortet. Danach laufen
+`ansible-galaxy` und `ansible-playbook` mit `deploy.yaml` durch, am Ende
+zeigt `kubectl get nodes` den Stand.
+
+Nicht jeder Lauf braucht den ganzen Stack. Die Schritte einzeln, jeweils
+aus dem Wurzelverzeichnis:
+
+```bash
 # VPN an
-cd terraform && terraform init && terraform apply
+terraform -chdir=terraform init && terraform -chdir=terraform apply
 
 # VPN aus
-cd ../ansible && ansible-galaxy install -r requirements.yml --force
+cd ansible
+ansible-galaxy install -r requirements.yml --force
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml
+cd ..
 kubectl get nodes
 ```
 
@@ -162,6 +178,7 @@ auf den Server und ruft `helm upgrade --install`.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
+cd ansible
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags app
 ```
@@ -202,6 +219,7 @@ braucht.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
+cd ansible
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags seed
 ```
@@ -233,6 +251,7 @@ Traefik-Anbindung (Middleware + Ingress) rollt das Play mit dem Tag `auth` aus:
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
+cd ansible
 ansible-playbook -i inventory/generated-inventory.yml \
                  -i dns-credentials.yaml deploy.yaml --tags auth
 ```
@@ -242,6 +261,41 @@ Prüfen: `https://auth.<zone>` zeigt den Realm `judge`, ein Aufruf von
 Anmeldung mit dem Test-Benutzer aus `auth-credentials.yaml` ist die API
 erreichbar. Ein direkter Aufruf des `backend`-Service im Cluster (ohne
 Gateway-Header) endet mit 401.
+
+### Dashboard
+
+Prometheus und Grafana laufen im Namespace `monitoring`, ausgerollt mit
+`--tags observability,keda`. Beide Tags zusammen, weil der ServiceMonitor den
+Metrikport des KEDA-Operators braucht und den erst das KEDA-Play öffnet. Ohne
+ihn bleibt die Kurve der Warteschlange leer. Das Dashboard `Judge unter Last`
+liegt als Code in `ansible/files/dashboard-judge.json` und zeigt die Zahl der
+Worker-Replicas und die Länge von `judge:python`. Beide Kurven zusammen machen
+sichtbar, dass KEDA auf die Warteschlange reagiert.
+
+Grafana liegt auf einem eigenen Host unter der Zone, wie die Anwendung und
+Keycloak. `https://grafana.<zone>` zeigt nach der Anmeldung direkt das
+Dashboard, es ist als Startseite gesetzt. Der Benutzer heißt `admin`, das
+Passwort setzt `grafana_admin_password` aus `auth-credentials.yaml`. Anders als
+die Anwendung hängt Grafana nicht hinter der Anmeldung aus #20, es prüft
+selbst.
+
+Ohne Last stehen beide Kurven auf null. Einreichungen erzeugt
+`app/lastgenerator.py`, und der läuft auf dem Server statt lokal, weil
+`kubectl port-forward` das Backend nicht erreicht. Es bindet nur auf `::`, und
+der Forward erreicht im Pod-Netz `localhost` nicht über IPv6.
+
+```bash
+# VPN aus, <server> ist die IPv6 des Servers aus dem Inventory
+tar czf - -C app lastgenerator.py aufgaben \
+    | ssh ubuntu@<server> 'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
+kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
+ssh ubuntu@<server> "GATEWAY_SECRET=<gateway_secret aus auth-credentials.yaml> \
+    python3 /tmp/last/lastgenerator.py --rate 2 --dauer 90 \
+    --api 'http://[<service-ip>]:8000'"
+```
+
+Mit diesen Werten laufen 180 Einreichungen durch, die Warteschlange steigt auf
+gut 70 und KEDA skaliert die Worker von null auf fünf.
 
 Vor dem Push:
 
@@ -441,6 +495,27 @@ die Decke fest ist, hebt ein größeres Limit den Heap nicht mit an, und
 reserviert wird auf dem Node nichts davon (#165). Bei der CPU liegt der
 Leerlauf bei 2m, eine vollständige Anmeldung kostet 59 Kern-Millisekunden,
 rechnerisch entsprechen die 250m damit gut vier Anmeldungen je Sekunde.
+
+
+### Probes an Keycloak
+
+Keycloak übernimmt die drei Probes des keycloakx-Charts unverändert, startup
+auf `/health` mit 315 Sekunden Fenster, liveness auf `/health/live` mit 5
+Sekunden Frist, readiness auf `/health/ready` mit 1 Sekunde, alle am
+Management-Port 9000. Vorher waren sie über leere Strings abgeschaltet, ohne
+rekonstruierbaren Grund (#147). Ohne readiness würde Traefik den OIDC-Flow an
+einen Pod schicken, der den Realm noch importiert, ohne liveness würde ein
+hängender Keycloak stehen bleiben.
+
+Die Übernahme stützt sich auf Messungen, denn eine zu enge Probe hätte den
+einzigen Pod mitten in der Anmeldespitze für den 55-Sekunden-Neustart aus
+#163 aus dem Verkehr genommen. Der Start braucht höchstens 35 Sekunden bis
+zum ersten 200, mit Realm-Import 43. Unter Anmeldelast mit bis zu 22
+Anmeldungen je Sekunde lieferten 1170 Abfragen der beiden Endpunkte
+durchgehend 200 in höchstens 168 Millisekunden. Helm wartet weiter nicht
+(`wait: false`), auf die Bereitschaft wartet ein eigener
+rollout-status-Schritt, sonst würden die retries des Helm-Tasks auch jeden
+Warte-Timeout wiederholen.
 
 
 ### Liveness-Probe am Judge-Worker

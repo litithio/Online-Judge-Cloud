@@ -606,10 +606,11 @@ Ein k3s-Upgrade trifft laufende Judge-Worker. Der `agent-plan` des
 system-upgrade-controller räumt den Node mit `drain.force` leer, bevor der
 Upgrade-Job startet, und `ansible/deploy.yaml` gibt ihm dafür die Toleration
 des Judge-Taints. Ohne sie bliebe der Job Pending und die Judge-Nodes bekämen
-keine k3s-Upgrades mehr. Ein Worker, der beim Räumen rechnet, verliert seinen
-Pod. Die Einreichung bleibt dann auf RUNNING stehen, bis ihre Frist abläuft,
-und der Versuch ist verbraucht. Das Fenster steht täglich von 02:00 bis 04:00
-Europe/Berlin.
+keine k3s-Upgrades mehr. Das Räumen löscht einen rechnenden Worker mit
+derselben Grace-Period wie der Rollout, siehe den Absatz zum Beenden eines
+Worker-Pods weiter unten. Die laufende Bewertung endet also noch, verloren
+geht sie erst, wenn sie die Frist sprengt. Das Fenster steht täglich von
+02:00 bis 04:00 Europe/Berlin.
 
 Außerhalb der Sandbox liegt eine Grenze bei der Verfügbarkeit der API. Die
 readinessProbe fragt `/readyz`, und dieser Endpunkt prüft MongoDB. Fällt die
@@ -621,25 +622,26 @@ Pod weder eine Aufgabe ausliefern noch eine Einreichung annehmen. Valkey prüft
 die Probe nicht, denn ohne die Queue scheitert allein `/submit`, während
 `/tasks` und `/submission` weiter antworten.
 
-Bei der Skalierung bleibt eine Lücke. Der Worker nimmt seine Einreichung aus der
-Warteschlange, bevor er rechnet. KEDA misst nur die Länge dieser Warteschlange
-und sieht laufende Arbeit deshalb nicht. Ist die Warteschlange leer, fährt KEDA
-das Worker-Deployment auf null, auch wenn ein Pod noch rechnet. Einen eigenen
-Wert für die Wartezeit davor setzt das Chart nicht, es gilt der Standard von 300
-Sekunden, gerechnet ab dem Leerwerden der Warteschlange. Die betroffene
-Einreichung bleibt auf RUNNING stehen, bis ihre Frist abläuft, danach reiht der
-Durchlauf sie erneut ein. Der Versuch ist da schon verbraucht, `_uebernehmen`
-zählt ihn beim Übernehmen hoch, nicht der Durchlauf. Nach dem dritten endet die
-Einreichung auf UNRESOLVED, also ohne fachliches Urteil.
+Beim Beenden eines Worker-Pods, ob durch einen Rollout, durch das
+Herunterskalieren von KEDA oder durch den Drain eines Nodes, schickt
+Kubernetes zuerst SIGTERM. Der Worker nimmt danach keine Einreichung mehr an,
+legt einen schon gezogenen Eintrag an den Kopf der Warteschlange zurück,
+rechnet die laufende Bewertung zu Ende, schreibt das Urteil und beendet sich.
+Die `terminationGracePeriodSeconds` von 300 Sekunden decken das, die
+Herleitung steht in `app/chart/values.yaml`. KEDA bleibt dabei blind für
+laufende Arbeit, es misst nur die Länge der Warteschlange und fährt das
+Deployment 300 Sekunden nach ihrem Leerwerden auf null, auch wenn ein Pod
+noch rechnet. Das kostet seit dem SIGTERM-Handler keinen Versuch mehr,
+solange die restliche Bewertung in die Frist passt.
 
-Mit den Aufgaben im Repo tritt der Fall nicht ein. Je Testfall wartet der Worker
-höchstens das Zeitlimit der Aufgabe plus 1,5 Sekunden, weil die Wall-Clock-Frist
-über dem harten RLIMIT_CPU-Limit liegt. Bei `editierdistanz` mit 3 Testfällen à
-4 Sekunden sind das gut 16 Sekunden. In die Nähe der Wartezeit käme erst eine
-Aufgabe, deren Testläufe zusammen Minuten dauern. `GRENZE_ZEIT_MAX` deckelt das
-Zeitlimit auf 60 Sekunden je Testfall, eine Obergrenze für die Zahl der
-Testfälle prüft `app/aufgaben/laden.py` nicht. Wer eine solche Aufgabe anlegt,
-steht vor dieser Wahl neu.
+Die Herleitung der Frist rechnet mit höchstens 3 Testfällen am maximalen
+Zeitlimit von 60 Sekunden, eine Obergrenze für die Zahl der Testfälle prüft
+`app/aufgaben/laden.py` aber nicht. Eine Bewertung, die länger läuft als die
+Frist, endet weiter per SIGKILL. Die Einreichung bleibt dann auf RUNNING
+stehen, bis ihre Frist abläuft, der Durchlauf reiht sie erneut ein, und der
+Versuch ist verbraucht, nach dem dritten endet sie auf UNRESOLVED. Mit den
+Aufgaben im Repo, höchstens 3 Testfälle und bei `editierdistanz` zusammen gut
+16 Sekunden je Bewertung, tritt der Fall nicht ein.
 
 Der Judge-Worker hat keine readinessProbe. Auf ihn zeigt kein Service, und für
 den Rollout wartet schon die startupProbe, denn bis sie durchläuft, gilt der

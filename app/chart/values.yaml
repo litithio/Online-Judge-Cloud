@@ -112,6 +112,35 @@ judge:
   # Heartbeat, damit das Aufräumen mit der vollen Frist beginnt.
   heartbeatFrist: 120
 
+  # Frist in Sekunden zwischen SIGTERM und SIGKILL am Worker-Pod. Der Worker
+  # nimmt nach dem SIGTERM keine Einreichung mehr an und rechnet die laufende
+  # Bewertung zu Ende (#199). Die Frist muss diese Bewertung decken, sonst
+  # beendet SIGKILL den Worker doch mitten im Lauf.
+  #
+  # Der berechenbare Anteil kommt aus worker.py, gerechnet über den längsten
+  # Weg, eine Bewertung, die das Signal knapp überholt und ganz durchläuft.
+  # Übernahme, Lesen der Aufgabe und Anlegen der Platzhalter enden nach je
+  # höchstens 10 Sekunden (socketTimeoutMS). Je Testfall läuft die Sandbox bis
+  # GRENZE_ZEIT_MAX + 1 + ZEITFRIST_PUFFER, also 61,5 Sekunden, danach warten
+  # SIGKILL_FRIST mit 5 und REST_FRIST mit 1 auf das Ende der Prozesse, und
+  # der Schreibzugriff des Testfall-Ergebnisses endet nach höchstens 10. Das
+  # sind 77,5 Sekunden je Testfall. Die Aufgaben im Repo haben höchstens 3
+  # Testfälle, dazu 10 Sekunden für das Urteil am Ende. 3 mal 10 + 3 mal 77,5
+  # + 10 sind 272,5 Sekunden. Ein wartendes blpop bricht nicht ab und braucht
+  # bis zur Flag-Prüfung höchstens QUEUE_WARTEN, also 15 Sekunden, das liegt
+  # weit darunter.
+  #
+  # Die 300 lassen 27,5 Sekunden darüber für das, was keine eigene Grenze hat,
+  # die Rüstzeit je Lauf und das rmtree. Zwei Grenzen bleiben. Während einer
+  # Primary-Neuwahl von MongoDB kommen je Zugriff bis zu 30 Sekunden
+  # Serverauswahl obendrauf, mit dem eingebauten Retry der Treiber auch noch
+  # einmal so viel. Ein Zugriff, der endgültig scheitert, bricht die
+  # Bewertung aber ab und beendet damit auch den Auslauf. Und die Zahl der
+  # Testfälle je Aufgabe deckelt laden.py nicht. Eine Aufgabe mit mehr als 3
+  # Testfällen am maximalen Zeitlimit sprengt die Frist, siehe README
+  # ## Grenzen.
+  terminationGracePeriodSeconds: 300
+
   # Je Eintrag ein Worker-Deployment und ein ScaledObject. name bildet den
   # Namen des Deployments (code-worker-<name>), den Wert von WORKER_SPRACHE und
   # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache

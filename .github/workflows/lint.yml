@@ -49,6 +49,18 @@ jobs:
         # scripts/diagramme.sh laufen zu lassen und die SVGs mitzucommitten.
         run: git diff --exit-code docs/diagramme
 
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Unit-Tests im Worker-Image
+        # Baut das Worker-Image und führt pytest darin aus, lokal ruft
+        # ./scripts/check.sh genau dasselbe Skript auf. Docker ist auf den
+        # Runnern vorinstalliert, die pytest-Version kommt gepinnt aus
+        # requirements.txt.
+        run: ./scripts/unit-tests.sh
+
   chart:
     runs-on: ubuntu-latest
     timeout-minutes: 10

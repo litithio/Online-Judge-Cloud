@@ -68,27 +68,34 @@ docker run --rm -v "$render":/render "$kubeconform_image" \
     -strict -ignore-missing-schemas -summary \
     /render/basis.yaml /render/dev.yaml /render/prod.yaml
 
-# values.schema.json ist die einzige Stelle, die einen kaputten tmpSizeLimit
-# abfängt. kubelet ignoriert ein Limit von 0 still und beliebiger Text fiele
-# erst am API-Server auf. helm muss hier jedes Mal scheitern, und zwar an
-# tmpSizeLimit, nicht an etwas anderem.
+# values.schema.json ist die einzige Stelle, die kaputte judge-Werte abfängt.
+# kubelet ignoriert ein Limit von 0 still und beliebiger Text fiele erst am
+# API-Server auf. helm muss hier jedes Mal scheitern, und zwar an dem
+# Schlüssel im ersten Parameter, nicht an etwas anderem.
 echo "== Negativtests am values-Schema =="
 muss_scheitern() {
+    local schluessel="$1"
+    shift
     if helm template /chart --set image.tag=0.0.0-test "$@" > /dev/null 2> "$render/fehler.txt"; then
         echo "Schema hat $* durchgelassen"
         exit 1
     fi
-    if ! grep -q tmpSizeLimit "$render/fehler.txt"; then
+    if ! grep -q "$schluessel" "$render/fehler.txt"; then
         cat "$render/fehler.txt"
-        echo "helm ist an etwas anderem gescheitert als an tmpSizeLimit ($*)"
+        echo "helm ist an etwas anderem gescheitert als an $schluessel ($*)"
         exit 1
     fi
     echo "abgelehnt wie erwartet: $*"
 }
 # null löscht den Schlüssel aus den values, das prüft den Pflichtfeld-Fall.
-muss_scheitern --set judge.tmpSizeLimit=null
+muss_scheitern tmpSizeLimit --set judge.tmpSizeLimit=null
 # --set-string erzwingt Strings, sonst käme die 0 als Zahl an und scheiterte
 # am Typ statt am Muster.
-muss_scheitern --set-string judge.tmpSizeLimit=
-muss_scheitern --set-string judge.tmpSizeLimit=0
-muss_scheitern --set-string judge.tmpSizeLimit=ganzviel
+muss_scheitern tmpSizeLimit --set-string judge.tmpSizeLimit=
+muss_scheitern tmpSizeLimit --set-string judge.tmpSizeLimit=0
+muss_scheitern tmpSizeLimit --set-string judge.tmpSizeLimit=ganzviel
+# Frist für den geordneten Auslauf des Workers (#199). 67 liegt unter dem
+# Minimum von 68 aus values.schema.json, darunter kann schon ein einzelner
+# Testfall am maximalen Zeitlimit nicht zu Ende gerechnet werden.
+muss_scheitern terminationGracePeriodSeconds --set judge.terminationGracePeriodSeconds=null
+muss_scheitern terminationGracePeriodSeconds --set judge.terminationGracePeriodSeconds=67

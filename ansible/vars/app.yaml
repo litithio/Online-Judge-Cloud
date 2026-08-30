@@ -17,7 +17,7 @@ app_values_env: prod
 # der Seed-Job in tasks/seed.yaml ebenso. Fester Stand statt latest, gebaut
 # von .github/workflows/images.yml bei einem Git-Tag. Muss gesetzt sein, das
 # Chart-Schema lehnt einen leeren Tag ab.
-app_image_tag: "0.2.9"
+app_image_tag: "0.2.10"
 
 # Auf den Server kopierter Chart. Die Helm-Module laufen dort (kubeconfig liegt
 # auf dem Server), der Chart muss also neben ihnen liegen, nicht nur auf dem

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ task.title }}, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>{{ user.preferred_username }}</strong>
+      <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
+           Keycloak, nicht auf eine Seite des API-Service. -->
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a class="aktiv" href="/aufgaben">Aufgaben</a>
+    <a href="/einreichungen">Meine Einreichungen</a>
+  </div>
+</nav>
+
+<main>
+<a href="/aufgaben" class="zurueck">&#8592; Alle Aufgaben</a>
+    <div class="kopfzeile"><h1>{{ task.title }}</h1></div>
+
+    <div class="zweispaltig">
+      <div class="aufgabentext">
+        <p style="white-space: pre-line">{{ task.description }}</p>
+
+        <div class="eckdaten">
+          <div><span>Zeitlimit</span><strong>{% if task.time_limit_seconds %}{{ "%.1f"|format(task.time_limit_seconds)|replace(".", ",") }} s je Testfall{% else %}&ndash;{% endif %}</strong></div>
+          <div><span>Speicher</span><strong>{% if task.memory_limit_mb %}{{ task.memory_limit_mb }} MB{% else %}&ndash;{% endif %}</strong></div>
+          <div><span>Testfälle</span><strong>{{ anzahl_testfaelle }}</strong></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="editor-rahmen">
+          <div class="editor-leiste">
+            <label for="sprache">Sprache</label>
+            <select id="sprache">
+              <option value="python">Python 3.12</option>
+            </select>
+          </div>
+          <div class="editor">
+            <div class="zeilen"><span>1</span><span>2</span></div>
+            <div class="code"><span class="kom"># Ihre Lösung</span>
+</div>
+          </div>
+        </div>
+
+        <div class="editor-fuss">
+          <button class="knopf">Einreichen</button>
+        </div>
+      </div>
+    </div>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,4 +1,5 @@
-# Nicht-geheime Konfiguration der Auth-Kette. Die Secrets liegen daneben in
+# Nicht-geheime Konfiguration der Auth-Kette und die Hostnamen der von außen
+# erreichbaren Dienste. Die Secrets liegen daneben in
 # auth-credentials.yaml (siehe .example), beide werden von den Auth-Plays über
 # vars_files geladen.
 #
@@ -17,6 +18,12 @@ auth_namespace: auth
 # der Oberfläche fern (Vorschlag in #92).
 keycloak_host: "auth.{{ rfc2136_zone }}"
 app_host: "app.{{ rfc2136_zone }}"
+# Grafana gehört nicht zur Auth-Kette, der Name steht hier trotzdem. Die
+# Entscheidung aus #92 behandelt die Hosts als eine Sache, jeder von außen
+# erreichbare Dienst bekommt einen Namen auf dieser einen Ebene, weil das
+# Wildcard der Rolle genau sie abdeckt. Verteilt auf mehrere Dateien ginge
+# beim nächsten Namen verloren, wieviele davon die Ebene schon belegen.
+grafana_host: "grafana.{{ rfc2136_zone }}"
 
 # Realm und Client kommen als Code (templates/keycloak-realm.json.j2). Die
 # client-id ist frei gewählt; sie identifiziert das Gateway (Traefik-Plugin)

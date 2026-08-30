@@ -243,6 +243,41 @@ Anmeldung mit dem Test-Benutzer aus `auth-credentials.yaml` ist die API
 erreichbar. Ein direkter Aufruf des `backend`-Service im Cluster (ohne
 Gateway-Header) endet mit 401.
 
+### Dashboard
+
+Prometheus und Grafana laufen im Namespace `monitoring`, ausgerollt mit
+`--tags observability,keda`. Beide Tags zusammen, weil der ServiceMonitor den
+Metrikport des KEDA-Operators braucht und den erst das KEDA-Play öffnet. Ohne
+ihn bleibt die Kurve der Warteschlange leer. Das Dashboard `Judge unter Last`
+liegt als Code in `ansible/files/dashboard-judge.json` und zeigt die Zahl der
+Worker-Replicas und die Länge von `judge:python`. Beide Kurven zusammen machen
+sichtbar, dass KEDA auf die Warteschlange reagiert.
+
+Grafana liegt auf einem eigenen Host unter der Zone, wie die Anwendung und
+Keycloak. Das Dashboard steht unter
+`https://grafana.<zone>/d/judge-last/judge-unter-last`. Der Benutzer heißt
+`admin`, das Passwort setzt `grafana_admin_password` aus
+`auth-credentials.yaml`. Anders als die Anwendung hängt Grafana nicht hinter
+der Anmeldung aus #20, es prüft selbst.
+
+Ohne Last stehen beide Kurven auf null. Einreichungen erzeugt
+`app/lastgenerator.py`, und der läuft auf dem Server statt lokal, weil
+`kubectl port-forward` das Backend nicht erreicht. Es bindet nur auf `::`, und
+der Forward erreicht im Pod-Netz `localhost` nicht über IPv6.
+
+```bash
+# VPN aus, <server> ist die IPv6 des Servers aus dem Inventory
+tar czf - -C app lastgenerator.py aufgaben \
+    | ssh ubuntu@<server> 'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
+kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
+ssh ubuntu@<server> "GATEWAY_SECRET=<gateway_secret aus auth-credentials.yaml> \
+    python3 /tmp/last/lastgenerator.py --rate 2 --dauer 90 \
+    --api 'http://[<service-ip>]:8000'"
+```
+
+Mit diesen Werten laufen 180 Einreichungen durch, die Warteschlange steigt auf
+gut 70 und KEDA skaliert die Worker von null auf fünf.
+
 Vor dem Push:
 
 ```bash

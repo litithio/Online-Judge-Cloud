@@ -164,6 +164,17 @@ select {
 .zeilen { padding: 14px 0 14px 14px; color: var(--grau-50); text-align: right; user-select: none; }
 .zeilen span { display: block; }
 .code { padding: 14px 16px 14px 14px; white-space: pre; overflow-x: auto; flex: 1; }
+
+/* Echtes Eingabefeld statt des Zeilennummern-Mockups (#56), Monaco folgt
+   später. Übernimmt Schrift und Zeilenhöhe von .code/.editor, damit der
+   Wechsel von Anzeige zu Eingabe nicht auffällt. */
+.editor-eingabe {
+  flex: 1; box-sizing: border-box; width: 100%; min-height: 260px;
+  padding: 14px 16px; border: none; resize: vertical;
+  font-family: var(--mono); font-size: 13px; line-height: 1.75;
+  background: var(--weiss); color: var(--grau);
+}
+.editor-eingabe:focus { outline: none; }
 .schl { color: var(--misch); }
 .kom { color: var(--grau-60); }
 .str { color: var(--grau); }

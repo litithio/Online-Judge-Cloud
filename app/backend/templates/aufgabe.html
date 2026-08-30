@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ task.title }}, Online Judge</title>
 <link rel="stylesheet" href="/static/dhbw.css">
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/htmx-json-enc.js" defer></script>
 </head>
 <body>
 
@@ -15,7 +17,7 @@
       Angemeldet als<strong>{{ user.preferred_username }}</strong>
       <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
            Keycloak, nicht auf eine Seite des API-Service. -->
-      <a href="login.html">Abmelden</a>
+      <a href="/logout">Abmelden</a>
     </div>
   </div>
 </header>
@@ -36,30 +38,32 @@
         <p style="white-space: pre-line">{{ task.description }}</p>
 
         <div class="eckdaten">
-          <div><span>Zeitlimit</span><strong>{% if task.time_limit_seconds %}{{ "%.1f"|format(task.time_limit_seconds)|replace(".", ",") }} s je Testfall{% else %}&ndash;{% endif %}</strong></div>
-          <div><span>Speicher</span><strong>{% if task.memory_limit_mb %}{{ task.memory_limit_mb }} MB{% else %}&ndash;{% endif %}</strong></div>
+          <div><span>Zeitlimit</span><strong>{{ "%.1f"|format(zeit_s)|replace(".", ",") }} s je Testfall</strong></div>
+          <div><span>Speicher</span><strong>{{ speicher_mb }} MB</strong></div>
           <div><span>Testfälle</span><strong>{{ anzahl_testfaelle }}</strong></div>
         </div>
       </div>
 
       <div>
-        <div class="editor-rahmen">
-          <div class="editor-leiste">
-            <label for="sprache">Sprache</label>
-            <select id="sprache">
-              <option value="python">Python 3.12</option>
-            </select>
+        <form hx-post="/submit" hx-ext="json-enc" hx-disabled-elt="find button">
+          <input type="hidden" name="task_id" value="{{ task.id }}">
+          <div class="editor-rahmen">
+            <div class="editor-leiste">
+              <label for="sprache">Sprache</label>
+              <select id="sprache" name="sprache">
+                <option value="python">Python 3.12</option>
+              </select>
+            </div>
+            <div class="editor">
+              <textarea name="code" class="editor-eingabe" spellcheck="false"># Ihre Lösung
+</textarea>
+            </div>
           </div>
-          <div class="editor">
-            <div class="zeilen"><span>1</span><span>2</span></div>
-            <div class="code"><span class="kom"># Ihre Lösung</span>
-</div>
-          </div>
-        </div>
 
-        <div class="editor-fuss">
-          <button class="knopf">Einreichen</button>
-        </div>
+          <div class="editor-fuss">
+            <button type="submit" class="knopf">Einreichen</button>
+          </div>
+        </form>
       </div>
     </div>
 </main>

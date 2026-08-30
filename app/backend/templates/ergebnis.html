@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Einreichung #{{ sub_id[-6:] }}, Online Judge</title>
 <link rel="stylesheet" href="/static/dhbw.css">
+<script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 
@@ -15,7 +16,7 @@
       Angemeldet als<strong>{{ user.preferred_username }}</strong>
       <!-- Im Betrieb zeigt der Verweis auf den Logout-Endpunkt von
            Keycloak, nicht auf eine Seite des API-Service. -->
-      <a href="login.html">Abmelden</a>
+      <a href="/logout">Abmelden</a>
     </div>
   </div>
 </header>
@@ -31,8 +32,11 @@
 <a href="/einreichungen" class="zurueck">&#8592; Meine Einreichungen</a>
     <div class="kopfzeile"><h1>Einreichung #{{ sub_id[-6:] }}</h1></div>
 
+    <div id="ergebnis-inhalt">
     <div class="ergebnis-kopf">
-      {% if gesamt %}
+      {% if status == "UNRESOLVED" %}
+      <div class="punktstand" style="font-size: 24px;">{{ result }}<small>Bewertung nicht abgeschlossen</small></div>
+      {% elif gesamt %}
       <div class="punktstand">{{ bestanden }} von {{ gesamt }}<small>Testfälle bestanden</small></div>
       {% else %}
       <div class="punktstand" style="font-size: 24px;">{{ result }}<small>kein Testfall ausgeführt</small></div>
@@ -78,6 +82,7 @@
       </tbody>
     </table>
     {% endif %}
+    </div>
 </main>
 
 <footer>

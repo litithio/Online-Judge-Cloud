@@ -178,6 +178,19 @@
         # Die mitgelieferten Kubernetes-Dashboards bleiben aus, gebraucht wird
         # nur das eigene aus files/dashboard-judge.json.
         defaultDashboardsEnabled: false
+        # Die Startseite zeigt direkt das eigene Dashboard, damit im Screencast
+        # eine Adresse ohne Pfad genügt. Der Pfad ist der Ablageort des
+        # Sidecars, er kommt aus grafana.sidecar.dashboards.folder und ist im
+        # Chart auf /tmp/dashboards vorbelegt.
+        #
+        # Grafana liest die Datei dafür ein zweites Mal und legt sie unter der
+        # uid default-home-dashboard ab. Die Suche zeigt weiter nur die
+        # provisionierte Fassung unter der uid judge, beide stammen aus
+        # derselben Datei. Über die uid ginge es nur als Einstellung in der
+        # Oberfläche, und die verlangt die Aufgabenstellung als Code.
+        grafana.ini:
+          dashboards:
+            default_home_dashboard_path: /tmp/dashboards/dashboard-judge.json
         sidecar:
           # Gilt für beide Sidecars, den für Dashboards und den für
           # Datenquellen. Beide stehen konstant bei 72,6 MiB und unter 1m, im
@@ -193,6 +206,12 @@
             enabled: true
             label: grafana_dashboard
             searchNamespace: ALL
+            # Ausdrücklich gesetzt, obwohl der Chart denselben Wert vorgibt.
+            # default_home_dashboard_path unten nennt einen Pfad in diesem
+            # Ordner. Stünde hier nichts, hinge die Startseite an einer
+            # Vorgabe des Charts, und ein Update, das sie ändert, bräche sie
+            # ohne Fehlermeldung.
+            folder: /tmp/dashboards
 
       prometheus:
         prometheusSpec:

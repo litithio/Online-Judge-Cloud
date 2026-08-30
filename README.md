@@ -254,11 +254,11 @@ Worker-Replicas und die Länge von `judge:python`. Beide Kurven zusammen machen
 sichtbar, dass KEDA auf die Warteschlange reagiert.
 
 Grafana liegt auf einem eigenen Host unter der Zone, wie die Anwendung und
-Keycloak. Das Dashboard steht unter
-`https://grafana.<zone>/d/judge-last/judge-unter-last`. Der Benutzer heißt
-`admin`, das Passwort setzt `grafana_admin_password` aus
-`auth-credentials.yaml`. Anders als die Anwendung hängt Grafana nicht hinter
-der Anmeldung aus #20, es prüft selbst.
+Keycloak. `https://grafana.<zone>` zeigt nach der Anmeldung direkt das
+Dashboard, es ist als Startseite gesetzt. Der Benutzer heißt `admin`, das
+Passwort setzt `grafana_admin_password` aus `auth-credentials.yaml`. Anders als
+die Anwendung hängt Grafana nicht hinter der Anmeldung aus #20, es prüft
+selbst.
 
 Ohne Last stehen beide Kurven auf null. Einreichungen erzeugt
 `app/lastgenerator.py`, und der läuft auf dem Server statt lokal, weil

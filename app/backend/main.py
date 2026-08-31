@@ -316,7 +316,15 @@ def _dienst_nicht_erreichbar(request, fehler, ort):
 # den Pod direkt auf, an der Auth-Kette vorbei, und schickt weder die
 # Identitäts-Header noch den Wert aus #79. Eine geschützte Probe schlüge
 # dauerhaft fehl.
+#
+# @app.head zusätzlich zu @app.get, weil @app.get nur GET registriert und
+# HEAD sonst mit 405 antwortet (#127). Externe Prüfungen wie curl -I sprechen
+# Health-Pfade mit HEAD an, die Probes im Chart schicken weiter GET.
+# Nicht @app.api_route mit beiden Methoden, dort teilen sich GET und HEAD
+# eine operationId und FastAPI warnt bei jedem Abruf von /openapi.json.
+# HEAD bleibt aus dem Schema, der Eintrag wäre eine Dublette von GET.
 @app.get("/healthz")
+@app.head("/healthz", include_in_schema=False)
 async def healthz():
     """Läuft der Prozess noch? Hängt an keinem anderen Dienst.
 
@@ -332,6 +340,7 @@ async def healthz():
 
 
 @app.get("/readyz")
+@app.head("/readyz", include_in_schema=False)
 def readyz():
     """Kann der Pod Anfragen beantworten?
 

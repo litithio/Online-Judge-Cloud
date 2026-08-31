@@ -1,14 +1,15 @@
 ---
-# Aktiviert das OIDC-Plugin im Traefik aus dem k3s-Bundle. Anders als
-# oauth2-proxy läuft der OIDC-Flow damit im Traefik-Prozess selbst, es gibt
-# keinen zweiten Dienst.
+# Stellt den Traefik aus dem k3s-Bundle ein. Aktiviert das OIDC-Plugin und
+# leitet Klartext-HTTP auf HTTPS um. Anders als oauth2-proxy läuft der
+# OIDC-Flow mit dem Plugin im Traefik-Prozess selbst, es gibt keinen zweiten
+# Dienst.
 #
 # Plugins gehören in die statische Traefik-Konfiguration. Bei k3s erweitert eine
 # HelmChartConfig das mitgelieferte Traefik-Chart; k3s baut den Traefik-Pod
 # daraufhin mit den zusätzlichen Werten neu. Das ist der einzige eingreifende
 # Schritt: Traefik startet dabei einmal neu.
 
-- name: OIDC-Plugin im k3s-Traefik aktivieren
+- name: OIDC-Plugin und HTTPS-Weiterleitung im k3s-Traefik setzen
   kubernetes.core.k8s:
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
@@ -21,12 +22,31 @@
       spec:
         # valuesContent wird mit den Standardwerten des Bundle-Charts
         # zusammengeführt, überschreibt sie also nicht komplett.
+        #
+        # Die Weiterleitung unter ports.web erfasst den ganzen web-Entrypoint,
+        # also jeden Ingress im Cluster (#99). Eine redirectScheme-Middleware
+        # je Ingress müsste bei jedem weiteren Dienst wiederholt werden. Den
+        # älteren Schlüssel redirectTo kennt das Chart 40.1.0 nicht mehr.
+        #
+        # allowACMEByPass nimmt /.well-known/acme-challenge/ von der
+        # Weiterleitung aus. Ohne RFC2136-Zugangsdaten fällt die Rolle auf
+        # http01 zurück, und die Challenge muss dann über Klartext-HTTP
+        # erreichbar bleiben.
         valuesContent: |
           experimental:
             plugins:
               traefik-oidc-auth:
                 moduleName: "github.com/sevensolutions/traefik-oidc-auth"
                 version: "{{ traefik_oidc_plugin_version }}"
+          ports:
+            web:
+              allowACMEByPass: true
+              http:
+                redirections:
+                  entryPoint:
+                    to: websecure
+                    scheme: https
+                    permanent: true
 
 # Der HelmChartConfig-Job rollt Traefik neu aus. Bis der Pod wieder bereit ist,
 # darf die Middleware unten nicht angelegt werden, sonst kennt Traefik das

@@ -1,18 +1,22 @@
 {
   "title": "Primzahlen zählen",
   "description": "Lies eine Zahl n von der Standardeingabe und gib aus, wie viele Primzahlen kleiner oder gleich n sind.",
+  "difficulty": "mittel",
   "time_limit_seconds": 2,
   "memory_limit_mb": 96,
   "test_cases": [
     {
+      "name": "Keine Primzahl bis 1",
       "input": "1\n",
       "expected_output": "0"
     },
     {
+      "name": "Bis 100",
       "input": "100\n",
       "expected_output": "25"
     },
     {
+      "name": "Bis 15 Millionen",
       "input": "15000000\n",
       "expected_output": "970704"
     }

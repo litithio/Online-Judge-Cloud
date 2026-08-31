@@ -138,6 +138,17 @@ STANDARD_SPRACHE = "python"
 WORKER_STANDARD_ZEIT_S = 5
 WORKER_STANDARD_SPEICHER_MB = 128
 
+# Blendet die Testfälle aus wie bisher die Projektion {"test_cases": 0},
+# liefert aber ihre Anzahl mit (#71). Eingaben und erwartete Ausgaben bleiben
+# damit verborgen. Pipeline statt Projektion mit Ausdruck, weil die jedes
+# auszugebende Feld aufzählen müsste und ein neues Feld dann stumm fehlte.
+# $ifNull, damit ein von Hand angelegtes Dokument ohne test_cases die Abfrage
+# nicht abbricht, $size allein wirft dann einen Fehler.
+TESTFAELLE_GEZAEHLT = [
+    {"$set": {"test_case_count": {"$size": {"$ifNull": ["$test_cases", []]}}}},
+    {"$unset": "test_cases"},
+]
+
 
 def parse_json(data):
     data["id"] = str(data["_id"])
@@ -225,7 +236,7 @@ VERDICT_TEXT = {
 }
 
 
-def _testfaelle_ansicht(test_results):
+def _testfaelle_ansicht(test_results, namen=None):
     """Ansicht je Testfall für ergebnis.html und ergebnis-laeuft.html.
 
     NOT_RUN heißt bei einer fertigen Einreichung "wegen Abbruch nie
@@ -233,11 +244,24 @@ def _testfaelle_ansicht(test_results):
     Platzhalter vor dem ersten Fall, Abbruch beim ersten Fehlschlag). Beides
     zeigt dieselbe Zeile "steht aus", welcher der beiden Fälle vorliegt, sagt
     schon status_klasse der Einreichung.
+
+    namen ordnet test_id einen Namen aus der Aufgabe zu (#71). Die Zuordnung
+    läuft über die Position, denn test_results trägt keine Namen, der Worker
+    schreibt test_id als Nummer des Falls (worker.py, _urteil). Ohne Treffer
+    zeigt das Template "Testfall N", etwa wenn die Aufgabe gelöscht ist oder
+    ihre Testfälle vor dem nächsten Seed noch keine Namen tragen.
+
+    Die Zuordnung zeigt immer den aktuellen Stand der Aufgabe. Sortiert ein
+    Seed die Testfälle um, steht an einer alten Einreichung der Name aus der
+    neuen Revision. Stabil würde das erst, wenn der Worker den Namen beim
+    Lauf in test_results mitschriebe, wie er es mit test_id tut.
     """
+    namen = namen or {}
     ansicht = []
     for t in test_results or []:
         eintrag = {
             "nummer": t["test_id"],
+            "name": namen.get(t["test_id"]),
             "offen": t.get("verdict") == "NOT_RUN",
             "zeit_ms": t.get("zeit_ms"),
             "speicher_mb": (
@@ -378,16 +402,16 @@ def index():
 
 @app.get("/tasks")
 def get_tasks(user=Depends(get_current_user)):
-    tasks = list(db.tasks.find({}, {"test_cases": 0}))  # Testcases verbergen
+    tasks = list(db.tasks.aggregate(TESTFAELLE_GEZAEHLT))
     return [parse_json(t) for t in tasks]
 
 
 @app.get("/aufgaben", response_class=HTMLResponse)
 def aufgaben_seite(request: Request, user=Depends(get_current_user)):
     try:
-        tasks = list(
-            db.tasks.find({}, {"test_cases": 0})
-        )  # dieselbe Abfrage wie /tasks
+        # Wie /tasks, nur ohne die Anzahl der Testfälle. Die Liste zeigt sie
+        # nicht, erst die Detailseite (aufgabe_seite).
+        tasks = list(db.tasks.find({}, {"test_cases": 0}))
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/aufgaben")
     ansicht = []
@@ -406,10 +430,14 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str, user=Depends(get_current_user)):
-    task = db.tasks.find_one({"_id": ObjectId(task_id)}, {"test_cases": 0})
-    if not task:
+    treffer = list(
+        db.tasks.aggregate(
+            [{"$match": {"_id": ObjectId(task_id)}}] + TESTFAELLE_GEZAEHLT
+        )
+    )
+    if not treffer:
         raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
-    return parse_json(task)
+    return parse_json(treffer[0])
 
 
 @app.get("/aufgabe/{task_id}", response_class=HTMLResponse)
@@ -675,12 +703,19 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
 
+    testfall_namen = {
+        nummer: fall["name"]
+        for nummer, fall in enumerate((aufgabe or {}).get("test_cases", []), 1)
+        if isinstance(fall, dict) and fall.get("name")
+    }
     kontext = {
         "user": user,
         "sub_id": str(submission["_id"]),
         "task_titel": aufgabe["title"] if aufgabe else "Aufgabe gelöscht",
         "sprache": submission["sprache"],
-        "testfaelle": _testfaelle_ansicht(submission.get("test_results")),
+        "testfaelle": _testfaelle_ansicht(
+            submission.get("test_results"), testfall_namen
+        ),
     }
 
     if submission["status"] in ("PENDING", "RUNNING"):

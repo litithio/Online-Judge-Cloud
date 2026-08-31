@@ -62,7 +62,7 @@
       <tbody>
         {% for t in testfaelle %}
         <tr{% if t.offen %} class="offen"{% endif %}>
-          <td>Testfall {{ t.nummer }}</td>
+          <td>{{ t.name or "Testfall " ~ t.nummer }}</td>
           {% if t.offen %}
           <td>steht aus</td>
           <td class="num">&#183;</td>

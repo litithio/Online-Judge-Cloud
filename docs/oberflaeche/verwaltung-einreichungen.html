@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alle Einreichungen, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>Johannes Ullrich</strong>
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a href="aufgaben.html">Aufgaben</a>
+    <a href="einreichungen.html">Meine Einreichungen</a>
+    <a class="aktiv" href="verwaltung.html">Verwaltung</a>
+  </div>
+</nav>
+
+<main>
+    <a href="verwaltung.html" class="zurueck">&#8592; Verwaltung</a>
+    <div class="kopfzeile">
+      <h1>Alle Einreichungen</h1>
+      <p>Studierende sehen nur die eigenen Einreichungen. Diese Ansicht
+         zeigt alle und gehört darum zur Rolle dozent.</p>
+    </div>
+
+    <!-- Die Filter sind gewöhnliche GET-Parameter, kein Client-Zustand. -->
+    <div class="werkzeugleiste">
+      <form class="filter" method="get" action="verwaltung-einreichungen.html">
+        <div class="feld">
+          <label for="f-aufgabe">Aufgabe</label>
+          <select id="f-aufgabe" name="aufgabe">
+            <option selected>Alle Aufgaben</option>
+            <option>Zweisumme</option>
+            <option>Klammern prüfen</option>
+            <option>Wortfrequenz</option>
+            <option>Kürzester Weg im Raster</option>
+          </select>
+        </div>
+        <div class="feld">
+          <label for="f-ergebnis">Ergebnis</label>
+          <select id="f-ergebnis" name="ergebnis">
+            <option selected>Alle</option>
+            <option>bestanden</option>
+            <option>fehlgeschlagen</option>
+            <option>wird ausgeführt</option>
+            <option>in der Warteschlange</option>
+          </select>
+        </div>
+        <div class="feld">
+          <label for="f-person">Person</label>
+          <input type="text" id="f-person" name="person" placeholder="Kennung oder Name">
+        </div>
+        <button class="knopf zweit" type="submit">Filtern</button>
+      </form>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 10%">Nummer</th>
+          <th>Person</th>
+          <th style="width: 22%">Aufgabe</th>
+          <th>Sprache</th>
+          <th>Eingereicht</th>
+          <th>Ergebnis</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Die Nummern #1042 bis #1030 sind dieselben Einreichungen wie
+             in einreichungen.html und gehören dort Johannes Ullrich.
+             Verlinkt ist nur, wofür der Entwurf eine Zielseite hat. -->
+        <tr>
+          <td class="num"><a href="ergebnis-laeuft.html">#1042</a></td>
+          <td>Johannes Ullrich</td>
+          <td>Zweisumme</td>
+          <td>Python 3.12</td>
+          <td class="num">vor 3 s</td>
+          <td><span class="status laeuft"><span class="puls"></span>wird ausgeführt</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1041</td>
+          <td>Johannes Ullrich</td>
+          <td>Zweisumme</td>
+          <td>Python 3.12</td>
+          <td class="num">vor 5 s</td>
+          <td><span class="status wartet">in der Warteschlange</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1040</td>
+          <td>L. Brandt</td>
+          <td>Zweisumme</td>
+          <td>Python 3.12</td>
+          <td class="num">vor 8 min</td>
+          <td><span class="status ok"><span class="zeichen">&#10003;</span>5 von 5</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1039</td>
+          <td>Johannes Ullrich</td>
+          <td>Klammern prüfen</td>
+          <td>Python 3.12</td>
+          <td class="num">vor 12 min</td>
+          <td><span class="status ok"><span class="zeichen">&#10003;</span>5 von 5</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1038</td>
+          <td>S. Yilmaz</td>
+          <td>Wortfrequenz</td>
+          <td>Python 3.12</td>
+          <td class="num">vor 15 min</td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>2 von 6</span></td>
+        </tr>
+        <tr>
+          <td class="num">#1036</td>
+          <td>M. Okafor</td>
+          <td>Kürzester Weg im Raster</td>
+          <td>Python 3.12</td>
+          <td class="num">vor 19 min</td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>Zeitlimit überschritten</span></td>
+        </tr>
+        <tr>
+          <td class="num"><a href="ergebnis.html">#1035</a></td>
+          <td>Johannes Ullrich</td>
+          <td>Zweisumme</td>
+          <td>Python 3.12</td>
+          <td class="num">vor 24 min</td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>3 von 5</span></td>
+        </tr>
+        <tr>
+          <td class="num"><a href="ergebnis-fehler.html">#1030</a></td>
+          <td>Johannes Ullrich</td>
+          <td>Wortfrequenz</td>
+          <td>Java 21</td>
+          <td class="num">vor 1 h</td>
+          <td><span class="status fehler"><span class="zeichen">&#10007;</span>Kompilierfehler</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="polling">
+      <span class="puls"></span>
+      Nächste Aktualisierung in 3 s
+    </div>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

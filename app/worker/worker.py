@@ -1115,9 +1115,19 @@ def _urteil(sub_id, token, submission, task):
 
     zeit, speicher = grenzen_der_aufgabe(task)
 
+    # Derselbe Zuschlag an beiden Stellen, die während des Urteils die Frist
+    # setzen. Warum er genau einen Testfall deckt, steht an der Schleife.
+    frist_je_fall = timedelta(
+        seconds=zeit + 1 + ZEITFRIST_PUFFER + CLAIM_FRIST_PUFFER_SEKUNDEN
+    )
+
     # Platzhalter für alle Fälle, bevor der erste läuft. Damit trägt der
     # Fortschritt "2 von 5 erledigt" schon während des Laufs, nicht erst am
-    # Ende.
+    # Ende. Im selben Update löst die echte Frist den Platzhalter aus
+    # _uebernehmen ab, denn ab hier ist die Grenze der Aufgabe bekannt. Die
+    # Schleife unten verlängert erst nach dem ersten bestandenen Fall, und
+    # ein klein gesetztes CLAIM_FRIST_PUFFER_SEKUNDEN deckte einen ersten
+    # Fall am Zeitlimit sonst nicht (#217).
     platzhalter = [
         {
             "test_id": i,
@@ -1130,7 +1140,12 @@ def _urteil(sub_id, token, submission, task):
     ]
     db.submissions.update_one(
         {"_id": sub_id, "status": "RUNNING", "run_token": token},
-        {"$set": {"test_results": platzhalter}},
+        {
+            "$set": {
+                "test_results": platzhalter,
+                "frist": datetime.now(timezone.utc) + frist_je_fall,
+            }
+        },
     )
     _heartbeat()
 
@@ -1169,9 +1184,7 @@ def _urteil(sub_id, token, submission, task):
             # zeit + 1 + ZEITFRIST_PUFFER (siehe run_code_in_sandbox), dazu
             # kommen Rüstzeit, Aufräumen und dieser Schreibzugriff, gedeckt
             # durch dieselbe Marge wie an der Übernahme.
-            update["$set"]["frist"] = datetime.now(timezone.utc) + timedelta(
-                seconds=zeit + 1 + ZEITFRIST_PUFFER + CLAIM_FRIST_PUFFER_SEKUNDEN
-            )
+            update["$set"]["frist"] = datetime.now(timezone.utc) + frist_je_fall
         ergebnis = db.submissions.update_one(
             {"_id": sub_id, "status": "RUNNING", "run_token": token}, update
         )

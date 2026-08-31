@@ -65,7 +65,7 @@
         {% for t in testfaelle %}
         <tr{% if t.offen %} class="offen"{% endif %}>
           <td>
-            Testfall {{ t.nummer }}
+            {{ t.name or "Testfall " ~ t.nummer }}
             {% if t.zusatz %}<span class="zusatz">{{ t.zusatz }}</span>{% endif %}
           </td>
           {% if t.offen %}

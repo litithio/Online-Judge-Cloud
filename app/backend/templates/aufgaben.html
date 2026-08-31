@@ -38,7 +38,8 @@
     <table>
       <thead>
         <tr>
-          <th style="width: 70%">Aufgabe</th>
+          <th style="width: 62%">Aufgabe</th>
+          <th>Schwierigkeit</th>
           <th>Zeitlimit</th>
         </tr>
       </thead>
@@ -49,6 +50,9 @@
             <a href="/aufgabe/{{ task.id }}">{{ task.title }}</a>
             <span class="zusatz">{{ task.description }}</span>
           </td>
+          <!-- Leer statt Marke, solange eine Aufgabe in MongoDB noch keine
+               Schwierigkeit trägt, also bis zum nächsten Lauf des Seed. -->
+          <td>{% if task.difficulty %}<span class="marke">{{ task.difficulty }}</span>{% endif %}</td>
           <td class="num">
             {{ "%.1f"|format(task.zeit_s)|replace(".", ",") }} s
           </td>

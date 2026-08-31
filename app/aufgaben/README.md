@@ -15,16 +15,22 @@ die vorhandene MongoDB.
 {
   "title": "Primzahlen zählen",
   "description": "Lies eine Zahl n von der Standardeingabe und gib aus, ...",
+  "difficulty": "mittel",
   "time_limit_seconds": 2,
   "memory_limit_mb": 96,
   "test_cases": [
-    { "input": "100\n", "expected_output": "25" }
+    { "name": "Bis 100", "input": "100\n", "expected_output": "25" }
   ]
 }
 ```
 
-`title`, `description` und `test_cases` sind Pflicht. `input` und
+`title`, `description`, `difficulty` und `test_cases` sind Pflicht. `input` und
 `expected_output` müssen Zeichenketten sein, auch bei Zahlen.
+
+`difficulty` ist `leicht`, `mittel` oder `schwer` und steht als Marke in der
+Aufgabenliste. `name` je Testfall ist Pflicht und beschriftet die Zeile des
+Testfalls auf der Ergebnisseite. Er soll sagen, was der Fall prüft, die Eingabe
+selbst bleibt verborgen.
 
 `time_limit_seconds` und `memory_limit_mb` sind freiwillig. Fehlen sie, gelten
 die Vorgaben aus `../worker/worker.py`. Erlaubt sind höchstens 60 Sekunden und

@@ -292,10 +292,14 @@ def _fehlerseite(
     knopf_text="Erneut versuchen",
     knopf_href="/aufgaben",
 ):
+    # Request als erstes Argument, wie an allen TemplateResponse-Aufrufen.
+    # starlette hat die ältere Form ohne Request entfernt, und fastapi pinnt
+    # starlette nur nach unten, ein frischer Image-Build zieht also immer die
+    # neueste Version.
     return templates.TemplateResponse(
+        request,
         "fehler.html",
         {
-            "request": request,
             "titel": titel,
             "meldung": meldung,
             "zusicherung": zusicherung,
@@ -418,8 +422,9 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
         t["zeit_s"] = t.get("time_limit_seconds") or WORKER_STANDARD_ZEIT_S
         ansicht.append(t)
     return templates.TemplateResponse(
+        request,
         "aufgaben.html",
-        {"request": request, "tasks": ansicht, "user": user},
+        {"tasks": ansicht, "user": user},
     )
 
 
@@ -467,9 +472,9 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
         task.pop("test_cases", [])
     )  # Inhalt bleibt verborgen, wie in /tasks
     return templates.TemplateResponse(
+        request,
         "aufgabe.html",
         {
-            "request": request,
             "task": parse_json(task),
             "anzahl_testfaelle": anzahl_testfaelle,
             # Was der Worker tatsächlich durchsetzt, wenn die Aufgabe selbst
@@ -602,7 +607,10 @@ def submit_code(
 
 @app.get("/submission/{sub_id}")
 def get_submission_status(sub_id: str, user=Depends(get_current_user)):
-    sub = db.submissions.find_one({"_id": ObjectId(sub_id)})
+    # user_id im Filter statt einer eigenen Prüfung nach dem Lesen. Fremde
+    # und fehlende Einreichungen antworten so mit derselben 404, ein 403
+    # würde die Existenz einer fremden Einreichung bestätigen (#76).
+    sub = db.submissions.find_one({"_id": ObjectId(sub_id), "user_id": user.get("sub")})
     if not sub:
         raise HTTPException(status_code=404, detail="Submission nicht gefunden")
     return parse_json(sub)
@@ -638,9 +646,9 @@ def einreichungen_seite(request: Request, user=Depends(get_current_user)):
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/einreichungen")
     return templates.TemplateResponse(
+        request,
         "einreichungen.html",
         {
-            "request": request,
             "submissions": [
                 _einreichung_ansicht(s, aufgaben_titel) for s in submissions
             ],
@@ -657,12 +665,11 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     leere Liste mitträgt: dieselbe Einreichung, nur zu unterschiedlichem
     Zeitpunkt abgefragt, keine zwei verschiedenen Ressourcen.
 
-    Dieselbe Abfrage wie /submission/{sub_id}, aber anders als der JSON-
-    Endpunkt fängt diese Seite eine kaputte ObjectId (aus einem verstümmelten
-    Link) ab und zeigt die 404-Seite statt eines 500 - eine Seite für Menschen
-    darf das, der JSON-Endpunkt bleibt unverändert. Ebenso ohne Prüfung auf
-    user_id, wie /submission/{sub_id} - diese Seite zeigt nur an, was der
-    bestehende JSON-Endpunkt ohnehin preisgibt.
+    Dieselbe Abfrage wie /submission/{sub_id}, samt user_id im Filter (#76),
+    aber anders als der JSON-Endpunkt fängt diese Seite eine kaputte ObjectId
+    (aus einem verstümmelten Link) ab und zeigt die 404-Seite statt eines
+    500. Eine Seite für Menschen darf das, der JSON-Endpunkt bleibt
+    unverändert.
     """
 
     def einreichung_404():
@@ -677,7 +684,9 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
         )
 
     try:
-        submission = db.submissions.find_one({"_id": ObjectId(sub_id)})
+        submission = db.submissions.find_one(
+            {"_id": ObjectId(sub_id), "user_id": user.get("sub")}
+        )
     except InvalidId:
         return einreichung_404()
     except PyMongoError as fehler:
@@ -700,7 +709,6 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
         if isinstance(fall, dict) and fall.get("name")
     }
     kontext = {
-        "request": request,
         "user": user,
         "sub_id": str(submission["_id"]),
         "task_titel": aufgabe["title"] if aufgabe else "Aufgabe gelöscht",
@@ -726,7 +734,7 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
                 "wiederaufnahme": submission.get("versuche", 0) > 1,
             }
         )
-        return templates.TemplateResponse("ergebnis-laeuft.html", kontext)
+        return templates.TemplateResponse(request, "ergebnis-laeuft.html", kontext)
 
     test_results = submission.get("test_results") or []
     gesamtlaufzeit_ms = sum(
@@ -749,4 +757,4 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
             "gesamtlaufzeit_s": gesamtlaufzeit_ms / 1000 if gesamtlaufzeit_ms else None,
         }
     )
-    return templates.TemplateResponse("ergebnis.html", kontext)
+    return templates.TemplateResponse(request, "ergebnis.html", kontext)

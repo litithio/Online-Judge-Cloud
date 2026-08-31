@@ -579,7 +579,10 @@ def submit_code(
 
 @app.get("/submission/{sub_id}")
 def get_submission_status(sub_id: str, user=Depends(get_current_user)):
-    sub = db.submissions.find_one({"_id": ObjectId(sub_id)})
+    # user_id im Filter statt einer eigenen Prüfung nach dem Lesen. Fremde
+    # und fehlende Einreichungen antworten so mit derselben 404, ein 403
+    # würde die Existenz einer fremden Einreichung bestätigen (#76).
+    sub = db.submissions.find_one({"_id": ObjectId(sub_id), "user_id": user.get("sub")})
     if not sub:
         raise HTTPException(status_code=404, detail="Submission nicht gefunden")
     return parse_json(sub)
@@ -634,12 +637,11 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     leere Liste mitträgt: dieselbe Einreichung, nur zu unterschiedlichem
     Zeitpunkt abgefragt, keine zwei verschiedenen Ressourcen.
 
-    Dieselbe Abfrage wie /submission/{sub_id}, aber anders als der JSON-
-    Endpunkt fängt diese Seite eine kaputte ObjectId (aus einem verstümmelten
-    Link) ab und zeigt die 404-Seite statt eines 500 - eine Seite für Menschen
-    darf das, der JSON-Endpunkt bleibt unverändert. Ebenso ohne Prüfung auf
-    user_id, wie /submission/{sub_id} - diese Seite zeigt nur an, was der
-    bestehende JSON-Endpunkt ohnehin preisgibt.
+    Dieselbe Abfrage wie /submission/{sub_id}, samt user_id im Filter (#76),
+    aber anders als der JSON-Endpunkt fängt diese Seite eine kaputte ObjectId
+    (aus einem verstümmelten Link) ab und zeigt die 404-Seite statt eines
+    500. Eine Seite für Menschen darf das, der JSON-Endpunkt bleibt
+    unverändert.
     """
 
     def einreichung_404():
@@ -654,7 +656,9 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
         )
 
     try:
-        submission = db.submissions.find_one({"_id": ObjectId(sub_id)})
+        submission = db.submissions.find_one(
+            {"_id": ObjectId(sub_id), "user_id": user.get("sub")}
+        )
     except InvalidId:
         return einreichung_404()
     except PyMongoError as fehler:

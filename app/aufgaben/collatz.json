@@ -1,18 +1,22 @@
 {
   "title": "Längste Collatz-Kette",
   "description": "Die Collatz-Folge einer Zahl x ist: x/2 falls x gerade, sonst 3x+1, bis 1 erreicht ist. Die Länge zählt beide Enden mit, die Folge für 1 hat also die Länge 1.\n\nLies eine Zahl n von der Standardeingabe und gib die größte Kettenlänge aus, die unter den Startwerten 1 bis n vorkommt.",
+  "difficulty": "mittel",
   "time_limit_seconds": 3,
   "memory_limit_mb": 64,
   "test_cases": [
     {
+      "name": "Nur der Startwert 1",
       "input": "1\n",
       "expected_output": "1"
     },
     {
+      "name": "Startwerte bis 10",
       "input": "10\n",
       "expected_output": "20"
     },
     {
+      "name": "Startwerte bis eine Million",
       "input": "1000000\n",
       "expected_output": "525"
     }

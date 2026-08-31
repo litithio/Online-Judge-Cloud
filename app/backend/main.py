@@ -138,6 +138,17 @@ STANDARD_SPRACHE = "python"
 WORKER_STANDARD_ZEIT_S = 5
 WORKER_STANDARD_SPEICHER_MB = 128
 
+# Blendet die Testfälle aus wie bisher die Projektion {"test_cases": 0},
+# liefert aber ihre Anzahl mit (#71). Eingaben und erwartete Ausgaben bleiben
+# damit verborgen. Pipeline statt Projektion mit Ausdruck, weil die jedes
+# auszugebende Feld aufzählen müsste und ein neues Feld dann stumm fehlte.
+# $ifNull, damit ein von Hand angelegtes Dokument ohne test_cases die Abfrage
+# nicht abbricht, $size allein wirft dann einen Fehler.
+TESTFAELLE_GEZAEHLT = [
+    {"$set": {"test_case_count": {"$size": {"$ifNull": ["$test_cases", []]}}}},
+    {"$unset": "test_cases"},
+]
+
 
 def parse_json(data):
     data["id"] = str(data["_id"])
@@ -225,7 +236,7 @@ VERDICT_TEXT = {
 }
 
 
-def _testfaelle_ansicht(test_results):
+def _testfaelle_ansicht(test_results, namen=None):
     """Ansicht je Testfall für ergebnis.html und ergebnis-laeuft.html.
 
     NOT_RUN heißt bei einer fertigen Einreichung "wegen Abbruch nie
@@ -233,11 +244,24 @@ def _testfaelle_ansicht(test_results):
     Platzhalter vor dem ersten Fall, Abbruch beim ersten Fehlschlag). Beides
     zeigt dieselbe Zeile "steht aus", welcher der beiden Fälle vorliegt, sagt
     schon status_klasse der Einreichung.
+
+    namen ordnet test_id einen Namen aus der Aufgabe zu (#71). Die Zuordnung
+    läuft über die Position, denn test_results trägt keine Namen, der Worker
+    schreibt test_id als Nummer des Falls (worker.py, _urteil). Ohne Treffer
+    zeigt das Template "Testfall N", etwa wenn die Aufgabe gelöscht ist oder
+    ihre Testfälle vor dem nächsten Seed noch keine Namen tragen.
+
+    Die Zuordnung zeigt immer den aktuellen Stand der Aufgabe. Sortiert ein
+    Seed die Testfälle um, steht an einer alten Einreichung der Name aus der
+    neuen Revision. Stabil würde das erst, wenn der Worker den Namen beim
+    Lauf in test_results mitschriebe, wie er es mit test_id tut.
     """
+    namen = namen or {}
     ansicht = []
     for t in test_results or []:
         eintrag = {
             "nummer": t["test_id"],
+            "name": namen.get(t["test_id"]),
             "offen": t.get("verdict") == "NOT_RUN",
             "zeit_ms": t.get("zeit_ms"),
             "speicher_mb": (
@@ -268,10 +292,14 @@ def _fehlerseite(
     knopf_text="Erneut versuchen",
     knopf_href="/aufgaben",
 ):
+    # Request als erstes Argument, wie an allen TemplateResponse-Aufrufen.
+    # starlette hat die ältere Form ohne Request entfernt, und fastapi pinnt
+    # starlette nur nach unten, ein frischer Image-Build zieht also immer die
+    # neueste Version.
     return templates.TemplateResponse(
+        request,
         "fehler.html",
         {
-            "request": request,
             "titel": titel,
             "meldung": meldung,
             "zusicherung": zusicherung,
@@ -374,16 +402,16 @@ def index():
 
 @app.get("/tasks")
 def get_tasks(user=Depends(get_current_user)):
-    tasks = list(db.tasks.find({}, {"test_cases": 0}))  # Testcases verbergen
+    tasks = list(db.tasks.aggregate(TESTFAELLE_GEZAEHLT))
     return [parse_json(t) for t in tasks]
 
 
 @app.get("/aufgaben", response_class=HTMLResponse)
 def aufgaben_seite(request: Request, user=Depends(get_current_user)):
     try:
-        tasks = list(
-            db.tasks.find({}, {"test_cases": 0})
-        )  # dieselbe Abfrage wie /tasks
+        # Wie /tasks, nur ohne die Anzahl der Testfälle. Die Liste zeigt sie
+        # nicht, erst die Detailseite (aufgabe_seite).
+        tasks = list(db.tasks.find({}, {"test_cases": 0}))
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/aufgaben")
     ansicht = []
@@ -394,17 +422,22 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
         t["zeit_s"] = t.get("time_limit_seconds") or WORKER_STANDARD_ZEIT_S
         ansicht.append(t)
     return templates.TemplateResponse(
+        request,
         "aufgaben.html",
-        {"request": request, "tasks": ansicht, "user": user},
+        {"tasks": ansicht, "user": user},
     )
 
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str, user=Depends(get_current_user)):
-    task = db.tasks.find_one({"_id": ObjectId(task_id)}, {"test_cases": 0})
-    if not task:
+    treffer = list(
+        db.tasks.aggregate(
+            [{"$match": {"_id": ObjectId(task_id)}}] + TESTFAELLE_GEZAEHLT
+        )
+    )
+    if not treffer:
         raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
-    return parse_json(task)
+    return parse_json(treffer[0])
 
 
 @app.get("/aufgabe/{task_id}", response_class=HTMLResponse)
@@ -439,9 +472,9 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
         task.pop("test_cases", [])
     )  # Inhalt bleibt verborgen, wie in /tasks
     return templates.TemplateResponse(
+        request,
         "aufgabe.html",
         {
-            "request": request,
             "task": parse_json(task),
             "anzahl_testfaelle": anzahl_testfaelle,
             # Was der Worker tatsächlich durchsetzt, wenn die Aufgabe selbst
@@ -574,7 +607,10 @@ def submit_code(
 
 @app.get("/submission/{sub_id}")
 def get_submission_status(sub_id: str, user=Depends(get_current_user)):
-    sub = db.submissions.find_one({"_id": ObjectId(sub_id)})
+    # user_id im Filter statt einer eigenen Prüfung nach dem Lesen. Fremde
+    # und fehlende Einreichungen antworten so mit derselben 404, ein 403
+    # würde die Existenz einer fremden Einreichung bestätigen (#76).
+    sub = db.submissions.find_one({"_id": ObjectId(sub_id), "user_id": user.get("sub")})
     if not sub:
         raise HTTPException(status_code=404, detail="Submission nicht gefunden")
     return parse_json(sub)
@@ -610,9 +646,9 @@ def einreichungen_seite(request: Request, user=Depends(get_current_user)):
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/einreichungen")
     return templates.TemplateResponse(
+        request,
         "einreichungen.html",
         {
-            "request": request,
             "submissions": [
                 _einreichung_ansicht(s, aufgaben_titel) for s in submissions
             ],
@@ -629,12 +665,11 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     leere Liste mitträgt: dieselbe Einreichung, nur zu unterschiedlichem
     Zeitpunkt abgefragt, keine zwei verschiedenen Ressourcen.
 
-    Dieselbe Abfrage wie /submission/{sub_id}, aber anders als der JSON-
-    Endpunkt fängt diese Seite eine kaputte ObjectId (aus einem verstümmelten
-    Link) ab und zeigt die 404-Seite statt eines 500 - eine Seite für Menschen
-    darf das, der JSON-Endpunkt bleibt unverändert. Ebenso ohne Prüfung auf
-    user_id, wie /submission/{sub_id} - diese Seite zeigt nur an, was der
-    bestehende JSON-Endpunkt ohnehin preisgibt.
+    Dieselbe Abfrage wie /submission/{sub_id}, samt user_id im Filter (#76),
+    aber anders als der JSON-Endpunkt fängt diese Seite eine kaputte ObjectId
+    (aus einem verstümmelten Link) ab und zeigt die 404-Seite statt eines
+    500. Eine Seite für Menschen darf das, der JSON-Endpunkt bleibt
+    unverändert.
     """
 
     def einreichung_404():
@@ -649,7 +684,9 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
         )
 
     try:
-        submission = db.submissions.find_one({"_id": ObjectId(sub_id)})
+        submission = db.submissions.find_one(
+            {"_id": ObjectId(sub_id), "user_id": user.get("sub")}
+        )
     except InvalidId:
         return einreichung_404()
     except PyMongoError as fehler:
@@ -666,13 +703,19 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
 
+    testfall_namen = {
+        nummer: fall["name"]
+        for nummer, fall in enumerate((aufgabe or {}).get("test_cases", []), 1)
+        if isinstance(fall, dict) and fall.get("name")
+    }
     kontext = {
-        "request": request,
         "user": user,
         "sub_id": str(submission["_id"]),
         "task_titel": aufgabe["title"] if aufgabe else "Aufgabe gelöscht",
         "sprache": submission["sprache"],
-        "testfaelle": _testfaelle_ansicht(submission.get("test_results")),
+        "testfaelle": _testfaelle_ansicht(
+            submission.get("test_results"), testfall_namen
+        ),
     }
 
     if submission["status"] in ("PENDING", "RUNNING"):
@@ -691,7 +734,7 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
                 "wiederaufnahme": submission.get("versuche", 0) > 1,
             }
         )
-        return templates.TemplateResponse("ergebnis-laeuft.html", kontext)
+        return templates.TemplateResponse(request, "ergebnis-laeuft.html", kontext)
 
     test_results = submission.get("test_results") or []
     gesamtlaufzeit_ms = sum(
@@ -714,4 +757,4 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
             "gesamtlaufzeit_s": gesamtlaufzeit_ms / 1000 if gesamtlaufzeit_ms else None,
         }
     )
-    return templates.TemplateResponse("ergebnis.html", kontext)
+    return templates.TemplateResponse(request, "ergebnis.html", kontext)

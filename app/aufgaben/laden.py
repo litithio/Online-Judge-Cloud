@@ -16,7 +16,11 @@ from pymongo import MongoClient
 # Die Lösungen gehören nicht in die Datenbank. Sie sind Material für den
 # Prüflauf und liegen deshalb im Chart (app/chart/loesungen).
 ORDNER = pathlib.Path(__file__).parent
-FELDER = ("title", "description", "test_cases")
+FELDER = ("title", "description", "difficulty", "test_cases")
+
+# Deutsch und als feste Liste, weil der Wert unverändert als Marke in der
+# Aufgabenliste steht. Ein Tippfehler fiele sonst erst auf der Seite auf.
+SCHWIERIGKEITEN = ("leicht", "mittel", "schwer")
 
 # Zeit und Speicher darf jede Aufgabe selbst festlegen, weil sich der Bedarf
 # stark unterscheidet. Fehlen sie, nimmt der Worker seine Vorgaben.
@@ -31,6 +35,11 @@ def gelesen(datei):
     fehlt = [f for f in FELDER if not aufgabe.get(f)]
     if fehlt:
         raise SystemExit(f"{datei.name}: {', '.join(fehlt)} fehlt oder ist leer")
+    if aufgabe["difficulty"] not in SCHWIERIGKEITEN:
+        raise SystemExit(
+            f"{datei.name}: difficulty muss leicht, mittel oder schwer sein, "
+            f"ist {aufgabe['difficulty']!r}"
+        )
     # Auf Typen geprüft, nicht nur auf Vorhandensein. Der Worker schreibt die
     # Eingabe unverändert in eine Datei, eine Zahl statt einer Zeichenkette
     # lässt dort jeden Lauf als Umgebungsfehler enden. Die Einreichung bleibt
@@ -47,6 +56,9 @@ def gelesen(datei):
                 f"{datei.name}: Testfall {nummer} braucht input und "
                 f"expected_output als Zeichenketten"
             )
+        # Der Name beschriftet die Zeile des Testfalls auf der Ergebnisseite.
+        if not isinstance(fall.get("name"), str) or not fall["name"]:
+            raise SystemExit(f"{datei.name}: Testfall {nummer} braucht einen Namen")
     # Optional, aber wenn vorhanden, dann brauchbar. Eine Grenze als Zeichenkette
     # oder als Null würde jede Einreichung dieser Aufgabe falsch beurteilen.
     for feld, hoechstens in GRENZEN.items():
@@ -76,6 +88,7 @@ def main():
         aufgabe = gelesen(datei)
         setzen = {
             "description": aufgabe["description"],
+            "difficulty": aufgabe["difficulty"],
             "test_cases": aufgabe["test_cases"],
         }
         # Was in der Datei fehlt, wird in der Datenbank entfernt. Sonst bliebe

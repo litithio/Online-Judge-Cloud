@@ -54,10 +54,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: Unit-Tests im Worker-Image
-        # Baut das Worker-Image und führt pytest darin aus, lokal ruft
-        # ./scripts/check.sh genau dasselbe Skript auf. Docker ist auf den
-        # Runnern vorinstalliert, die pytest-Version kommt gepinnt aus
+      - name: Unit-Tests in den Dienst-Images
+        # Baut Worker- und Backend-Image und führt pytest darin aus, lokal
+        # ruft ./scripts/check.sh genau dasselbe Skript auf. Docker ist auf
+        # den Runnern vorinstalliert, die pytest-Version kommt gepinnt aus
         # requirements.txt.
         run: ./scripts/unit-tests.sh
 

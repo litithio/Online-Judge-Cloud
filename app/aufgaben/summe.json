@@ -1,12 +1,15 @@
 {
   "title": "Summe zweier Zahlen",
   "description": "Lies zwei durch Leerzeichen getrennte ganze Zahlen von der Standardeingabe und gib ihre Summe aus.",
+  "difficulty": "leicht",
   "test_cases": [
     {
+      "name": "Beispiel aus der Angabe",
       "input": "3 4\n",
       "expected_output": "7"
     },
     {
+      "name": "Negative Zahl",
       "input": "-5 5\n",
       "expected_output": "0"
     }

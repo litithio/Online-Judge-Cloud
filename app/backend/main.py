@@ -468,15 +468,30 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
         # Anders als /tasks/{task_id}: eine HTML-Seite statt eines nackten
         # JSON-404, siehe #56. Der JSON-Endpunkt selbst bleibt unverändert.
         return aufgabe_404()
-    anzahl_testfaelle = len(
-        task.pop("test_cases", [])
-    )  # Inhalt bleibt verborgen, wie in /tasks
+    testfaelle = task.pop("test_cases", [])  # Inhalt bleibt verborgen, wie in /tasks
+    # Nur die markierten Fälle erreichen das Template, nicht die ganze Liste
+    # mit einem Filter dort. Was das Template nie bekommt, kann keine
+    # Template-Änderung versehentlich zeigen. Der Vergleich mit True wie in
+    # laden.py, das jede andere Belegung von sample ablehnt.
+    # removesuffix am Eingabeende. Die Leerzeile zwischen Eingabe und Ausgabe
+    # im Beispielblock kommt aus dem Template (wie im Entwurf), fast jede
+    # Eingabe endet aber selbst mit einem Zeilenumbruch, und .beispiel zeigt
+    # mit white-space pre beide, also eine Leerzeile zu viel.
+    beispiele = [
+        {
+            "input": fall["input"].removesuffix("\n"),
+            "expected_output": fall["expected_output"],
+        }
+        for fall in testfaelle
+        if isinstance(fall, dict) and fall.get("sample") is True
+    ]
     return templates.TemplateResponse(
         request,
         "aufgabe.html",
         {
             "task": parse_json(task),
-            "anzahl_testfaelle": anzahl_testfaelle,
+            "anzahl_testfaelle": len(testfaelle),
+            "beispiele": beispiele,
             # Was der Worker tatsächlich durchsetzt, wenn die Aufgabe selbst
             # kein Limit trägt (grenzen_der_aufgabe) - "–" wäre hier falsch,
             # betrifft derzeit summe.json.

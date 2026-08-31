@@ -1,6 +1,8 @@
 {
   "title": "Primzahlen zählen",
-  "description": "Lies eine Zahl n von der Standardeingabe und gib aus, wie viele Primzahlen kleiner oder gleich n sind.",
+  "description": "Zähle die Primzahlen bis zu einer Grenze.",
+  "input_format": "Eine Zeile mit der Zahl n.",
+  "output_format": "Die Anzahl der Primzahlen kleiner oder gleich n.",
   "difficulty": "mittel",
   "time_limit_seconds": 2,
   "memory_limit_mb": 96,
@@ -12,6 +14,7 @@
     },
     {
       "name": "Bis 100",
+      "sample": true,
       "input": "100\n",
       "expected_output": "25"
     },

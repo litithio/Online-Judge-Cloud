@@ -193,8 +193,10 @@ vorher weg. Helm legt sie sofort neu an.
 kubectl delete deployment/code-worker cronjob/durchlauf scaledobject/code-worker-python
 ```
 
-Der ausgerollte Stand steht in `ansible/vars/app.yaml`. `app_image_tag` wählt
-den Image-Tag, gebaut von `images.yml` bei einem Git-Tag, und `app_values_env`
+Der ausgerollte Stand steht als `appVersion` in `app/chart/Chart.yaml`,
+gebaut von `images.yml` bei einem Git-Tag. `ansible/vars/app.yaml` liest den
+Wert von dort und reicht ihn als Image-Tag an Helm und den Seed-Job durch,
+eine zweite Stelle mit der Version gibt es nicht mehr. `app_values_env`
 wählt zwischen den Overlays `values-prod.yaml` mit zwei API-Replicas und
 `values-dev.yaml` mit einer, kleineren Grenzen und höchstens zwei Workern.
 `values.schema.json` bricht das Ausrollen ab, wenn der Image-Tag, die Anbindung

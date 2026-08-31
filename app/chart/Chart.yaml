@@ -10,7 +10,9 @@ apiVersion: v2
 name: online-judge
 description: Die eigenen Dienste des Online Judge, API und Judge-Kette
 type: application
-# version ist die Chart-Version, appVersion der Stand der Anwendung. Beide von
-# Hand gepflegt; der laufende Image-Tag steht in values (image.tag), nicht hier.
+# version ist die Chart-Version, appVersion der Stand der Anwendung, beide von
+# Hand gepflegt. appVersion ist die einzige Stelle mit dem laufenden Stand,
+# ansible/vars/app.yaml liest den Wert von hier und reicht ihn als image.tag
+# an Helm und den Seed-Job durch.
 version: 0.2.0
 appVersion: "0.2.12"

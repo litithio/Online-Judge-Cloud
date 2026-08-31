@@ -63,8 +63,9 @@
               - name: seed
                 # Dasselbe Image wie der Worker, pymongo liegt dort schon.
                 # Ein eigenes Seed-Image wäre ein weiterer Build für ein
-                # Skript. Der Tag kommt aus vars/app.yaml, damit Seed und
-                # Worker denselben Stand fahren.
+                # Skript. Der Tag kommt über vars/app.yaml aus appVersion in
+                # app/chart/Chart.yaml, damit Seed und Worker denselben Stand
+                # fahren.
                 image: "ghcr.io/litithio/online-judge-worker:{{ app_image_tag }}"
                 command: ["python", "/seed/laden.py"]
                 # Wie der Durchlauf im Chart (values.yaml, judge.durchlauf).

@@ -91,12 +91,18 @@ rollout_pruefen() {
 }
 
 # ---------- helm test auf dem Server ----------
-# --logs zeigt die Ausgabe der Testjobs direkt im Lauf. Der Timeout deckt den
-# Prüflauf gegen die Beispiellösungen, seine Herleitung steht in
-# app/chart/tests/loesungen_pruefen.py. Hostkey-Prüfung aus wie in
+# Der Timeout deckt den Prüflauf gegen die Beispiellösungen, seine Herleitung
+# steht in app/chart/tests/loesungen_pruefen.py. Hostkey-Prüfung aus wie in
 # ansible/ansible.cfg, die Nodes entstehen bei jedem Frisch-Deployment neu.
+#
+# Kein --logs am helm-Aufruf. helm sucht die Logs unter einem Pod mit dem
+# Namen des Hooks, die Pods der Job-Hooks heißen aber test-api-<hash>, und
+# helm bricht dann nach erfolgreichen Suiten mit "pods not found" ab. Die
+# Logs holt kubectl darunter selbst, das löst Jobs zu ihren Pods auf. Auch
+# bei fehlgeschlagenem helm test, gerade dann steht der Grund in den Logs,
+# ohne den Ausgang des Schritts zu ändern.
 helm_test() {
-  local server
+  local server code job
   server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
   server=${server#https://}
   server=${server%:*}
@@ -104,7 +110,13 @@ helm_test() {
   server=${server%]}
   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
       -o LogLevel=ERROR "ubuntu@$server" \
-      "sudo helm test $release --namespace $namespace --kubeconfig /etc/rancher/k3s/k3s.yaml --logs --timeout 15m"
+      "sudo helm test $release --namespace $namespace --kubeconfig /etc/rancher/k3s/k3s.yaml --timeout 15m"
+  code=$?
+  for job in test-api test-loesungen; do
+    echo "    ---- Logs $job"
+    kubectl -n "$namespace" logs "job/$job" --prefix 2>&1 | sed 's/^/    /'
+  done
+  return "$code"
 }
 
 # ---------- Pod auf Node A erreicht Pod auf Node B ----------

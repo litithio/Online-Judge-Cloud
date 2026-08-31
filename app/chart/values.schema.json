@@ -41,7 +41,8 @@
         "mongoSecret",
         "redisUri",
         "redisKedaAdresse",
-        "gatewaySecret"
+        "gatewaySecret",
+        "aufgabenSeedConfigMap"
       ],
       "description": "Anbindung der vorhandenen Datendienste. Das Chart legt sie nicht an, es verbindet sich nur.",
       "properties": {
@@ -71,6 +72,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Queue als host:port mit vollem DNS-Namen. Der KEDA-Operator läuft in einem anderen Namespace, ein kurzer Name würde dort aufgelöst."
+        },
+        "aufgabenSeedConfigMap": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ConfigMap mit den Aufgaben-JSONs, angelegt von ansible/tasks/seed.yaml. Der Prüflauf unter templates/tests liest daraus die Zuordnung von Lösungsverzeichnis zu Aufgabentitel."
         },
         "gatewaySecret": {
           "type": "object",

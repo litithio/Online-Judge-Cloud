@@ -12,5 +12,5 @@ description: Die eigenen Dienste des Online Judge, API und Judge-Kette
 type: application
 # version ist die Chart-Version, appVersion der Stand der Anwendung. Beide von
 # Hand gepflegt; der laufende Image-Tag steht in values (image.tag), nicht hier.
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.2.11"

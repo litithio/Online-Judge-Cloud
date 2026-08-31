@@ -17,7 +17,7 @@ Gegen den Cluster läuft das Skript auf dem Server-Node, kubectl port-forward
 scheitert dort, weil das Backend nur auf :: bindet und der Forward im
 Pod-Netns localhost nicht über IPv6 erreicht:
 
-    tar czf - -C app lastgenerator.py aufgaben | ssh ubuntu@<server> \
+    tar czf - -C app lastgenerator.py aufgaben chart/loesungen | ssh ubuntu@<server> \
         'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
     # Service-IP: kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
     ssh ubuntu@<server> 'GATEWAY_SECRET=<wert> python3 /tmp/last/lastgenerator.py \
@@ -56,6 +56,10 @@ import urllib.request
 SPRACHE = "python"
 
 AUFGABEN = pathlib.Path(__file__).parent / "aufgaben"
+
+# Die Lösungen liegen im Chart, der Prüflauf aus #19 rollt sie von dort als
+# ConfigMap in den Cluster. Dieses Skript liest dieselben Dateien.
+LOESUNGEN = pathlib.Path(__file__).parent / "chart" / "loesungen"
 
 # Die zwei Sorten, die nicht als Datei unter loesungen/ liegen: eine, die
 # terminiert und falsch rechnet, und eine, die den Interpreter schon beim
@@ -126,7 +130,7 @@ def _loesungen_je_titel():
     zuordnung = {}
     for datei in AUFGABEN.glob("*.json"):
         titel = json.loads(datei.read_text())["title"]
-        verzeichnis = AUFGABEN / "loesungen" / datei.stem
+        verzeichnis = LOESUNGEN / datei.stem
         akzeptiert = verzeichnis / "akzeptiert.py"
         # langsam ist der vorhandene Limit-Verletzer der Aufgabe. Welches
         # Limit er reißt, ist für die Last gleich: Er hält einen Worker

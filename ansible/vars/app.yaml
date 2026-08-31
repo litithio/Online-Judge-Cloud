@@ -15,9 +15,13 @@ app_values_env: prod
 
 # Image-Tag von API, Worker und Durchlauf. Das Chart nimmt ihn für alle drei,
 # der Seed-Job in tasks/seed.yaml ebenso. Fester Stand statt latest, gebaut
-# von .github/workflows/images.yml bei einem Git-Tag. Muss gesetzt sein, das
-# Chart-Schema lehnt einen leeren Tag ab.
-app_image_tag: "0.2.12"
+# von .github/workflows/images.yml bei einem Git-Tag.
+#
+# Gelesen aus appVersion in app/chart/Chart.yaml statt hier wiederholt. Zwei
+# Stellen mit derselben Version driften auseinander, und helm list zeigte
+# dann einen Stand, der nicht läuft. Der lookup läuft auf dem Steuerrechner,
+# dort liegt das Repo. Das Chart-Schema lehnt einen leeren Tag weiter ab.
+app_image_tag: "{{ (lookup('file', playbook_dir ~ '/../app/chart/Chart.yaml') | from_yaml).appVersion }}"
 
 # Auf den Server kopierter Chart. Die Helm-Module laufen dort (kubeconfig liegt
 # auf dem Server), der Chart muss also neben ihnen liegen, nicht nur auf dem

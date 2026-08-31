@@ -63,6 +63,14 @@
                 Value: "{% raw %}{{ .claims.email }}{% endraw %}"
               - Name: X-Auth-Request-Preferred-Username
                 Value: "{% raw %}{{ .claims.preferred_username }}{% endraw %}"
+              # Rolle dozent für die Verwaltung (#240). realm_access.roles ist
+              # ein JSON-Array im Token, range reiht es kommagetrennt auf, wie
+              # app/backend/auth.py es erwartet. Unverifiziert gegen das
+              # Plugin: ob .claims.realm_access.roles als Map-Zugriff genauso
+              # funktioniert wie die flachen Claims oben, prüft erst ein Lauf
+              # gegen den echten Cluster.
+              - Name: X-Auth-Request-Roles
+                Value: "{% raw %}{{ range .claims.realm_access.roles }}{{ . }},{{ end }}{% endraw %}"
               - Name: X-Gateway-Auth
                 Value: "{{ gateway_secret }}"
   no_log: true

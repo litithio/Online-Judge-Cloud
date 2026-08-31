@@ -138,6 +138,17 @@ STANDARD_SPRACHE = "python"
 WORKER_STANDARD_ZEIT_S = 5
 WORKER_STANDARD_SPEICHER_MB = 128
 
+# Verwaltung (#240): sichtbar für Konten mit der Keycloak-Rolle dozent, die
+# das OIDC-Plugin als X-Auth-Request-Roles weiterreicht (auth.py,
+# traefik-auth.yaml). Ersetzt die frühere ADMIN_USERS-Liste aus #56, die nur
+# Benutzernamen kannte statt einer echten Rolle.
+DOZENT_ROLLE = "dozent"
+
+
+def _ist_admin(user):
+    return DOZENT_ROLLE in user.get("roles", [])
+
+
 # Blendet die Testfälle aus wie bisher die Projektion {"test_cases": 0},
 # liefert aber ihre Anzahl mit (#71). Eingaben und erwartete Ausgaben bleiben
 # damit verborgen. Pipeline statt Projektion mit Ausdruck, weil die jedes
@@ -210,6 +221,8 @@ def _relative_zeit(zeitpunkt):
 def _einreichung_ansicht(submission, aufgaben_titel):
     return {
         "id": str(submission["_id"]),
+        "user_id": submission.get("user_id", ""),
+        "username": submission.get("username", "?"),
         "task_id": submission["task_id"],
         "task_titel": aufgaben_titel.get(submission["task_id"], "Aufgabe gelöscht"),
         "sprache": submission["sprache"],
@@ -280,7 +293,7 @@ def _testfaelle_ansicht(test_results, namen=None):
 # oder Valkey nicht erreichbar, oder eine Aufgabe/Einreichung ohne Treffer.
 # Kein eigener Dienst, keine Traefik-Middleware, siehe #15 - das hier deckt
 # nur ab, was die Anwendung selbst an ihren eigenen Routen bemerkt.
-HTTP_STATUS_TEXT = {503: "Service Unavailable", 404: "Not Found"}
+HTTP_STATUS_TEXT = {503: "Service Unavailable", 404: "Not Found", 403: "Forbidden"}
 
 
 def _fehlerseite(
@@ -424,7 +437,7 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
     return templates.TemplateResponse(
         request,
         "aufgaben.html",
-        {"tasks": ansicht, "user": user},
+        {"tasks": ansicht, "user": user, "ist_admin": _ist_admin(user)},
     )
 
 
@@ -498,6 +511,7 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
             "zeit_s": task.get("time_limit_seconds") or WORKER_STANDARD_ZEIT_S,
             "speicher_mb": task.get("memory_limit_mb") or WORKER_STANDARD_SPEICHER_MB,
             "user": user,
+            "ist_admin": _ist_admin(user),
         },
     )
 
@@ -631,43 +645,332 @@ def get_submission_status(sub_id: str, user=Depends(get_current_user)):
     return parse_json(sub)
 
 
+def _einreichungen_liste(filter_query):
+    """Gemeinsame Abfrage für /einreichungen und /admin/einreichungen: nur
+    der Filter unterscheidet eigene von allen Einreichungen, Nachschlage der
+    Aufgabentitel und Ansicht sind identisch. PyMongoError wird nicht hier,
+    sondern von den Routen gefangen, die je ihren eigenen Aufrufort kennen.
+    """
+    submissions = list(
+        db.submissions.find(filter_query, {"code": 0, "test_results": 0}).sort(
+            "created_at", -1
+        )
+    )
+    # /submit prüft task_id nicht gegen die Aufgaben (main.py, submit_code),
+    # is_valid statt ObjectId(...) im Try, damit eine kaputte ID hier nicht
+    # die ganze Liste mit 500 abbricht, sondern nur als "Aufgabe gelöscht"
+    # erscheint.
+    aufgaben_titel = {
+        str(t["_id"]): t["title"]
+        for t in db.tasks.find(
+            {
+                "_id": {
+                    "$in": [
+                        ObjectId(s["task_id"])
+                        for s in submissions
+                        if ObjectId.is_valid(s["task_id"])
+                    ]
+                }
+            },
+            {"title": 1},
+        )
+    }
+    return [_einreichung_ansicht(s, aufgaben_titel) for s in submissions]
+
+
 @app.get("/einreichungen", response_class=HTMLResponse)
 def einreichungen_seite(request: Request, user=Depends(get_current_user)):
     try:
-        submissions = list(
-            db.submissions.find(
-                {"user_id": user.get("sub")}, {"code": 0, "test_results": 0}
-            ).sort("created_at", -1)
-        )
-        # /submit prüft task_id nicht gegen die Aufgaben (main.py, submit_code),
-        # is_valid statt ObjectId(...) im Try, damit eine kaputte ID hier nicht
-        # die ganze Liste mit 500 abbricht, sondern nur als "Aufgabe gelöscht"
-        # erscheint.
-        aufgaben_titel = {
-            str(t["_id"]): t["title"]
-            for t in db.tasks.find(
-                {
-                    "_id": {
-                        "$in": [
-                            ObjectId(s["task_id"])
-                            for s in submissions
-                            if ObjectId.is_valid(s["task_id"])
-                        ]
-                    }
-                },
-                {"title": 1},
-            )
-        }
+        submissions = _einreichungen_liste({"user_id": user.get("sub")})
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/einreichungen")
     return templates.TemplateResponse(
         request,
         "einreichungen.html",
         {
-            "submissions": [
-                _einreichung_ansicht(s, aufgaben_titel) for s in submissions
-            ],
+            "submissions": submissions,
             "user": user,
+            "ist_admin": _ist_admin(user),
+            "admin_ansicht": False,
+        },
+    )
+
+
+def _kein_zugriff(
+    request, knopf_href="/einreichungen", knopf_text="Zu meinen Einreichungen"
+):
+    """403 für die drei Verwaltung-Routen (#240), dieselbe Fehlerseite wie
+    überall sonst. Keine eigene Depends-Abhängigkeit dafür: es gibt heute nur
+    diese drei Routen, eine Abstraktion für einen einzigen Aufrufer lohnt
+    sich erst, wenn eine vierte dazukommt.
+    """
+    return _fehlerseite(
+        request,
+        403,
+        "Kein Zugriff",
+        "Diese Seite ist nur für Konten mit der Rolle dozent sichtbar.",
+        knopf_text=knopf_text,
+        knopf_href=knopf_href,
+    )
+
+
+def _heute_utc_start():
+    jetzt = datetime.now(timezone.utc)
+    return jetzt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+@app.get("/verwaltung", response_class=HTMLResponse)
+def verwaltung_seite(request: Request, user=Depends(get_current_user)):
+    if not _ist_admin(user):
+        return _kein_zugriff(request)
+    try:
+        warteschlange = sum(redis_client.llen(f"judge:{s}") for s in AKTIVE_SPRACHEN)
+    except redis.RedisError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, "/verwaltung")
+    try:
+        aufgaben = list(db.tasks.find({}))
+        laeuft = len(list(db.submissions.find({"status": "RUNNING"})))
+        # Nur die drei Felder, die unten gebraucht werden - eine Aufgabe kann
+        # hunderte Einreichungen mit Code und Testergebnissen haben, die hier
+        # nicht mitreisen müssen.
+        alle_einreichungen = list(
+            db.submissions.find({}, {"task_id": 1, "status": 1, "created_at": 1})
+        )
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, "/verwaltung")
+
+    heute_start = _heute_utc_start()
+    heute = sum(
+        1
+        for s in alle_einreichungen
+        if s["created_at"].replace(tzinfo=timezone.utc) >= heute_start
+    )
+
+    # Gruppierung in Python statt einer $group-Aggregation: die Zahlen je
+    # Aufgabe kommen aus alle_einreichungen, das schon vollständig geladen
+    # ist. Eine zweite Mongo-Abfrage je Aufgabe wäre bei wenigen Aufgaben
+    # und mäßig vielen Einreichungen kein Gewinn, nur mehr Rundreisen.
+    aufgaben_ansicht = []
+    for t in aufgaben:
+        tid = str(t["_id"])
+        eigene = [s for s in alle_einreichungen if s["task_id"] == tid]
+        bestanden = sum(1 for s in eigene if s["status"] == "SUCCESS")
+        letzte = max((s["created_at"] for s in eigene), default=None)
+        aufgaben_ansicht.append(
+            {
+                "id": tid,
+                "title": t["title"],
+                "difficulty": t.get("difficulty"),
+                "test_case_count": len(t.get("test_cases", [])),
+                "anzahl": len(eigene),
+                "bestanden": bestanden,
+                "bestanden_prozent": (
+                    round(100 * bestanden / len(eigene)) if eigene else None
+                ),
+                "letzte_einreichung": _relative_zeit(letzte) if letzte else None,
+            }
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "verwaltung.html",
+        {
+            "user": user,
+            "ist_admin": True,
+            "warteschlange": warteschlange,
+            "laeuft": laeuft,
+            "heute": heute,
+            "aufgaben": aufgaben_ansicht,
+        },
+    )
+
+
+# Formularfelder von verwaltung-aufgabe-neu.html, dieselben Regeln wie
+# app/aufgaben/laden.py (gelesen): eigene Konstanten hier statt eines
+# Imports, laden.py liegt im Worker-Image, main.py im Backend-Image, ein
+# Import über die Image-Grenze böte nur eine Kopplung zur Build-Zeit.
+SCHWIERIGKEITEN = ("leicht", "mittel", "schwer")
+AUFGABE_GRENZEN = {"time_limit_seconds": 60, "memory_limit_mb": 256}
+
+# Feste Zahl an Testfall-Blöcken im Formular statt eines dynamischen
+# "+ Weiterer Testfall" ohne JavaScript (kein HTMX hier, siehe #240-Vorgabe
+# "nur die vereinbarte Kernfunktion"). Eine leere Zeile wird beim Speichern
+# übersprungen, keine Fehlermeldung. Mehr als fünf Testfälle sind ein
+# Folgeschritt, kein Blocker für die Kernfunktion.
+TESTFALL_BLOECKE = 5
+
+
+class AufgabeUngueltig(Exception):
+    """Ein Formularfehler beim Anlegen einer Aufgabe, keine Ausnahme aus der
+    Datenbank. verwaltung_aufgabe_neu_seite fängt genau diese und zeigt die
+    Meldung im Formular, alles andere bleibt ein unbehandelter 500.
+    """
+
+
+def _aufgabe_aus_formular(form):
+    titel = (form.get("titel") or "").strip()
+    if not titel:
+        raise AufgabeUngueltig("Titel darf nicht leer sein.")
+
+    schwierigkeit = form.get("schwierigkeit")
+    if schwierigkeit not in SCHWIERIGKEITEN:
+        raise AufgabeUngueltig(f"Schwierigkeit muss {', '.join(SCHWIERIGKEITEN)} sein.")
+
+    beschreibung = (form.get("beschreibung") or "").strip()
+    if not beschreibung:
+        raise AufgabeUngueltig("Beschreibung darf nicht leer sein.")
+
+    aufgabe = {"title": titel, "description": beschreibung, "difficulty": schwierigkeit}
+
+    for feld, hoechstens in AUFGABE_GRENZEN.items():
+        roh = (form.get(feld) or "").strip()
+        if not roh:
+            continue
+        try:
+            wert = int(roh)
+        except ValueError:
+            raise AufgabeUngueltig(f"{feld} muss eine ganze Zahl sein.") from None
+        if wert <= 0 or wert > hoechstens:
+            raise AufgabeUngueltig(f"{feld} muss zwischen 1 und {hoechstens} liegen.")
+        aufgabe[feld] = wert
+
+    test_cases = []
+    for i in range(1, TESTFALL_BLOECKE + 1):
+        name = (form.get(f"tc{i}_name") or "").strip()
+        eingabe = form.get(f"tc{i}_eingabe") or ""
+        erwartet = (form.get(f"tc{i}_erwartet") or "").strip()
+        # Ganz leerer Block: nicht benutzt, kein Fehler. Teilweise gefüllt:
+        # vermutlich ein vergessenes Feld, das soll aussagen, nicht als
+        # stiller Fall zwei Testfälle weiter auftauchen.
+        if not name and not eingabe.strip() and not erwartet:
+            continue
+        if not name or not erwartet:
+            raise AufgabeUngueltig(
+                f"Testfall {i}: Name und erwartete Ausgabe dürfen nicht leer sein."
+            )
+        test_cases.append({"name": name, "input": eingabe, "expected_output": erwartet})
+
+    if not test_cases:
+        raise AufgabeUngueltig("Mindestens ein Testfall wird gebraucht.")
+    aufgabe["test_cases"] = test_cases
+    return aufgabe
+
+
+@app.get("/verwaltung/aufgabe-neu", response_class=HTMLResponse)
+def verwaltung_aufgabe_neu_seite(request: Request, user=Depends(get_current_user)):
+    if not _ist_admin(user):
+        return _kein_zugriff(
+            request, knopf_href="/verwaltung", knopf_text="Zur Verwaltung"
+        )
+    return templates.TemplateResponse(
+        request,
+        "verwaltung-aufgabe-neu.html",
+        {
+            "user": user,
+            "ist_admin": True,
+            "schwierigkeiten": SCHWIERIGKEITEN,
+            "testfall_bloecke": TESTFALL_BLOECKE,
+            "fehler": None,
+            "werte": {},
+        },
+    )
+
+
+@app.post("/verwaltung/aufgabe-neu", response_class=HTMLResponse)
+async def verwaltung_aufgabe_anlegen(request: Request, user=Depends(get_current_user)):
+    if not _ist_admin(user):
+        return _kein_zugriff(
+            request, knopf_href="/verwaltung", knopf_text="Zur Verwaltung"
+        )
+    form = await request.form()
+    try:
+        aufgabe = _aufgabe_aus_formular(form)
+    except AufgabeUngueltig as fehler:
+        # Werte aus dem Formular zurückgeben, damit ein Tippfehler nicht die
+        # ganze Eingabe kostet - dieselbe Vorlage, nur mit fehler gesetzt.
+        return templates.TemplateResponse(
+            request,
+            "verwaltung-aufgabe-neu.html",
+            {
+                "user": user,
+                "ist_admin": True,
+                "schwierigkeiten": SCHWIERIGKEITEN,
+                "testfall_bloecke": TESTFALL_BLOECKE,
+                "fehler": str(fehler),
+                "werte": form,
+            },
+            status_code=400,
+        )
+    try:
+        # insert_one statt des upsert aus laden.py: Ein zweiter Seed-Lauf mit
+        # demselben Titel überschreibt diese Aufgabe später trotzdem (siehe
+        # der Hinweis dazu im Entwurf, verwaltung-aufgabe-neu.html) - das ist
+        # ein offener Punkt aus #71 und kein neues Verhalten dieser Route.
+        eingefuegt = db.tasks.insert_one(aufgabe)
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, "/verwaltung/aufgabe-neu")
+    return RedirectResponse(url=f"/aufgabe/{eingefuegt.inserted_id}", status_code=303)
+
+
+# Bildet die Ergebnis-Auswahl aus verwaltung-einreichungen.html auf
+# status_klasse ab (main.py, _einreichung_ansicht/STATUS_KLASSE). Die Maske
+# zeigt Klartext, keine internen Statuswerte wie PENDING oder UNRESOLVED.
+ERGEBNIS_FILTER = {
+    "bestanden": "ok",
+    "fehlgeschlagen": "fehler",
+    "wird ausgeführt": "laeuft",
+    "in der Warteschlange": "wartet",
+}
+
+
+@app.get("/verwaltung/einreichungen", response_class=HTMLResponse)
+def verwaltung_einreichungen_seite(
+    request: Request,
+    user=Depends(get_current_user),
+    aufgabe: str = "",
+    ergebnis: str = "",
+    person: str = "",
+):
+    """Alle Einreichungen aller Nutzer, mit Filtern (#240).
+
+    Aufgabe und Ergebnis filtert dieselbe Abfrage/Ansicht wie /einreichungen
+    (_einreichungen_liste), nur ohne den user_id-Filter. Ergebnis und Person
+    filtern danach in Python: Ergebnis ist eine abgeleitete Kategorie
+    (status_klasse), keine gespeicherte, und Person soll Kennung wie
+    Anzeigename treffen, beides mit einer Teilzeichenkette wie im Entwurf -
+    beides bräuchte sonst eigene Mongo-Operatoren für zwei Felder gleichzeitig.
+    """
+    if not _ist_admin(user):
+        return _kein_zugriff(request)
+    try:
+        aufgaben = list(db.tasks.find({}, {"title": 1}))
+        filter_query = {"task_id": aufgabe} if aufgabe else {}
+        submissions = _einreichungen_liste(filter_query)
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, "/verwaltung/einreichungen")
+
+    if ergebnis in ERGEBNIS_FILTER:
+        klasse = ERGEBNIS_FILTER[ergebnis]
+        submissions = [s for s in submissions if s["status_klasse"] == klasse]
+    if person.strip():
+        gesucht = person.strip().lower()
+        submissions = [
+            s
+            for s in submissions
+            if gesucht in s["username"].lower() or gesucht in s["user_id"].lower()
+        ]
+
+    return templates.TemplateResponse(
+        request,
+        "verwaltung-einreichungen.html",
+        {
+            "user": user,
+            "ist_admin": True,
+            "submissions": submissions,
+            "aufgaben": [parse_json(t) for t in aufgaben],
+            "filter_aufgabe": aufgabe,
+            "filter_ergebnis": ergebnis,
+            "filter_person": person,
         },
     )
 
@@ -685,6 +988,12 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     (aus einem verstümmelten Link) ab und zeigt die 404-Seite statt eines
     500. Eine Seite für Menschen darf das, der JSON-Endpunkt bleibt
     unverändert.
+
+    Für die Rolle dozent (#240) fällt der user_id-Filter weg: die Verwaltung
+    verlinkt hierher aus verwaltung-einreichungen.html auf fremde
+    Einreichungen, dieselbe 404-Prüfung wie #76 träfe dort jeden Klick. Der
+    JSON-Endpunkt /submission/{sub_id} bleibt unverändert, dafür gibt es
+    noch keine Verwaltungsansicht.
     """
 
     def einreichung_404():
@@ -699,9 +1008,10 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
         )
 
     try:
-        submission = db.submissions.find_one(
-            {"_id": ObjectId(sub_id), "user_id": user.get("sub")}
-        )
+        filter_query = {"_id": ObjectId(sub_id)}
+        if not _ist_admin(user):
+            filter_query["user_id"] = user.get("sub")
+        submission = db.submissions.find_one(filter_query)
     except InvalidId:
         return einreichung_404()
     except PyMongoError as fehler:
@@ -725,6 +1035,7 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     }
     kontext = {
         "user": user,
+        "ist_admin": _ist_admin(user),
         "sub_id": str(submission["_id"]),
         "task_titel": aufgabe["title"] if aufgabe else "Aufgabe gelöscht",
         "sprache": submission["sprache"],

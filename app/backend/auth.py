@@ -109,12 +109,17 @@ async def herkunft_pruefen(request, call_next):
 def get_current_user(
     x_auth_request_user: str | None = Header(default=None),
     x_auth_request_preferred_username: str | None = Header(default=None),
+    x_auth_request_roles: str | None = Header(default=None),
 ):
     """Identität aus den Gateway-Headern lesen.
 
     Gibt dieselbe Struktur zurück wie zuvor die Token-Prüfung: ``sub`` als
     stabile Benutzer-ID und ``preferred_username`` als Anzeigename, damit die
-    Endpunkte in ``main.py`` unverändert bleiben.
+    Endpunkte in ``main.py`` unverändert bleiben. ``roles`` kommt für #240
+    dazu: die Rollen aus Keycloaks realm_access.roles, kommagetrennt vom
+    Plugin gesetzt (traefik-auth.yaml). main.py prüft darin nur auf "dozent",
+    die Liste selbst bleibt hier ungeprüft, sie ist reine Identität, keine
+    Berechtigung.
 
     Die Meldung nennt weder den fehlenden Header noch die Auth-Kette. Eine
     genauere Auskunft sagt einem Aufrufer, was ihm zum Treffer noch fehlt.
@@ -125,4 +130,9 @@ def get_current_user(
     return {
         "sub": x_auth_request_user,
         "preferred_username": x_auth_request_preferred_username or x_auth_request_user,
+        "roles": [
+            rolle.strip()
+            for rolle in (x_auth_request_roles or "").split(",")
+            if rolle.strip()
+        ],
     }

@@ -569,15 +569,17 @@ W6, das die Token-Prüfung am Gateway verlangt und nicht in der Anwendung. Der
 feste Wert läuft nie ab und steht im Secret wie im Middleware-Objekt, wer eines
 davon lesen darf, kommt an der Prüfung vorbei.
 
-### Unit-Tests im Worker-Image
+### Unit-Tests in den Dienst-Images
 
-`tests/` läuft mit pytest über `scripts/unit-tests.sh` im Worker-Image, in
-der CI ein Pflicht-Check. Die Alternative unittest spart die Abhängigkeit,
-pytest führt unittest-Bestand aber mit und bleibt bei wachsender Suite
-knapper. Im Image, weil worker.py beim Import die Sandbox initialisiert und
-pymongo braucht, geprüft wird gegen dieselbe Python-Version und glibc wie
-im Cluster. Der Preis, der CI-Job baut je Lauf das Worker-Image und holt
-pytest von PyPI. `tests/` liegt auf oberster Ebene, unter `app/worker`
+`tests/` läuft mit pytest über `scripts/unit-tests.sh`, in der CI ein
+Pflicht-Check. Die Alternative unittest spart die Abhängigkeit, pytest führt
+unittest-Bestand aber mit und bleibt bei wachsender Suite knapper. Die Tests
+laufen in den Images statt in einer lokalen Umgebung, weil worker.py beim
+Import die Sandbox initialisiert und pymongo braucht, main.py fastapi, und
+geprüft wird so gegen dieselbe Python-Version und glibc wie im Cluster.
+`tests/backend` läuft dafür im Backend-Image, alles übrige im Worker-Image.
+Der Preis, der CI-Job baut je Lauf beide Images und holt pytest von PyPI.
+`tests/` liegt auf oberster Ebene, unter `app/worker` oder `app/backend`
 wanderte es über das COPY mit ins ausgelieferte Image.
 
 

@@ -268,10 +268,14 @@ def _fehlerseite(
     knopf_text="Erneut versuchen",
     knopf_href="/aufgaben",
 ):
+    # Request als erstes Argument, wie an allen TemplateResponse-Aufrufen.
+    # starlette hat die ältere Form ohne Request entfernt, und fastapi pinnt
+    # starlette nur nach unten, ein frischer Image-Build zieht also immer die
+    # neueste Version.
     return templates.TemplateResponse(
+        request,
         "fehler.html",
         {
-            "request": request,
             "titel": titel,
             "meldung": meldung,
             "zusicherung": zusicherung,
@@ -394,8 +398,9 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
         t["zeit_s"] = t.get("time_limit_seconds") or WORKER_STANDARD_ZEIT_S
         ansicht.append(t)
     return templates.TemplateResponse(
+        request,
         "aufgaben.html",
-        {"request": request, "tasks": ansicht, "user": user},
+        {"tasks": ansicht, "user": user},
     )
 
 
@@ -439,9 +444,9 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
         task.pop("test_cases", [])
     )  # Inhalt bleibt verborgen, wie in /tasks
     return templates.TemplateResponse(
+        request,
         "aufgabe.html",
         {
-            "request": request,
             "task": parse_json(task),
             "anzahl_testfaelle": anzahl_testfaelle,
             # Was der Worker tatsächlich durchsetzt, wenn die Aufgabe selbst
@@ -610,9 +615,9 @@ def einreichungen_seite(request: Request, user=Depends(get_current_user)):
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/einreichungen")
     return templates.TemplateResponse(
+        request,
         "einreichungen.html",
         {
-            "request": request,
             "submissions": [
                 _einreichung_ansicht(s, aufgaben_titel) for s in submissions
             ],
@@ -667,7 +672,6 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
         return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
 
     kontext = {
-        "request": request,
         "user": user,
         "sub_id": str(submission["_id"]),
         "task_titel": aufgabe["title"] if aufgabe else "Aufgabe gelöscht",
@@ -691,7 +695,7 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
                 "wiederaufnahme": submission.get("versuche", 0) > 1,
             }
         )
-        return templates.TemplateResponse("ergebnis-laeuft.html", kontext)
+        return templates.TemplateResponse(request, "ergebnis-laeuft.html", kontext)
 
     test_results = submission.get("test_results") or []
     gesamtlaufzeit_ms = sum(
@@ -714,4 +718,4 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
             "gesamtlaufzeit_s": gesamtlaufzeit_ms / 1000 if gesamtlaufzeit_ms else None,
         }
     )
-    return templates.TemplateResponse("ergebnis.html", kontext)
+    return templates.TemplateResponse(request, "ergebnis.html", kontext)

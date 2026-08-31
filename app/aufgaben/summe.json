@@ -1,10 +1,13 @@
 {
   "title": "Summe zweier Zahlen",
-  "description": "Lies zwei durch Leerzeichen getrennte ganze Zahlen von der Standardeingabe und gib ihre Summe aus.",
+  "description": "Addiere zwei ganze Zahlen von der Standardeingabe.",
+  "input_format": "Eine Zeile mit zwei durch Leerzeichen getrennten ganzen Zahlen.",
+  "output_format": "Die Summe der beiden Zahlen.",
   "difficulty": "leicht",
   "test_cases": [
     {
       "name": "Beispiel aus der Angabe",
+      "sample": true,
       "input": "3 4\n",
       "expected_output": "7"
     },

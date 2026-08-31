@@ -16,7 +16,14 @@ from pymongo import MongoClient
 # Die Lösungen gehören nicht in die Datenbank. Sie sind Material für den
 # Prüflauf und liegen deshalb im Chart (app/chart/loesungen).
 ORDNER = pathlib.Path(__file__).parent
-FELDER = ("title", "description", "difficulty", "test_cases")
+FELDER = (
+    "title",
+    "description",
+    "input_format",
+    "output_format",
+    "difficulty",
+    "test_cases",
+)
 
 # Deutsch und als feste Liste, weil der Wert unverändert als Marke in der
 # Aufgabenliste steht. Ein Tippfehler fiele sonst erst auf der Seite auf.
@@ -59,6 +66,20 @@ def gelesen(datei):
         # Der Name beschriftet die Zeile des Testfalls auf der Ergebnisseite.
         if not isinstance(fall.get("name"), str) or not fall["name"]:
             raise SystemExit(f"{datei.name}: Testfall {nummer} braucht einen Namen")
+        # Nur ein echtes True zählt als Beispiel, die Aufgabenseite prüft
+        # genauso (aufgabe_seite). Eine Zeichenkette wie "false" wäre wahr
+        # und machte Eingabe und Sollausgabe des Falls ungewollt sichtbar.
+        if "sample" in fall and not isinstance(fall["sample"], bool):
+            raise SystemExit(
+                f"{datei.name}: Testfall {nummer} braucht sample als true "
+                f"oder false, ist {fall['sample']!r}"
+            )
+    # Mindestens ein markierter Fall, sonst bleibt die Rubrik Beispiel der
+    # Aufgabenseite leer und die Angabe zeigt keine einzige Eingabe.
+    if not any(fall.get("sample") is True for fall in aufgabe["test_cases"]):
+        raise SystemExit(
+            f"{datei.name}: kein Testfall ist mit sample als Beispiel markiert"
+        )
     # Optional, aber wenn vorhanden, dann brauchbar. Eine Grenze als Zeichenkette
     # oder als Null würde jede Einreichung dieser Aufgabe falsch beurteilen.
     for feld, hoechstens in GRENZEN.items():
@@ -88,6 +109,8 @@ def main():
         aufgabe = gelesen(datei)
         setzen = {
             "description": aufgabe["description"],
+            "input_format": aufgabe["input_format"],
+            "output_format": aufgabe["output_format"],
             "difficulty": aufgabe["difficulty"],
             "test_cases": aufgabe["test_cases"],
         }

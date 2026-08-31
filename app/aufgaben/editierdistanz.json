@@ -1,12 +1,15 @@
 {
   "title": "Editierdistanz",
-  "description": "Lies zwei Wörter, jedes in einer eigenen Zeile, und gib die kleinste Zahl an Einfügungen, Löschungen und Ersetzungen aus, mit der das erste Wort in das zweite übergeht.",
+  "description": "Bestimme die kleinste Zahl an Einfügungen, Löschungen und Ersetzungen, mit der das erste Wort in das zweite übergeht.",
+  "input_format": "Zwei Zeilen mit je einem Wort.",
+  "output_format": "Die kleinste Zahl an Schritten als ganze Zahl.",
   "difficulty": "schwer",
   "time_limit_seconds": 4,
   "memory_limit_mb": 64,
   "test_cases": [
     {
       "name": "kitten zu sitting",
+      "sample": true,
       "input": "kitten\nsitting\n",
       "expected_output": "3"
     },

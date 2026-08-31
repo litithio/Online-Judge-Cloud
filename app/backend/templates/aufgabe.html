@@ -38,6 +38,33 @@
       <div class="aufgabentext">
         <p style="white-space: pre-line">{{ task.description }}</p>
 
+        <!-- Jede Rubrik nur, wenn ihr Feld belegt ist. Eine Aufgabe aus der
+             Datenbank vor dem nächsten Seed hat die Felder noch nicht, die
+             Seite zeigt dann wie bisher nur die Beschreibung. -->
+        {% if task.input_format %}
+        <h3>Eingabe</h3>
+        <p style="white-space: pre-line">{{ task.input_format }}</p>
+        {% endif %}
+
+        {% if task.output_format %}
+        <h3>Ausgabe</h3>
+        <p style="white-space: pre-line">{{ task.output_format }}</p>
+        {% endif %}
+
+        {% if beispiele %}
+        <h3>Beispiel</h3>
+        {% for b in beispiele %}
+        <!-- Die Leerzeile vor Ausgabe ist der Trenner aus dem Entwurf.
+             aufgabe_seite nimmt dafür den Zeilenumbruch am Eingabeende weg,
+             sonst stünden hier zwei Leerzeilen. -->
+        <div class="beispiel">Eingabe:
+{{ b.input }}
+
+Ausgabe:
+{{ b.expected_output }}</div>
+        {% endfor %}
+        {% endif %}
+
         <div class="eckdaten">
           <div><span>Zeitlimit</span><strong>{{ "%.1f"|format(zeit_s)|replace(".", ",") }} s je Testfall</strong></div>
           <div><span>Speicher</span><strong>{{ speicher_mb }} MB</strong></div>

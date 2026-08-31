@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neue Aufgabe, Online Judge</title>
+<link rel="stylesheet" href="dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>Johannes Ullrich</strong>
+      <a href="login.html">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a href="aufgaben.html">Aufgaben</a>
+    <a href="einreichungen.html">Meine Einreichungen</a>
+    <a class="aktiv" href="verwaltung.html">Verwaltung</a>
+  </div>
+</nav>
+
+<main>
+    <a href="verwaltung.html" class="zurueck">&#8592; Verwaltung</a>
+    <div class="kopfzeile">
+      <h1>Neue Aufgabe</h1>
+      <p>Die Felder folgen dem Aufgabenformat aus app/aufgaben samt der
+         Erweiterungen aus #71 (Schwierigkeit, Name je Testfall, Limits je
+         Aufgabe). Dieselbe Maske dient später dem Bearbeiten.</p>
+    </div>
+
+    <!-- Über die Oberfläche angelegte Aufgaben stehen nur in MongoDB.
+         Der Seed-Job (app/aufgaben/laden.py) upsertet über den Titel:
+         Gleicher Titel wird beim Neuaufbau überschrieben, anderer Titel
+         geht verloren. Das Verhalten ist offen und in der Gruppe zu
+         entscheiden, siehe Journal. Der Sichtbar-Haken je Testfall ist
+         ein Vorschlag, das heutige Format kennt ihn nicht. -->
+    <form class="formular" onsubmit="return false;">
+
+      <div class="feld">
+        <label for="a-titel">Titel</label>
+        <input type="text" id="a-titel" value="Römische Zahlen">
+      </div>
+
+      <div class="feldreihe">
+        <div class="feld">
+          <label for="a-schwierigkeit">Schwierigkeit</label>
+          <select id="a-schwierigkeit">
+            <option selected>leicht</option>
+            <option>mittel</option>
+            <option>schwer</option>
+          </select>
+        </div>
+        <div class="feld">
+          <label for="a-zeitlimit">Zeitlimit je Testfall (s)</label>
+          <input type="text" id="a-zeitlimit" value="2">
+        </div>
+        <div class="feld">
+          <label for="a-speicher">Speicher (MB)</label>
+          <input type="text" id="a-speicher" value="256">
+        </div>
+      </div>
+
+      <div class="feld">
+        <label for="a-beschreibung">Beschreibung</label>
+        <!-- Ob die Beschreibung ein Markdown-Feld bleibt oder in Eingabe,
+             Ausgabe und Beispiel zerfällt, entscheidet #71. Der Entwurf
+             zeigt den Stand mit einem Feld. -->
+        <textarea id="a-beschreibung" rows="6">Gegeben ist eine ganze Zahl zwischen 1 und 3999. Geben Sie die römische Schreibweise der Zahl aus.</textarea>
+      </div>
+
+      <h2>Testfälle</h2>
+
+      <div class="testfall">
+        <div class="testfall-kopf">
+          <span class="testfall-titel">Testfall 1</span>
+          <button class="entfernen" type="button">Entfernen</button>
+        </div>
+        <div class="feld">
+          <label for="t1-name">Name</label>
+          <input type="text" id="t1-name" value="Beispiel aus der Angabe">
+        </div>
+        <div class="feldpaar">
+          <div class="feld">
+            <label for="t1-eingabe">Eingabe</label>
+            <textarea class="mono" id="t1-eingabe" rows="4">9</textarea>
+          </div>
+          <div class="feld">
+            <label for="t1-erwartet">Erwartete Ausgabe</label>
+            <textarea class="mono" id="t1-erwartet" rows="4">IX</textarea>
+          </div>
+        </div>
+        <label class="haken"><input type="checkbox" checked> Für Studierende sichtbar (Beispiel in der Aufgabenstellung)</label>
+      </div>
+
+      <div class="testfall">
+        <div class="testfall-kopf">
+          <span class="testfall-titel">Testfall 2</span>
+          <button class="entfernen" type="button">Entfernen</button>
+        </div>
+        <div class="feld">
+          <label for="t2-name">Name</label>
+          <input type="text" id="t2-name" value="Alle Zahlen bis 3999">
+        </div>
+        <div class="feldpaar">
+          <div class="feld">
+            <label for="t2-eingabe">Eingabe</label>
+            <textarea class="mono" id="t2-eingabe" rows="4">1
+2
+3
+…</textarea>
+          </div>
+          <div class="feld">
+            <label for="t2-erwartet">Erwartete Ausgabe</label>
+            <textarea class="mono" id="t2-erwartet" rows="4">I
+II
+III
+…</textarea>
+          </div>
+        </div>
+        <label class="haken"><input type="checkbox"> Für Studierende sichtbar (Beispiel in der Aufgabenstellung)</label>
+      </div>
+
+      <button class="knopf zweit" type="button">+ Weiterer Testfall</button>
+
+      <div class="aktionen">
+        <a class="knopf zweit" href="verwaltung.html" style="display: inline-block; text-decoration: none;">Verwerfen</a>
+        <button class="knopf" type="submit">Aufgabe speichern</button>
+      </div>
+    </form>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

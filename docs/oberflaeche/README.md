@@ -1,9 +1,9 @@
 # Entwurf der Oberfläche
 
-Neun statische Seiten im DHBW-Design, ohne JavaScript. `index.html` listet
+Zwölf statische Seiten im DHBW-Design, ohne JavaScript. `index.html` listet
 sie auf und verlinkt sie untereinander; im Browser öffnen genügt.
 
-Der Entwurf ist keine Wegwerfarbeit: Aus den sieben Anwendungsseiten werden
+Der Entwurf ist keine Wegwerfarbeit: Aus den Anwendungsseiten werden
 die Jinja2-Templates des API-Service, aus `dhbw.css` wird `static/dhbw.css`.
 Im Markup steht je Seite, welches Template daraus wird. Das ist Zielbild,
 umgesetzt ist es noch nicht, die API liefert bisher nur JSON.
@@ -54,3 +54,13 @@ und `worker_id` trägt nur den Worker des laufenden Versuchs.
 
 Der Editor ist im Entwurf ein `pre` mit Zeilennummern. Dort steht später
 Monaco.
+
+## Verwaltung
+
+Drei Seiten hinter der Rolle dozent (Gruppenbeschluss vom 2026-08-31, Umfang
+darüber hinaus offen): `verwaltung.html` mit Kennzahlen und Aufgabenliste,
+`verwaltung-aufgabe-neu.html` als Formular für Aufgabe samt Testfällen,
+`verwaltung-einreichungen.html` mit den Einreichungen aller Personen. Der
+Navigationspunkt Verwaltung erscheint nur mit der Rolle. Studierendenseiten
+zeigen ihn nicht, deshalb führt nur `index.html` dorthin. Offen sind das
+Verhalten zum Seed-Job aus `app/aufgaben` und der Feldzuschnitt aus #71.

@@ -13,8 +13,8 @@ import sys
 
 from pymongo import MongoClient
 
-# Nur die oberste Ebene wird gelesen, loesungen/ bleibt damit außen vor. Die
-# Lösungen gehören nicht in die Datenbank, sie sind Material für den Prüflauf.
+# Die Lösungen gehören nicht in die Datenbank. Sie sind Material für den
+# Prüflauf und liegen deshalb im Chart (app/chart/loesungen).
 ORDNER = pathlib.Path(__file__).parent
 FELDER = ("title", "description", "test_cases")
 

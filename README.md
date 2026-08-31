@@ -226,6 +226,24 @@ ansible-playbook -i inventory/generated-inventory.yml \
 
 Prüfen mit `kubectl get jobs`, dort steht `aufgaben-seed` auf Completed.
 
+### Abnahme nach dem Deploy
+
+```bash
+scripts/smoke.sh
+```
+
+Das Skript wartet auf den Rollout der Chart-Workloads, lässt per SSH auf dem
+Server `helm test online-judge` laufen und prüft danach den Pod-Verkehr über
+Node-Grenzen, die Queue-Metrik in Prometheus und den Wert des ScaledObject.
+Der Testjob `test-api` spricht die API am Service an, `test-loesungen` reicht
+die Beispiellösungen aus `app/chart/loesungen` über `/submit` ein und
+vergleicht die Urteile mit den Dateinamen. Jede fehlgeschlagene Prüfung nennt
+das nächste Kommando. Zustandsprüfungen wie CrashLooping oder ungebundene
+PVCs kommen als Alert-Regeln aus dem kube-prometheus-stack und werden nicht
+nachgebaut. Für die Fehlersuche darüber hinaus taugen k9s und
+`kubectl logs -l <selector> --prefix`, bei Bedarf stern, das sich auch an
+später gestartete Pods hängt.
+
 ### Authentifizierung
 
 Die Anmeldung passiert am Gateway, nicht in der Anwendung (Issue #20). Eine

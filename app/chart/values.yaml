@@ -45,6 +45,11 @@ externe:
   # KEDA-Operator läuft im Namespace keda, ein kurzer Name würde dort aufgelöst
   # und ginge ins Leere.
   redisKedaAdresse: "valkey.default.svc.cluster.local:6379"
+  # ConfigMap mit den Aufgaben-JSONs und laden.py, angelegt von
+  # ansible/tasks/seed.yaml. Der Prüflauf unter templates/tests liest daraus
+  # die Zuordnung von Lösungsverzeichnis zu Aufgabentitel, eine Kopie der
+  # JSONs im Chart wäre eine zweite Wahrheit.
+  aufgabenSeedConfigMap: "aufgaben-seed"
 
 # ---------------------------------------------------------------------------
 # API (backend)

@@ -1,7 +1,9 @@
 # Aufgaben
 
-Eine JSON je Aufgabe, darunter in `loesungen/` je eine Lösung, die bestehen
-muss, und eine, die an einem Limit scheitern muss. `laden.py` schreibt die
+Eine JSON je Aufgabe, dazu in `../chart/loesungen/` je eine Lösung, die
+bestehen muss, und eine, die an einem Limit scheitern muss. Die Lösungen
+liegen im Chart, weil der Prüflauf aus #19 sie als helm-test-Job von dort in
+den Cluster rollt. `laden.py` schreibt die
 Aufgaben nach MongoDB. Der Titel ist dabei der Schlüssel, ein zweiter Lauf
 aktualisiert die Aufgabe also, statt sie erneut anzulegen. Ein geänderter Titel
 legt dagegen eine zweite Aufgabe an und lässt die alte stehen, denn `laden.py`
@@ -42,7 +44,7 @@ Als Limit taugt etwa das Drei- bis Vierfache dessen, was die eigene Lösung
 braucht. Dann kommt auch eine langsamere richtige Lösung durch, und eine, die
 den falschen Algorithmus nimmt, scheitert trotzdem.
 
-Unter `loesungen/<name>/` gehören `akzeptiert.py` und, je nachdem was die
+Unter `../chart/loesungen/<name>/` gehören `akzeptiert.py` und, je nachdem was die
 Aufgabe zeigen soll, `zeitlimit.py` oder `speicherlimit.py`. Der Dateiname sagt,
 welches Urteil der Judge fällen muss. Beide Lösungen rechnen richtig, sie
 unterscheiden sich nur im Verbrauch, sonst prüft der Lauf das Falsche.

@@ -1,0 +1,90 @@
+# Erster helm-test-Job (#19). Spricht die API am Service an, die Health-Pfade
+# mit GET und HEAD, /tasks einmal ohne Gateway-Header (muss 401 sein, #79) und
+# einmal mit. Das Skript liegt in tests/api_pruefen.py neben dem Chart und
+# kommt als ConfigMap in den Pod, so bleibt es für ruff und Menschen eine
+# gewöhnliche Python-Datei.
+#
+# Alle Objekte tragen den test-Hook. Sie entstehen erst bei helm test, ein
+# gewöhnliches upgrade rollt keine Testobjekte aus. before-hook-creation lässt
+# sie nach dem Lauf stehen, kubectl logs job/test-api zeigt also auch später
+# noch das Ergebnis, und der nächste Lauf ersetzt sie.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-api
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    # Vor dem Job, der die ConfigMap mountet.
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  api_pruefen.py: |-
+{{ .Files.Get "tests/api_pruefen.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-api
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    # Unter dem Gewicht des Prüflaufs. helm arbeitet die Hooks der Reihe nach
+    # ab und wartet je Job, der schnelle API-Test läuft deshalb zuerst, und
+    # scheitert er, startet der teure Prüflauf gar nicht erst.
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # Kein zweiter Versuch. Ein Test soll scheitern und den Grund zeigen, nicht
+  # sich durch Wiederholung ein grünes Ergebnis holen.
+  backoffLimit: 0
+  # Das Skript wartet selbst bis zu 60 Sekunden auf die API und fragt danach
+  # sechs Pfade mit je 10 Sekunden Zeitlimit ab. 180 lässt Raum für den
+  # Pod-Start obendrauf.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        {{- include "online-judge.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      # Wie die API selbst. Der Pod trägt den Herkunftswert des Gateways, und
+      # die Judge-Nodes nehmen über ihr Sandbox-Taint ohnehin nur Worker an.
+      nodeSelector:
+        online-judge/rolle: dienste
+      # Kein Token im Pod, das Skript spricht nur die API an.
+      automountServiceAccountToken: false
+      containers:
+        - name: test-api
+          # Das Backend-Image, es liegt schon auf den Dienste-Nodes und bringt
+          # das python3 für das Skript mit.
+          image: {{ include "online-judge.image" (dict "root" . "repo" .Values.backend.repository) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python3", "/pruef/api_pruefen.py"]
+          env:
+            # Ohne den Wert kann der Test nur die 401-Seite der
+            # Herkunftsprüfung sehen. Dasselbe Secret liest die API.
+            - name: GATEWAY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externe.gatewaySecret.name | quote }}
+                  key: {{ .Values.externe.gatewaySecret.key | quote }}
+          # Wie der Seed-Job und der Durchlauf, gleiches Muster von Arbeit,
+          # ein kurzes Python-Skript mit ein paar Netzaufrufen.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: pruef
+              mountPath: /pruef
+              readOnly: true
+      volumes:
+        - name: pruef
+          configMap:
+            name: test-api

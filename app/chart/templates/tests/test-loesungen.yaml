@@ -1,0 +1,114 @@
+# Zweiter helm-test-Job (#19), der Prüflauf gegen die Beispiellösungen. Je
+# Aufgabe muss eine Lösung bestehen und eine an einem Limit scheitern, der
+# Dateiname sagt, was erwartet wird, damit prüft der Judge sich selbst. Die
+# Lösungen liegen unter loesungen/ im Chart und kommen von dort als ConfigMap
+# in den Pod. Eingereicht wird über /submit, ein Lauf deckt also API, Queue,
+# das Anlaufen der Worker aus null Replicas und die Bewertung ab.
+#
+# Die Zuordnung von Lösungsverzeichnis zu Aufgabentitel steht in den
+# Aufgaben-JSONs. Deren einzige Quelle im Cluster ist die ConfigMap des Seed
+# (ansible/tasks/seed.yaml), der Job mountet sie über externe in den values.
+# Eine Kopie der JSONs im Chart wäre eine zweite Wahrheit.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-loesungen
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    # Vor dem Job, der die ConfigMap mountet.
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  loesungen_pruefen.py: |-
+{{ .Files.Get "tests/loesungen_pruefen.py" | indent 4 }}
+---
+# Die Lösungen als eigene ConfigMap. Schlüssel dürfen keinen Schrägstrich
+# tragen, aus loesungen/summe/akzeptiert.py wird deshalb summe__akzeptiert.py,
+# und das Skript trennt am doppelten Unterstrich wieder auf.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-loesungen-dateien
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  {{- range $pfad, $_ := .Files.Glob "loesungen/*/*.py" }}
+  {{ base (dir $pfad) }}__{{ base $pfad }}: |-
+{{ $.Files.Get $pfad | indent 4 }}
+  {{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-loesungen
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    # Nach test-api. Antwortet die API nicht, scheitert der billige Test und
+    # dieser Lauf beginnt gar nicht erst.
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # Kein zweiter Versuch, wie bei test-api. Jeder Versuch reichte alle
+  # Lösungen erneut ein.
+  backoffLimit: 0
+  # Über der Frist von 480 Sekunden im Skript (Herleitung dort), damit das
+  # Skript zuerst abläuft und die offenen Einreichungen benennt, statt dass
+  # Kubernetes den Pod wortlos beendet.
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "online-judge.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      # Wie test-api, Begründung dort.
+      nodeSelector:
+        online-judge/rolle: dienste
+      automountServiceAccountToken: false
+      containers:
+        - name: test-loesungen
+          image: {{ include "online-judge.image" (dict "root" . "repo" .Values.backend.repository) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python3", "/pruef/loesungen_pruefen.py"]
+          env:
+            - name: GATEWAY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externe.gatewaySecret.name | quote }}
+                  key: {{ .Values.externe.gatewaySecret.key | quote }}
+          # Wie test-api, das Skript wartet die meiste Zeit auf Urteile.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: pruef
+              mountPath: /pruef
+              readOnly: true
+            - name: loesungen
+              mountPath: /loesungen
+              readOnly: true
+            - name: aufgaben
+              mountPath: /aufgaben
+              readOnly: true
+      volumes:
+        - name: pruef
+          configMap:
+            name: test-loesungen
+        - name: loesungen
+          configMap:
+            name: test-loesungen-dateien
+        - name: aufgaben
+          configMap:
+            name: {{ .Values.externe.aufgabenSeedConfigMap | quote }}

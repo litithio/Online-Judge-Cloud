@@ -19,8 +19,12 @@ import laden  # noqa: E402
 GUELTIG = {
     "title": "Testaufgabe",
     "description": "Lies nichts und gib nichts aus.",
+    "input_format": "Keine Eingabe.",
+    "output_format": "Keine Ausgabe.",
     "difficulty": "leicht",
-    "test_cases": [{"name": "Leere Eingabe", "input": "", "expected_output": ""}],
+    "test_cases": [
+        {"name": "Leere Eingabe", "sample": True, "input": "", "expected_output": ""}
+    ],
 }
 
 
@@ -50,14 +54,41 @@ def test_unbekannte_difficulty_wird_abgelehnt(tmp_path):
 
 
 def test_testfall_ohne_namen_wird_abgelehnt(tmp_path):
-    aufgabe = GUELTIG | {"test_cases": [{"input": "", "expected_output": ""}]}
+    aufgabe = GUELTIG | {
+        "test_cases": [{"sample": True, "input": "", "expected_output": ""}]
+    }
     with pytest.raises(SystemExit, match="Namen"):
         laden.gelesen(_datei(tmp_path, aufgabe))
 
 
 def test_leerer_testfall_name_wird_abgelehnt(tmp_path):
     aufgabe = GUELTIG | {
-        "test_cases": [{"name": "", "input": "", "expected_output": ""}]
+        "test_cases": [{"name": "", "sample": True, "input": "", "expected_output": ""}]
     }
     with pytest.raises(SystemExit, match="Namen"):
+        laden.gelesen(_datei(tmp_path, aufgabe))
+
+
+def test_fehlendes_input_format_wird_abgelehnt(tmp_path):
+    aufgabe = {k: v for k, v in GUELTIG.items() if k != "input_format"}
+    with pytest.raises(SystemExit, match="input_format"):
+        laden.gelesen(_datei(tmp_path, aufgabe))
+
+
+def test_aufgabe_ohne_beispiel_wird_abgelehnt(tmp_path):
+    aufgabe = GUELTIG | {
+        "test_cases": [{"name": "Fall", "input": "", "expected_output": ""}]
+    }
+    with pytest.raises(SystemExit, match="sample"):
+        laden.gelesen(_datei(tmp_path, aufgabe))
+
+
+def test_sample_als_zeichenkette_wird_abgelehnt(tmp_path):
+    # "false" wäre wahr, der Fall würde ungewollt zum sichtbaren Beispiel.
+    aufgabe = GUELTIG | {
+        "test_cases": [
+            {"name": "Fall", "sample": "false", "input": "", "expected_output": ""}
+        ]
+    }
+    with pytest.raises(SystemExit, match="sample"):
         laden.gelesen(_datei(tmp_path, aufgabe))

@@ -1,12 +1,15 @@
 {
   "title": "Zwei Zahlen mit gegebener Summe",
-  "description": "Die erste Zeile enthält die Anzahl n und die gesuchte Summe k, die zweite Zeile n ganze Zahlen. Gib JA aus, wenn zwei verschiedene Stellen der Liste zusammen k ergeben, sonst NEIN.",
+  "description": "Entscheide, ob zwei verschiedene Stellen einer Liste ganzer Zahlen zusammen eine gesuchte Summe ergeben.",
+  "input_format": "Die erste Zeile enthält die Anzahl n und die gesuchte Summe k. Die zweite Zeile enthält n ganze Zahlen, durch Leerzeichen getrennt.",
+  "output_format": "JA, wenn zwei verschiedene Stellen zusammen k ergeben, sonst NEIN.",
   "difficulty": "leicht",
   "time_limit_seconds": 2,
   "memory_limit_mb": 64,
   "test_cases": [
     {
       "name": "Beispiel aus der Angabe",
+      "sample": true,
       "input": "4 9\n2 7 11 15\n",
       "expected_output": "JA"
     },

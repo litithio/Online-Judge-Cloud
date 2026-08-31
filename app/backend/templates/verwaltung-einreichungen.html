@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alle Einreichungen, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>{{ user.preferred_username }}</strong>
+      <a href="/logout">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a href="/aufgaben">Aufgaben</a>
+    <a href="/einreichungen">Meine Einreichungen</a>
+    <a class="aktiv" href="/verwaltung">Verwaltung</a>
+  </div>
+</nav>
+
+<main>
+    <a href="/verwaltung" class="zurueck">&#8592; Verwaltung</a>
+    <div class="kopfzeile">
+      <h1>Alle Einreichungen</h1>
+      <p>Studierende sehen nur die eigenen Einreichungen. Diese Ansicht
+         zeigt alle und gehört darum zur Rolle dozent.</p>
+    </div>
+
+    <!-- Die Filter sind gewöhnliche GET-Parameter, kein Client-Zustand. -->
+    <div class="werkzeugleiste">
+      <form class="filter" method="get" action="/verwaltung/einreichungen">
+        <div class="feld">
+          <label for="f-aufgabe">Aufgabe</label>
+          <select id="f-aufgabe" name="aufgabe">
+            <option value=""{% if not filter_aufgabe %} selected{% endif %}>Alle Aufgaben</option>
+            {% for a in aufgaben %}
+            <option value="{{ a.id }}"{% if filter_aufgabe == a.id %} selected{% endif %}>{{ a.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="feld">
+          <label for="f-ergebnis">Ergebnis</label>
+          <select id="f-ergebnis" name="ergebnis">
+            <option value=""{% if not filter_ergebnis %} selected{% endif %}>Alle</option>
+            {% for wert in ("bestanden", "fehlgeschlagen", "wird ausgeführt", "in der Warteschlange") %}
+            <option{% if filter_ergebnis == wert %} selected{% endif %}>{{ wert }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="feld">
+          <label for="f-person">Person</label>
+          <input type="text" id="f-person" name="person" placeholder="Kennung oder Name" value="{{ filter_person }}">
+        </div>
+        <button class="knopf zweit" type="submit">Filtern</button>
+      </form>
+    </div>
+
+    {% if submissions %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 10%">Nummer</th>
+          <th>Person</th>
+          <th style="width: 22%">Aufgabe</th>
+          <th>Sprache</th>
+          <th>Eingereicht</th>
+          <th>Ergebnis</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sub in submissions %}
+        <tr>
+          <td class="num"><a href="/einreichung/{{ sub.id }}">#{{ sub.id[-6:] }}</a></td>
+          <td>{{ sub.username }}</td>
+          <td class="titel-zelle">{{ sub.task_titel }}</td>
+          <td>{{ sub.sprache }}</td>
+          <td class="num">{{ sub.eingereicht }}</td>
+          <td>
+            <span class="status {{ sub.status_klasse }}">
+              {% if sub.status_klasse == "laeuft" %}<span class="puls"></span>
+              {% elif sub.status_klasse == "ok" %}<span class="zeichen">&#10003;</span>
+              {% elif sub.status_klasse == "fehler" %}<span class="zeichen">&#10007;</span>
+              {% else %}<span class="zeichen">&#9711;</span>
+              {% endif %}{{ sub.status_text }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="leer">
+      <h3>Keine Einreichungen gefunden</h3>
+      <p>Kein Eintrag passt zu den gewählten Filtern.</p>
+    </div>
+    {% endif %}
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

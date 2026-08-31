@@ -17,6 +17,10 @@ import main
 SUB_ID = ObjectId()
 BESITZER = {"sub": "benutzer-a", "preferred_username": "a"}
 ANDERER = {"sub": "benutzer-b", "preferred_username": "b"}
+# roles fehlt bei BESITZER/ANDERER absichtlich (wie ein user ohne die Rolle
+# dozent es von get_current_user auch bekäme), _ist_admin muss darauf mit
+# .get("roles", []) reagieren statt mit KeyError.
+DOZENT = {"sub": "lehrende-a", "preferred_username": "l", "roles": ["dozent"]}
 
 
 @pytest.fixture(autouse=True)
@@ -58,4 +62,12 @@ def test_fremde_ergebnisseite_liefert_404():
 
 def test_eigene_ergebnisseite_bleibt_erreichbar():
     antwort = main.einreichung_seite(str(SUB_ID), fakes.anfrage(), user=BESITZER)
+    assert antwort.status_code == 200
+
+
+def test_dozent_darf_fremde_ergebnisseite_sehen():
+    # #240: die Verwaltung verlinkt aus verwaltung-einreichungen.html auf
+    # fremde Einreichungen, der Filter aus #76 darf das für die Rolle dozent
+    # nicht mehr blockieren.
+    antwort = main.einreichung_seite(str(SUB_ID), fakes.anfrage(), user=DOZENT)
     assert antwort.status_code == 200

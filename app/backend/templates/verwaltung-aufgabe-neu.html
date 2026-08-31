@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neue Aufgabe, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>{{ user.preferred_username }}</strong>
+      <a href="/logout">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a href="/aufgaben">Aufgaben</a>
+    <a href="/einreichungen">Meine Einreichungen</a>
+    <a class="aktiv" href="/verwaltung">Verwaltung</a>
+  </div>
+</nav>
+
+<main>
+    <a href="/verwaltung" class="zurueck">&#8592; Verwaltung</a>
+    <div class="kopfzeile">
+      <h1>Neue Aufgabe</h1>
+      <p>Die Felder folgen dem Aufgabenformat aus app/aufgaben samt der
+         Erweiterungen aus #71 (Schwierigkeit, Name je Testfall, Limits je
+         Aufgabe). Dieselbe Maske dient später dem Bearbeiten.</p>
+    </div>
+
+    <!-- Über die Oberfläche angelegte Aufgaben stehen nur in MongoDB. Der
+         Seed-Job (app/aufgaben/laden.py) upsertet über den Titel: Gleicher
+         Titel wird beim Neuaufbau überschrieben, anderer Titel geht
+         verloren - dieselbe Aufgabe kann also durch einen Seed-Lauf mit
+         gleichem Titel wieder verschwinden. Das Verhalten ist offen und in
+         der Gruppe zu entscheiden, siehe Journal. Der Sichtbar-Haken je
+         Testfall aus dem Entwurf fehlt hier bewusst: das heutige Format
+         kennt ihn nicht (#240, außerhalb des vereinbarten Umfangs). -->
+    {% if fehler %}
+    <div class="hinweis fehler" style="margin-bottom: 20px; color: var(--rot);">{{ fehler }}</div>
+    {% endif %}
+    <form class="formular" method="post" action="/verwaltung/aufgabe-neu">
+
+      <div class="feld">
+        <label for="a-titel">Titel</label>
+        <input type="text" id="a-titel" name="titel" value="{{ werte.get('titel', '') }}">
+      </div>
+
+      <div class="feldreihe">
+        <div class="feld">
+          <label for="a-schwierigkeit">Schwierigkeit</label>
+          <select id="a-schwierigkeit" name="schwierigkeit">
+            {% for stufe in schwierigkeiten %}
+            <option{% if werte.get('schwierigkeit', 'leicht') == stufe %} selected{% endif %}>{{ stufe }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="feld">
+          <label for="a-zeitlimit">Zeitlimit je Testfall (s)</label>
+          <input type="text" id="a-zeitlimit" name="time_limit_seconds" value="{{ werte.get('time_limit_seconds', '') }}">
+        </div>
+        <div class="feld">
+          <label for="a-speicher">Speicher (MB)</label>
+          <input type="text" id="a-speicher" name="memory_limit_mb" value="{{ werte.get('memory_limit_mb', '') }}">
+        </div>
+      </div>
+
+      <div class="feld">
+        <label for="a-beschreibung">Beschreibung</label>
+        <!-- Ob die Beschreibung ein Markdown-Feld bleibt oder in Eingabe,
+             Ausgabe und Beispiel zerfällt, entscheidet #71. Der Entwurf
+             zeigt den Stand mit einem Feld. -->
+        <textarea id="a-beschreibung" name="beschreibung" rows="6">{{ werte.get('beschreibung', '') }}</textarea>
+      </div>
+
+      <h2>Testfälle</h2>
+      <p class="zusatz" style="margin-bottom: 16px;">
+        Bis zu {{ testfall_bloecke }} Testfälle. Ein leer gelassener Block
+        wird beim Speichern übersprungen.
+      </p>
+
+      {% for i in range(1, testfall_bloecke + 1) %}
+      <div class="testfall">
+        <div class="testfall-kopf">
+          <span class="testfall-titel">Testfall {{ i }}</span>
+        </div>
+        <div class="feld">
+          <label for="t{{ i }}-name">Name</label>
+          <input type="text" id="t{{ i }}-name" name="tc{{ i }}_name" value="{{ werte.get('tc' ~ i ~ '_name', '') }}">
+        </div>
+        <div class="feldpaar">
+          <div class="feld">
+            <label for="t{{ i }}-eingabe">Eingabe</label>
+            <textarea class="mono" id="t{{ i }}-eingabe" name="tc{{ i }}_eingabe" rows="4">{{ werte.get('tc' ~ i ~ '_eingabe', '') }}</textarea>
+          </div>
+          <div class="feld">
+            <label for="t{{ i }}-erwartet">Erwartete Ausgabe</label>
+            <textarea class="mono" id="t{{ i }}-erwartet" name="tc{{ i }}_erwartet" rows="4">{{ werte.get('tc' ~ i ~ '_erwartet', '') }}</textarea>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <div class="aktionen">
+        <a class="knopf zweit" href="/verwaltung" style="display: inline-block; text-decoration: none;">Verwerfen</a>
+        <button class="knopf" type="submit">Aufgabe speichern</button>
+      </div>
+    </form>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

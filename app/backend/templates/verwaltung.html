@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verwaltung, Online Judge</title>
+<link rel="stylesheet" href="/static/dhbw.css">
+</head>
+<body>
+
+<header class="kopf">
+  <div class="kopf-innen">
+    <div class="logo-bild" role="img" aria-label="DHBW Center for Advanced Studies"></div>
+    <div class="nutzer">
+      Angemeldet als<strong>{{ user.preferred_username }}</strong>
+      <a href="/logout">Abmelden</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-innen">
+    <a href="/aufgaben">Aufgaben</a>
+    <a href="/einreichungen">Meine Einreichungen</a>
+    <a class="aktiv" href="/verwaltung">Verwaltung</a>
+  </div>
+</nav>
+
+<main>
+    <div class="kopfzeile">
+      <h1>Verwaltung</h1>
+      <p>Aufgaben anlegen und die Einreichungen aller Personen einsehen.
+         Diesen Bereich sehen nur Konten mit der Rolle dozent.</p>
+    </div>
+
+    <!-- Die Warteschlangen-Zahl ist die Summe der LLEN über die
+         judge:<sprache>-Listen in Valkey. KEDA skaliert nicht auf der
+         Summe, sondern je Sprache auf der einzelnen Liste (ein
+         ScaledObject je Sprache, app/chart/templates/judge.yaml). Die
+         übrigen Zahlen sind MongoDB-Aggregationen über die
+         Einreichungen. -->
+    <div class="kennzahlen">
+      <div class="kennzahl"><span>In der Warteschlange</span><strong>{{ warteschlange }}</strong></div>
+      <div class="kennzahl"><span>Wird ausgeführt</span><strong>{{ laeuft }}</strong></div>
+      <div class="kennzahl"><span>Einreichungen heute</span><strong>{{ heute }}</strong></div>
+      <div class="kennzahl"><span>Aufgaben</span><strong>{{ aufgaben|length }}</strong></div>
+    </div>
+
+    <div class="werkzeugleiste">
+      <h2>Aufgaben</h2>
+      <a class="knopf" href="/verwaltung/aufgabe-neu" style="display: inline-block; text-decoration: none;">Neue Aufgabe</a>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 34%">Aufgabe</th>
+          <th>Schwierigkeit</th>
+          <th>Testfälle</th>
+          <th>Einreichungen</th>
+          <th>Bestanden</th>
+          <th>Letzte Einreichung</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in aufgaben %}
+        <tr>
+          <td class="titel-zelle"><a href="/verwaltung/einreichungen?aufgabe={{ a.id }}">{{ a.title }}</a></td>
+          <td>{% if a.difficulty %}<span class="marke">{{ a.difficulty }}</span>{% endif %}</td>
+          <td class="num">{{ a.test_case_count }}</td>
+          <td class="num">{{ a.anzahl }}</td>
+          <td class="num">
+            {% if a.anzahl %}{{ a.bestanden }} ({{ a.bestanden_prozent }} %){% else %}&ndash;{% endif %}
+          </td>
+          <td class="num">{% if a.letzte_einreichung %}{{ a.letzte_einreichung }}{% else %}&ndash;{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+</main>
+
+<footer>
+  <div class="fuss-innen">
+    <span>Studentisches Projekt, Laborarbeit Cloud Infrastructure</span>
+    <span>DHBW Center for Advanced Studies</span>
+  </div>
+</footer>
+
+</body>
+</html>

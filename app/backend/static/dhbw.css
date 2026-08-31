@@ -291,3 +291,42 @@ tr.offen td, tr.offen td.num { color: var(--grau-50); }
 .stoerung .zusicherung { border-top: 1px solid var(--grau-25); border-bottom: 1px solid var(--grau-25); padding: 18px 0; margin: 32px 0; color: var(--grau); }
 .stoerung .knopf { margin-top: 4px; }
 .stoerung .kennung { font-family: var(--mono); font-size: 12px; color: var(--grau-50); margin-top: 34px; }
+
+/* ---------- Verwaltung ----------
+   Ansichten hinter der Rolle dozent. Formular- und Filterfelder folgen
+   optisch den Anmeldefeldern, die hängen aber an .anmeldung und gelten im
+   Keycloak-Theme. Darum eigene Klassen im Anwendungslayout. */
+.kennzahlen { display: flex; gap: 46px; flex-wrap: wrap; margin-bottom: 40px; }
+.kennzahl span { display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grau-80); margin-bottom: 5px; }
+.kennzahl strong { font-family: var(--serif); font-weight: normal; font-size: 30px; color: var(--grau); line-height: 1.1; }
+
+.werkzeugleiste { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+.filter { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+
+.feld label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grau-80); margin-bottom: 6px; }
+.feld input, .feld select, .feld textarea { font-family: var(--sans); font-size: 14px; padding: 9px 11px; border: 1px solid var(--grau-50); border-radius: var(--rundung); background: var(--weiss); color: #1a1a1a; }
+.feld input:focus, .feld select:focus, .feld textarea:focus { outline: none; border-color: var(--grau); box-shadow: 0 0 0 3px rgba(92, 105, 113, 0.12); }
+
+.formular { max-width: 760px; }
+.formular .feld { margin-bottom: 24px; }
+.formular .feld input, .formular .feld select, .formular .feld textarea { width: 100%; }
+.formular textarea { resize: vertical; }
+.formular textarea.mono { font-family: var(--mono); font-size: 13px; }
+.formular h2 { margin: 34px 0 16px; }
+.feldreihe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.feldpaar { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+.testfall { border: 1px solid var(--grau-25); border-radius: var(--rundung); padding: 20px 22px 2px; margin-bottom: 18px; }
+.testfall-kopf { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.testfall-titel { font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grau-80); }
+.entfernen { background: none; border: none; cursor: pointer; font-family: var(--sans); font-size: 12.5px; color: var(--grau-80); padding: 0; border-bottom: 1px solid var(--grau-25); }
+.entfernen:hover { color: var(--rot); border-bottom-color: var(--rot); }
+
+.haken { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--grau); margin-bottom: 24px; }
+.haken input { margin: 0; accent-color: var(--rot); }
+
+.aktionen { display: flex; justify-content: flex-end; gap: 14px; margin-top: 10px; }
+
+@media (max-width: 900px) {
+  .feldreihe, .feldpaar { grid-template-columns: 1fr; }
+}

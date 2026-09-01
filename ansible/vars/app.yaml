@@ -7,7 +7,7 @@
 ---
 # Namespace der Anwendung. default, weil die geschützte Ingress der Auth-Kette
 # (tasks/traefik-auth.yaml) den backend-Service dort erwartet.
-app_namespace: default
+app_namespace: judge
 
 # Welche values-Datei überlagert die Vorgaben: values-prod.yaml oder
 # values-dev.yaml. Das Deployment auf dem Kurs-Cluster ist prod.

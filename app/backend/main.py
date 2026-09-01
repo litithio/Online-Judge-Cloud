@@ -475,6 +475,12 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str, user=Depends(get_current_user)):
+    # Dieselbe 404 mit derselben Meldung wie bei einer fehlenden Aufgabe
+    # (#259). Eine ID ohne ObjectId-Format warf sonst InvalidId und damit
+    # eine 500, und eine eigene Meldung würde verraten, dass die ID schon
+    # am Format scheitert und nicht erst an der Suche.
+    if not ObjectId.is_valid(task_id):
+        raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
     treffer = list(
         db.tasks.aggregate(
             [{"$match": {"_id": ObjectId(task_id)}}] + TESTFAELLE_GEZAEHLT
@@ -721,6 +727,10 @@ def submit_code(
 
 @app.get("/submission/{sub_id}")
 def get_submission_status(sub_id: str, user=Depends(get_current_user)):
+    # Dieselbe 404 wie unten bei der fehlenden Einreichung, aus demselben
+    # Grund wie an /tasks/{task_id} (#259).
+    if not ObjectId.is_valid(sub_id):
+        raise HTTPException(status_code=404, detail="Submission nicht gefunden")
     # user_id im Filter statt einer eigenen Prüfung nach dem Lesen. Fremde
     # und fehlende Einreichungen antworten so mit derselben 404, ein 403
     # würde die Existenz einer fremden Einreichung bestätigen (#76).

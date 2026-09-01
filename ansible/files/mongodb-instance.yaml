@@ -10,15 +10,12 @@ spec:
   security:
     authentication:
       modes: ["SCRAM"]
+      # Ohne dieses Feld lässt der Automation-Agent Benutzer stehen, die aus
+      # der Liste unten gestrichen wurden, der Rückbau von app (#61) wäre nur
+      # scheinbar. Mit false ist die Liste unten maßgeblich und der Agent
+      # entfernt jeden Benutzer, der nicht darin steht.
+      ignoreUnknownUsers: false
   users:
-    - name: app
-      db: coding_platform
-      passwordSecretRef:
-        name: mongodb-app-password
-      roles:
-        - name: readWrite
-          db: coding_platform
-      scramCredentialsSecretName: mongodb-app-scram
     - name: backend
       db: coding_platform
       passwordSecretRef:

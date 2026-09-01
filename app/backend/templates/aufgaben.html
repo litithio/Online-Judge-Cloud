@@ -39,9 +39,10 @@
     <table>
       <thead>
         <tr>
-          <th style="width: 62%">Aufgabe</th>
+          <th style="width: 54%">Aufgabe</th>
           <th>Schwierigkeit</th>
           <th>Zeitlimit</th>
+          <th>Ihr Stand</th>
         </tr>
       </thead>
       <tbody>
@@ -56,6 +57,19 @@
           <td>{% if task.difficulty %}<span class="marke">{{ task.difficulty }}</span>{% endif %}</td>
           <td class="num">
             {{ "%.1f"|format(task.zeit_s)|replace(".", ",") }} s
+          </td>
+          <td>
+            <span class="status {{ task.stand_klasse }}">
+              {% if task.stand_klasse == "laeuft" %}<span class="puls"></span>
+              {% elif task.stand_klasse == "ok" %}<span class="zeichen">&#10003;</span>
+              {% elif task.stand_klasse == "fehler" %}<span class="zeichen">&#10007;</span>
+              {% elif task.stand_vorhanden %}<span class="zeichen">&#9711;</span>
+              {% endif %}{{ task.stand_text }}
+            </span>
+            <!-- Nur wenn main.py eine abweichende beste Einreichung mitgibt
+                 (Entscheidung zu #252: letzte zählt, beste nur als Zusatz,
+                 wenn sie sich unterscheidet). -->
+            {% if task.stand_beste %}<span class="zusatz">beste: {{ task.stand_beste }}</span>{% endif %}
           </td>
         </tr>
         {% endfor %}

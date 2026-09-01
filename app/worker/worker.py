@@ -1178,17 +1178,26 @@ def _urteil(sub_id, token, submission, task):
         else:
             detail = text
 
-        update = {
-            "$set": {
-                f"test_results.{i - 1}": {
-                    "test_id": i,
-                    "verdict": verdict,
-                    "detail": detail,
-                    "zeit_ms": dauer_ms,
-                    "speicher_kb": speicher_kb,
-                }
-            }
+        ergebnis_feld = {
+            "test_id": i,
+            "verdict": verdict,
+            "detail": detail,
+            "zeit_ms": dauer_ms,
+            "speicher_kb": speicher_kb,
         }
+        if verdict == "WA":
+            # Nur bei WA: TLE/MLE/RE/OLE haben keine erwartete/erhaltene
+            # Ausgabe zum Vergleichen, detail trägt dort schon den ganzen
+            # Text. eingabe/erwartet/erhalten getrennt statt in detail
+            # verwoben (wie zuvor nur als Satz), damit ergebnis.html daraus
+            # den Diff-Block aus dem Entwurf bauen kann (#252). removesuffix
+            # wie in main.py (aufgabe_seite) am Beispielblock: die Eingabe
+            # endet fast immer selbst mit einem Zeilenumbruch.
+            ergebnis_feld["eingabe"] = case["input"].removesuffix("\n")
+            ergebnis_feld["erwartet"] = erwartet
+            ergebnis_feld["erhalten"] = text
+
+        update = {"$set": {f"test_results.{i - 1}": ergebnis_feld}}
         if verdict == "AC":
             # Verlängert nach jedem bestandenen Testfall statt einmal für die
             # Summe aller Fälle vorab (#136, Beschluss aus #111): Ein Worker,

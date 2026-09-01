@@ -294,6 +294,8 @@ spec:
       backoffLimit: 2
       template:
         metadata:
+          labels:
+            app: durchlauf
           annotations:
             checksum/config: {{ toYaml $durchlaufDaten | sha256sum }}
         spec:

@@ -109,10 +109,18 @@ def formular_anfrage(daten):
 
 
 class FakeRedis:
-    """Nur llen, das Einzige, was main.verwaltung_seite aufruft."""
+    """llen für main.verwaltung_seite und rpush für main.submit_code, mehr
+    rufen die Routen nicht auf. Beide arbeiten auf denselben Listen, laengen
+    belegt eine Queue vorab mit so vielen Einträgen, wie llen melden soll.
+    """
 
     def __init__(self, laengen=None):
-        self.laengen = laengen or {}
+        self.listen = {
+            name: [None] * anzahl for name, anzahl in (laengen or {}).items()
+        }
 
     def llen(self, schluessel):
-        return self.laengen.get(schluessel, 0)
+        return len(self.listen.get(schluessel, []))
+
+    def rpush(self, name, wert):
+        self.listen.setdefault(name, []).append(wert)

@@ -6,9 +6,12 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from bson import ObjectId
@@ -114,6 +117,35 @@ app = FastAPI(lifespan=lifespan)
 # beantwortet der Pod sie jedem im Cluster, gemessen mit 200 aus einem Pod im
 # Namespace. Die beiden Probes nimmt auth.OFFENE_PFADE aus.
 app.middleware("http")(herkunft_pruefen)
+
+
+def _utf8_tauglich(wert):
+    # errors="replace" setzt beim Kodieren ein Fragezeichen, kein U+FFFD.
+    if isinstance(wert, str):
+        return wert.encode("utf-8", "replace").decode("utf-8")
+    if isinstance(wert, list):
+        return [_utf8_tauglich(eintrag) for eintrag in wert]
+    if isinstance(wert, dict):
+        return {_utf8_tauglich(k): _utf8_tauglich(v) for k, v in wert.items()}
+    return wert
+
+
+@app.exception_handler(RequestValidationError)
+async def validierungsfehler_antwort(request, exc):
+    """Wie der Standard-Handler von FastAPI, nur UTF-8-fest (#80).
+
+    Der Standard-Handler schreibt die abgelehnte Eingabe in die 422-Antwort
+    zurück. Trägt sie ein einzelnes Surrogat, etwa in code, wirft die
+    UTF-8-Kodierung der Antwort selbst UnicodeEncodeError, und aus der
+    Ablehnung wird eine 500. Ersetzt wird über die ganze Fehlerstruktur,
+    nicht nur über input, denn auch loc trägt bei einem unbekannten Feld
+    dessen Namen und damit beliebige Zeichen des Aufrufers.
+    """
+    return JSONResponse(
+        status_code=422,
+        content={"detail": _utf8_tauglich(jsonable_encoder(exc.errors()))},
+    )
+
 
 app.mount("/static", StaticFiles(directory=BASIS_VERZEICHNIS / "static"), name="static")
 
@@ -516,13 +548,58 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
     )
 
 
+# Höchstlänge für code in /submit. Dieselbe Grenze, die die Sandbox der
+# Ausgabe einer Einreichung setzt (SANDBOX_AUSGABE_BYTES in
+# app/worker/worker.py). Die größte Musterlösung unter app/aufgaben/loesungen
+# misst unter 2 KiB, die Grenze hält also keine echte Lösung auf. Sie hält
+# das Dokument der Einreichung zugleich weit unter den 16 MB, die MongoDB je
+# Dokument zulässt, auch wenn jedes Zeichen in UTF-8 bis zu vier Bytes belegt.
+CODE_MAX_ZEICHEN = 1024 * 1024
+
+
+class SubmitBody(BaseModel):
+    """Body von /submit (#80).
+
+    Beide Werte gehen unverändert in submissions und von dort in den Worker.
+    Was die Prüfung hier durchlässt, muss der Worker verarbeiten können,
+    sonst bucht er die Einreichung als SYSTEM_ERROR und ein Nutzer kann eine
+    falsche Lösung als Störung des Judges erscheinen lassen.
+
+    extra="forbid" lehnt unbekannte Felder ab. Sie landeten sonst zwar nicht
+    im Dokument, ein Tippfehler wie "sprach" fiele aber stumm auf den
+    Standardwert zurück statt auf einen Fehler.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    # Ein einzelnes Surrogat, das am Worker UnicodeEncodeError warf, lehnt
+    # die str-Prüfung von pydantic-core selbst ab, dafür braucht es keinen
+    # eigenen Validator. Ein Test in tests/backend hält das für die
+    # gepinnte pydantic-Version fest.
+    code: str = Field(max_length=CODE_MAX_ZEICHEN)
+    sprache: str = STANDARD_SPRACHE
+
+    @field_validator("task_id")
+    @classmethod
+    def _task_id_im_objectid_format(cls, wert):
+        # Der Typ str allein hält "abc" nicht auf. Der Worker gibt den Wert
+        # an ObjectId() weiter, und dort warf "abc" bisher InvalidId.
+        if not ObjectId.is_valid(wert):
+            raise ValueError("keine gültige ObjectId")
+        return wert
+
+
 @app.post("/submit")
 def submit_code(
-    payload: dict, request: Request, response: Response, user=Depends(get_current_user)
+    payload: SubmitBody,
+    request: Request,
+    response: Response,
+    user=Depends(get_current_user),
 ):
-    task_id = payload.get("task_id")
-    code = payload.get("code")
-    sprache = payload.get("sprache", STANDARD_SPRACHE)
+    task_id = payload.task_id
+    code = payload.code
+    sprache = payload.sprache
     if sprache not in AKTIVE_SPRACHEN:
         raise HTTPException(
             status_code=400,
@@ -531,6 +608,14 @@ def submit_code(
                 f"Aktive Sprachen: {', '.join(AKTIVE_SPRACHEN)}"
             ),
         )
+
+    # Nachschlagen vor dem Insert (#80). Zu einer Aufgabe, die es nicht
+    # gibt, bliebe die Einreichung sonst dauerhaft PENDING liegen, denn der
+    # Worker trifft beim find_one nichts und nimmt mit continue den nächsten
+    # Job. Eine Aufgabe, die zwischen dieser Prüfung und der Ausführung
+    # gelöscht wird, bleibt davon unberührt, das behandelt ein eigenes Issue.
+    if db.tasks.find_one({"_id": ObjectId(task_id)}, {"_id": 1}) is None:
+        raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
 
     # 1. Submission in MongoDB erstellen, mit den Feldern aus #82: sprache für
     # die Queue-Auswahl des Durchlaufs, versuche/run_token/frist für die
@@ -656,7 +741,8 @@ def _einreichungen_liste(filter_query):
             "created_at", -1
         )
     )
-    # /submit prüft task_id nicht gegen die Aufgaben (main.py, submit_code),
+    # Seit #80 lässt /submit nur noch task_id im ObjectId-Format durch,
+    # Einreichungen aus der Zeit davor können aber jeden Wert tragen.
     # is_valid statt ObjectId(...) im Try, damit eine kaputte ID hier nicht
     # die ganze Liste mit 500 abbricht, sondern nur als "Aufgabe gelöscht"
     # erscheint.

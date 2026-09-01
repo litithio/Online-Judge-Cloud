@@ -19,6 +19,38 @@ spec:
         - name: readWrite
           db: coding_platform
       scramCredentialsSecretName: mongodb-app-scram
+    - name: backend
+      db: coding_platform
+      passwordSecretRef:
+        name: mongodb-backend-password
+      roles:
+        - name: readWrite
+          db: coding_platform
+      scramCredentialsSecretName: mongodb-backend-scram
+    - name: worker
+      db: coding_platform
+      passwordSecretRef:
+        name: mongodb-worker-password
+      roles:
+        - name: readWrite
+          db: coding_platform
+      scramCredentialsSecretName: mongodb-worker-scram
+    - name: durchlauf
+      db: coding_platform
+      passwordSecretRef:
+        name: mongodb-durchlauf-password
+      roles:
+        - name: readWrite
+          db: coding_platform
+      scramCredentialsSecretName: mongodb-durchlauf-scram
+    - name: loader
+      db: coding_platform
+      passwordSecretRef:
+        name: mongodb-loader-password
+      roles:
+        - name: readWrite
+          db: coding_platform
+      scramCredentialsSecretName: mongodb-loader-scram
   additionalMongodConfig:
     storage.wiredTiger.engineConfig.cacheSizeGB: 0.25
     # Pods sind dual-stack mit IPv6 zuerst (DHBWV6, siehe terraform/variables.tf).

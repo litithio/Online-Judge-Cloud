@@ -23,20 +23,13 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end -}}
 
 {{/*
-Adressen der Queue. Beide entstehen aus redisService und redisPort in den
-values (externe): die URI für die Dienste im Namespace des Release, und die
-host:port-Adresse für KEDA, das aus dem Namespace keda heraus verbindet und
-deshalb den vollen DNS-Namen braucht. Valkey muss dafür im Namespace des
-Release liegen.
-Die MongoDB-URI kommt nicht von hier, sie liegt samt Zugangsdaten im
-Operator-Secret und wird im Deployment per secretKeyRef gelesen.
-*/}}
-{{- define "online-judge.redisUri" -}}
-{{- printf "redis://%s:%v" .Values.externe.redisService .Values.externe.redisPort -}}
-{{- end -}}
-
-{{/*
-Dieselbe Queue als host:port mit vollem DNS-Namen, für den KEDA-Trigger.
+Adresse der Queue als host:port mit vollem DNS-Namen, für den KEDA-Trigger,
+der aus dem Namespace keda heraus verbindet und deshalb nicht mit dem bloßen
+Servicenamen auskommt. Valkey muss dafür im Namespace des Release liegen.
+Baut aus redisService und redisPort in den values (externe).
+Die REDIS_URI für Backend, Worker und durchlauf kommt nicht von hier, sie
+liegt samt Passwort im Secret aus redisSecret und wird per secretKeyRef
+gelesen, genau wie die MongoDB-URI aus dem Operator-Secret.
 */}}
 {{- define "online-judge.redisKedaAdresse" -}}
 {{- printf "%s.%s.svc.cluster.local:%v" .Values.externe.redisService .Release.Namespace .Values.externe.redisPort -}}

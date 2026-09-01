@@ -26,6 +26,8 @@ ansible/auth-credentials.yaml
 ansible/kubeconfig-generated.yaml
 # Enthält das echte MongoDB-Passwort; Vorlage ist die .example-Datei.
 ansible/files/mongodb-password.yaml
+# Enthält das echte Valkey-Passwort; Vorlage ist die .example-Datei.
+ansible/files/valkey-password.yaml
 
 # Python
 __pycache__/

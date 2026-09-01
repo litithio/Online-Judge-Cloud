@@ -96,10 +96,17 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 cp ansible/dns-credentials.yaml.example ansible/dns-credentials.yaml
 cp ansible/auth-credentials.yaml.example ansible/auth-credentials.yaml
 cp ansible/files/mongodb-password.yaml.example ansible/files/mongodb-password.yaml
+cp ansible/files/valkey-password.yaml.example ansible/files/valkey-password.yaml
 direnv allow
 ```
 
-Alle vier Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+Alle fünf Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+`valkey-password.yaml` trägt das `requirepass` von Valkey (#61), ein einziges
+Passwort für den ganzen Dienst statt eines Benutzers je Dienst wie bei
+MongoDB. Die Datei hat zwei Felder mit demselben Wert, `password` für den
+Server (`ansible/files/valkey-deployment.yaml`) und `connectionString` für
+Backend, Worker, `durchlauf` und den KEDA-Trigger, damit keiner von ihnen das
+Passwort selbst in eine URI einsetzen muss.
 `auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
 OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
 stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
@@ -111,7 +118,7 @@ Cluster hochbringen:
 scripts/deploy.sh
 ```
 
-Das Skript prüft erst die vier Kopien und die Werkzeuge, wartet mit VPN an
+Das Skript prüft erst die fünf Kopien und die Werkzeuge, wartet mit VPN an
 auf die OpenStack-API und lässt `terraform init` und `terraform apply`
 laufen. Dann hält es an der VPN-Grenze, fordert zum Ausschalten auf und
 wartet, bis der Server über IPv6 auf Port 22 antwortet. Danach laufen
@@ -172,9 +179,10 @@ Das Chart `app/chart` rollt die eigenen Dienste aus, die API (`backend`) und
 die Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob. MongoDB, Valkey
 und der Seed der Aufgaben gehören zur Infrastruktur und stehen schon im
 Cluster. Das Chart verbindet sich mit ihnen über `externe` in den values, mit
-der Queue über den Service-Namen und mit MongoDB über das Operator-Secret, das
-die URI samt Zugangsdaten hält. Das Play mit dem Tag `app` kopiert den Chart
-auf den Server und ruft `helm upgrade --install`.
+MongoDB über das Operator-Secret, das die URI samt Zugangsdaten hält, und mit
+Valkey über das Secret aus `ansible/files/valkey-password.yaml` (#61). Das
+Play mit dem Tag `app` kopiert den Chart auf den Server und ruft
+`helm upgrade --install`.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus

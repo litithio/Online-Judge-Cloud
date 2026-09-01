@@ -30,7 +30,16 @@ spec:
       containers:
         - name: valkey
           image: valkey/valkey:8-alpine
-          args: ["valkey-server", "--appendonly", "yes"]
+          # sh -c statt args, damit das Passwort nur in der Umgebung steht und
+          # nicht in der Pod-Spec landet, die kubectl describe und die
+          # Kubernetes-API jedem mit Lesezugriff auf den Namespace zeigen.
+          command: ["sh", "-c", "exec valkey-server --appendonly yes --requirepass \"$VALKEY_PASSWORD\""]
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-app-password
+                  key: password
           ports:
             - containerPort: 6379
           # Gemessen unter Last am 27.08. über Prometheus, ein Lauf des
@@ -63,12 +72,12 @@ spec:
               memory: "256Mi"
           readinessProbe:
             exec:
-              command: ["valkey-cli", "ping"]
+              command: ["sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" ping"]
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             exec:
-              command: ["valkey-cli", "ping"]
+              command: ["sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" ping"]
             initialDelaySeconds: 10
             periodSeconds: 10
           volumeMounts:

@@ -64,9 +64,10 @@ MAX_VERSUCHE = int(os.getenv("MAX_VERSUCHE", "3"))
 # ist eine gesunde Einreichung in diesem Moment überhaupt Kandidatin.
 REENQUEUE_AFTER_SECONDS = int(os.getenv("REENQUEUE_AFTER_SECONDS", "180"))
 
-# Platzhalter: welchen Zustand eine erschöpfte Einreichung bekommt, entscheidet
-# #81. UNRESOLVED markiert bis dahin nur "kein Urteil zustande gekommen",
-# weder SUCCESS/FAILED über den Code noch ein eigener Name aus #81.
+# UNRESOLVED statt FAILED, entschieden in #81. Hinter erschöpften Versuchen
+# stecken verschiedene Ursachen, ein Ausfall der Umgebung, eine gelöschte
+# Aufgabe, ein Fehler im Worker. Keine davon ist ein Urteil über den Code,
+# FAILED würde eines behaupten.
 ENDZUSTAND_ERSCHOEPFT = "UNRESOLVED"
 
 

@@ -8,7 +8,7 @@
 
 ---
 # Eigener Namespace für die Auth-Dienste, getrennt von der Anwendung in default.
-auth_namespace: auth
+auth_namespace: judge
 
 # Die Hostnamen hängen unter der eigenen DNS-Zone (rfc2136_zone aus
 # dns-credentials.yaml). external-dns legt die Records für jede Ingress mit

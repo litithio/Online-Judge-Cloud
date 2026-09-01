@@ -22,9 +22,9 @@ image:
 # Vorhandene Infrastruktur
 # ---------------------------------------------------------------------------
 # Adressen der Datendienste, die schon im Cluster laufen. Das Chart legt sie
-# nicht an, es verbindet sich nur. Vorgabe für die Queue ist der Service-Name im
-# selben Namespace; liegt der Dienst woanders, hier den vollen DNS-Namen
-# eintragen (z. B. valkey.data.svc.cluster.local).
+# nicht an, es verbindet sich nur. Die Queue wird über ihren Service-Namen im
+# selben Namespace erreicht; die Adresse für KEDA baut templates/judge.yaml
+# daraus und aus dem Namespace des Release.
 #
 # MongoDB verlangt SCRAM. Die URI samt Zugangsdaten hält der Operator im Secret
 # <instanz>-<datenbank>-<benutzer> (ansible/files/mongodb-instance.yaml), das
@@ -53,11 +53,8 @@ externe:
   gatewaySecret:
     name: "gateway-auth"
     key: "secret"
-  redisUri: "redis://valkey:6379"
-  # Dieselbe Queue für KEDA, aber als host:port und mit vollem DNS-Namen. Der
-  # KEDA-Operator läuft im Namespace keda, ein kurzer Name würde dort aufgelöst
-  # und ginge ins Leere.
-  redisKedaAdresse: "valkey.judge.svc.cluster.local:6379"
+  redisService: "valkey"
+  redisPort: 6379
   # ConfigMap mit den Aufgaben-JSONs und laden.py, angelegt von
   # ansible/tasks/seed.yaml. Der Prüflauf unter templates/tests liest daraus
   # die Zuordnung von Lösungsverzeichnis zu Aufgabentitel, eine Kopie der

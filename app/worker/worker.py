@@ -145,7 +145,7 @@ WORKER_ID = f"worker-{socket.gethostname()}"
 # Marge, wie lange eine Einreichung über ihre eigentliche Obergrenze hinaus
 # als RUNNING gilt, bevor der Durchlauf aus #82 sie für hängengeblieben hält
 # und erneut einreiht. Gilt in zwei Rollen: als Frist ab der Übernahme
-# (_uebernehmen), solange noch kein Testfall bestanden ist, und danach als
+# (_uebernehmen), solange die Aufgabe noch nicht gelesen ist, und danach als
 # Marge auf die Obergrenze je Testfall (_urteil), neu gesetzt nach jedem
 # bestandenen Fall statt einmal für die Summe aller (#136, Beschluss aus
 # #111). Ein Worker, der auf einem einzelnen Fall hängt, reißt seine Frist so
@@ -1072,8 +1072,9 @@ def _uebernehmen(sub_id):
 
     Die Frist hier ist nur der Platzhalter für die Zeit bis dahin: Die Aufgabe
     ist an dieser Stelle noch nicht gelesen, ihre echte Obergrenze also noch
-    nicht bekannt. _urteil ersetzt sie erst nach dem ersten bestandenen
-    Testfall, der erste Fall läuft noch unter diesem Platzhalter.
+    nicht bekannt. _urteil ersetzt sie, sobald die Aufgabe gelesen ist, im
+    selben Update, das die Platzhalter nach test_results schreibt, noch bevor
+    der erste Fall läuft (#217).
     """
     token = uuid.uuid4().hex
     frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_PUFFER_SEKUNDEN)

@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/static/dhbw.css">
 <script src="/static/htmx.min.js" defer></script>
 <script src="/static/htmx-json-enc.js" defer></script>
+<script src="/static/editor-zeilen.js" defer></script>
 </head>
 <body>
 
@@ -83,12 +84,19 @@ Ausgabe:
               </select>
             </div>
             <div class="editor">
+              <!-- Ausgangswert für einen Zeilenzähler ("1"), editor-zeilen.js
+                   ersetzt ihn sofort nach dem Laden durch die echte Anzahl
+                   und hält sie bei jeder Eingabe nach (#252/#56). -->
+              <div class="zeilen"><span>1</span></div>
               <textarea name="code" class="editor-eingabe" spellcheck="false"># Ihre Lösung
 </textarea>
             </div>
           </div>
 
           <div class="editor-fuss">
+            {% if letzte_einreichung_id %}
+            <span class="hinweis">Ihre letzte Einreichung: #{{ letzte_einreichung_id[-6:] }}, {{ letzte_einreichung_text }}{% if letzte_einreichung_zaehlt %} Testfällen{% endif %}{% if letzte_einreichung_beste %} (beste: {{ letzte_einreichung_beste }}){% endif %}</span>
+            {% endif %}
             <button type="submit" class="knopf">Einreichen</button>
           </div>
         </form>

@@ -145,7 +145,7 @@ WORKER_ID = f"worker-{socket.gethostname()}"
 # Marge, wie lange eine Einreichung über ihre eigentliche Obergrenze hinaus
 # als RUNNING gilt, bevor der Durchlauf aus #82 sie für hängengeblieben hält
 # und erneut einreiht. Gilt in zwei Rollen: als Frist ab der Übernahme
-# (_uebernehmen), solange noch kein Testfall bestanden ist, und danach als
+# (_uebernehmen), solange die Aufgabe noch nicht gelesen ist, und danach als
 # Marge auf die Obergrenze je Testfall (_urteil), neu gesetzt nach jedem
 # bestandenen Fall statt einmal für die Summe aller (#136, Beschluss aus
 # #111). Ein Worker, der auf einem einzelnen Fall hängt, reißt seine Frist so
@@ -1072,8 +1072,9 @@ def _uebernehmen(sub_id):
 
     Die Frist hier ist nur der Platzhalter für die Zeit bis dahin: Die Aufgabe
     ist an dieser Stelle noch nicht gelesen, ihre echte Obergrenze also noch
-    nicht bekannt. _urteil ersetzt sie erst nach dem ersten bestandenen
-    Testfall, der erste Fall läuft noch unter diesem Platzhalter.
+    nicht bekannt. _urteil ersetzt sie, sobald die Aufgabe gelesen ist, im
+    selben Update, das die Platzhalter nach test_results schreibt, noch bevor
+    der erste Fall läuft (#217).
     """
     token = uuid.uuid4().hex
     frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_PUFFER_SEKUNDEN)
@@ -1111,9 +1112,8 @@ def _urteil(sub_id, token, submission, task):
     # bestünde, auch ungültiger Code (#53). Das ist ein Fehler der Aufgabe,
     # kein Urteil über den Code. laden.py lehnt solche Aufgaben beim
     # Einspielen ab, hier geht es um Aufgaben, die daran vorbei in die
-    # Datenbank kamen. UNRESOLVED wie ENDZUSTAND_ERSCHOEPFT in durchlauf.py:
-    # nur "kein Urteil zustande gekommen", welchen Namen nicht beurteilbare
-    # Einreichungen endgültig tragen, entscheidet #81. Die Prüfung steht vor
+    # Datenbank kamen. UNRESOLVED wie ENDZUSTAND_ERSCHOEPFT in durchlauf.py,
+    # der Zustand für Einreichungen ohne Urteil (#81). Die Prüfung steht vor
     # grenzen_der_aufgabe, damit eine Aufgabe mit beiden Mängeln zugleich
     # hier mit dem Grund endet statt als Umgebungsfehler in den Requeues.
     if not test_cases:

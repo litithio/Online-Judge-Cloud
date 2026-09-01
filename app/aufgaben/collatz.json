@@ -1,8 +1,8 @@
 {
   "title": "Längste Collatz-Kette",
-  "description": "Die Collatz-Folge einer Zahl x halbiert x, falls x gerade ist, und bildet sonst 3x+1, bis 1 erreicht ist. Die Länge zählt beide Enden mit, die Folge für 1 hat also die Länge 1.",
-  "input_format": "Eine Zeile mit der Zahl n.",
-  "output_format": "Die größte Kettenlänge, die unter den Startwerten 1 bis n vorkommt.",
+  "description": "Die Collatz-Folge einer Zahl x halbiert x, falls x gerade ist, und bildet sonst 3x+1, bis 1 erreicht ist. Die Länge zählt beide Enden mit, die Folge für 1 hat also die Länge 1. Gegeben ist eine Grenze n. Bestimme die größte Länge, die unter den Startwerten 1 bis n vorkommt.",
+  "input_format": "Eine Zeile mit der ganzen Zahl n, 1 ≤ n ≤ 1 000 000.",
+  "output_format": "Eine Zeile mit der größten Kettenlänge unter den Startwerten 1 bis n.",
   "difficulty": "mittel",
   "time_limit_seconds": 3,
   "memory_limit_mb": 64,

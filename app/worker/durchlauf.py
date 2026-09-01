@@ -64,9 +64,10 @@ MAX_VERSUCHE = int(os.getenv("MAX_VERSUCHE", "3"))
 # ist eine gesunde Einreichung in diesem Moment überhaupt Kandidatin.
 REENQUEUE_AFTER_SECONDS = int(os.getenv("REENQUEUE_AFTER_SECONDS", "180"))
 
-# Platzhalter: welchen Zustand eine erschöpfte Einreichung bekommt, entscheidet
-# #81. UNRESOLVED markiert bis dahin nur "kein Urteil zustande gekommen",
-# weder SUCCESS/FAILED über den Code noch ein eigener Name aus #81.
+# UNRESOLVED statt FAILED, entschieden in #81. Hinter erschöpften Versuchen
+# stecken verschiedene Ursachen, ein Ausfall der Umgebung, eine gelöschte
+# Aufgabe, ein Fehler im Worker. Keine davon ist ein Urteil über den Code,
+# FAILED würde eines behaupten.
 ENDZUSTAND_ERSCHOEPFT = "UNRESOLVED"
 
 
@@ -124,6 +125,42 @@ def _verwaiste_pending(db, schwelle):
     )
 
 
+def _einreihen(redis_client, db, sub_id, sprache):
+    """Schreibt die ID in die Queue der Sprache und meldet, ob das bestätigt
+    wurde. Dieselbe Behandlung wie in /submit seit #150 (app/backend/main.py),
+    dort steht die Herleitung. Ohne den Fang verließe die Exception den ganzen
+    Lauf, die restlichen Kandidaten blieben liegen, und jeder Anlauf des
+    CronJobs bräche an derselben Einreichung erneut ab (#151). Der bedingte
+    Update davor hat da schon gegriffen, last_enqueued_at steht auf jetzt.
+
+    Kein flush an den prints wie in main.py, das Worker-Image setzt
+    PYTHONUNBUFFERED (app/worker/Dockerfile)."""
+    try:
+        redis_client.rpush(f"judge:{sprache}", str(sub_id))
+    except Exception as fehler:
+        print(
+            f"Einreichung {sub_id}: RPUSH ohne Bestätigung, "
+            f"{type(fehler).__name__}: {fehler}"
+        )
+        try:
+            # last_enqueued_at zurück auf None. Der nächste Lauf prüft die
+            # Einreichung dann sofort per LPOS (_ohne_frischen_eintrag), statt
+            # erst REENQUEUE_AFTER_SECONDS hinter dem jetzt von eben zu warten.
+            db.submissions.update_one(
+                {"_id": sub_id}, {"$set": {"last_enqueued_at": None}}
+            )
+        except Exception as marke_fehler:
+            # Auch dieser Schreibzugriff darf den Lauf nicht beenden. Bleibt
+            # jetzt stehen, greift der $lt-Zweig des nächsten Laufs, nur eben
+            # erst nach REENQUEUE_AFTER_SECONDS.
+            print(
+                f"Einreichung {sub_id}: last_enqueued_at nicht auf None, "
+                f"{type(marke_fehler).__name__}: {marke_fehler}"
+            )
+        return False
+    return True
+
+
 def durchlauf():
     # Dieselben Zeitlimits wie in worker.py, dort steht die Herleitung. Hier
     # wiegt ein hängender Aufruf schwerer als am Worker. Der CronJob läuft mit
@@ -147,6 +184,13 @@ def durchlauf():
 
     erneut_eingereiht = 0
     aufgegeben = 0
+
+    # Schon hier erhoben und nicht erst vor der zweiten Schleife. Die erste
+    # Schleife setzt bei einem gescheiterten RPUSH last_enqueued_at auf None,
+    # und eine danach erhobene Suche fände genau diese Einreichung sofort
+    # wieder. Sie zahlte dann noch im selben Lauf einen requeue_versuche für
+    # denselben Fehler, den erst der nächste Lauf verbrauchen soll.
+    wartende = list(_verwaiste_pending(db, schwelle))
 
     # Materialisiert, nicht als offener Cursor: die Schleife schreibt
     # währenddessen an dieselbe Collection, ein offener Cursor darauf sähe
@@ -193,7 +237,8 @@ def durchlauf():
             # _abgelaufene_uebernahmen. Nichts zu tun, sein Ergebnis gilt.
             continue
 
-        redis_client.rpush(f"judge:{ergebnis['sprache']}", str(sub_id))
+        if not _einreihen(redis_client, db, sub_id, ergebnis["sprache"]):
+            continue
         erneut_eingereiht += 1
         print(
             f"Einreichung {sub_id}: Frist abgelaufen nach Versuch "
@@ -202,7 +247,7 @@ def durchlauf():
 
     # Zweite Suche aus #113, siehe Modul-Docstring: PENDING-Einreichungen, deren
     # Queue-Eintrag verlorenging statt an einer abgelaufenen Frist zu hängen.
-    for eintrag in list(_verwaiste_pending(db, schwelle)):
+    for eintrag in wartende:
         sub_id = eintrag["_id"]
 
         # last_enqueued_at allein sagt nur "seit wann PENDING", nicht ob der
@@ -213,7 +258,23 @@ def durchlauf():
         # Anfrage an die Warteschlange nach ihrem eigenen Inhalt, kein zweiter
         # Ort für diesen Zustand. Noch in der Liste: nichts zu tun, auch nicht
         # an requeue_versuche, der nächste Lauf prüft erneut.
-        if redis_client.lpos(f"judge:{eintrag['sprache']}", str(sub_id)) is not None:
+        # Gefangen wie der RPUSH in _einreihen, sonst beendet ein stilles
+        # Valkey den Lauf hier statt dort, und die restlichen Kandidaten
+        # blieben liegen. Ohne Antwort ist die Frage offen, ob der Eintrag
+        # noch steht, also bleibt die Einreichung unangetastet und der
+        # nächste Lauf fragt erneut.
+        try:
+            eintrag_steht = (
+                redis_client.lpos(f"judge:{eintrag['sprache']}", str(sub_id))
+                is not None
+            )
+        except Exception as fehler:
+            print(
+                f"Einreichung {sub_id}: LPOS ohne Antwort, "
+                f"{type(fehler).__name__}: {fehler}"
+            )
+            continue
+        if eintrag_steht:
             continue
 
         if eintrag["requeue_versuche"] >= MAX_VERSUCHE:
@@ -251,7 +312,8 @@ def durchlauf():
             # _verwaiste_pending.
             continue
 
-        redis_client.rpush(f"judge:{ergebnis['sprache']}", str(sub_id))
+        if not _einreihen(redis_client, db, sub_id, ergebnis["sprache"]):
+            continue
         erneut_eingereiht += 1
         # Beide Zweige von _ohne_frischen_eintrag landen hier, die Meldung
         # nennt den, der zutraf. Ohne die Unterscheidung stünde über einer

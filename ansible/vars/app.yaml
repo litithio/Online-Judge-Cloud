@@ -5,9 +5,11 @@
 # (values.yaml, externe).
 
 ---
-# Namespace der Anwendung. default, weil die geschützte Ingress der Auth-Kette
-# (tasks/traefik-auth.yaml) den backend-Service dort erwartet.
-app_namespace: default
+# Namespace der Anwendung. judge statt default, damit Anwendung, Datendienste
+# und Keycloak zusammen in einem eigenen Namespace liegen und default leer
+# bleibt (#62). Einen Altbestand in default räumt der Lauf nicht ab. Middleware
+# und geschützte Ingress (tasks/traefik-auth.yaml) folgen der Variable.
+app_namespace: judge
 
 # Welche values-Datei überlagert die Vorgaben: values-prod.yaml oder
 # values-dev.yaml. Das Deployment auf dem Kurs-Cluster ist prod.

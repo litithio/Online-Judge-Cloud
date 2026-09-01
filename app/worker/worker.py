@@ -1144,7 +1144,7 @@ def _urteil(sub_id, token, submission, task):
         }
         for i in range(1, len(test_cases) + 1)
     ]
-    db.submissions.update_one(
+    ergebnis = db.submissions.update_one(
         {"_id": sub_id, "status": "RUNNING", "run_token": token},
         {
             "$set": {
@@ -1154,6 +1154,14 @@ def _urteil(sub_id, token, submission, task):
         },
     )
     _heartbeat()
+
+    if ergebnis.matched_count == 0:
+        # Dieselbe verlorene Übernahme wie an der Prüfung nach jedem
+        # Testfall, nur vor dem ersten Sandbox-Lauf statt danach: Ohne
+        # diese Prüfung liefe der erste Testfall noch durch, bevor die
+        # Prüfung unten die verlorene Übernahme überhaupt bemerkt (#137).
+        print(f"Einreichung {sub_id}: Übernahme verloren, Abbruch vor Testfall 1")
+        return None, None
 
     bestanden = 0
     for i, case in enumerate(test_cases, 1):

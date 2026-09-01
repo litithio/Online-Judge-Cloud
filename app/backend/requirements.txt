@@ -4,3 +4,7 @@ pymongo==4.17.0
 redis==8.1.0
 pydantic==2.13.5
 jinja2==3.1.6
+# request.form() in main.py (verwaltung_aufgabe_anlegen, #240) braucht das
+# ab dieser Starlette-Version auch für application/x-www-form-urlencoded,
+# nicht nur für multipart-Uploads.
+python-multipart==0.0.20

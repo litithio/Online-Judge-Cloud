@@ -15,4 +15,4 @@ type: application
 # ansible/vars/app.yaml liest den Wert von hier und reicht ihn als image.tag
 # an Helm und den Seed-Job durch.
 version: 0.2.0
-appVersion: "0.2.12"
+appVersion: "0.2.13"

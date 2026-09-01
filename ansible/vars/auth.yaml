@@ -7,7 +7,8 @@
 # eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht.
 
 ---
-# Eigener Namespace für die Auth-Dienste, getrennt von der Anwendung in default.
+# Namespace der Auth-Dienste, derselbe wie app_namespace (#62). Die Trennung
+# der Login-Sitzung läuft über den eigenen Host (#92), nicht über den Namespace.
 auth_namespace: judge
 
 # Die Hostnamen hängen unter der eigenen DNS-Zone (rfc2136_zone aus

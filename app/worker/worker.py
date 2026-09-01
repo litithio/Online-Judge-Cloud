@@ -99,9 +99,10 @@ QUEUE_PAUSE = 1.0  # Sekunden bis zum nächsten Versuch, wenn Valkey nicht antwo
 # Prozess in ununterbrechbarem Warten auf Ein- oder Ausgabe stirbt daran aber
 # trotzdem nicht sofort. Ohne diese Grenze bliebe der Worker an genau dieser
 # Stelle hängen, ohne Ende. Läuft die Frist ab, gibt run_code_in_sandbox das
-# Urteil ohne rusage zurück; der Prozess selbst holt _reste_beenden im
-# finally-Block, sobald er tatsächlich stirbt, so wie jeden anderen Rest der
-# Sandbox auch.
+# Urteil ohne rusage zurück. _reste_beenden wartet im finally-Block direkt
+# danach höchstens noch REST_FRIST auf das Kind; stirbt es erst später, holt
+# es das waitpid(-1, WNOHANG) in _uids_leerraeumen beim nächsten Aufruf von
+# _uid_vergeben, wie jeden anderen Rest der Sandbox auch.
 SIGKILL_FRIST = 5.0
 
 # Zeitlimit des blpop unten. Der Wert bestimmt nur, wie oft die Schleife im
@@ -144,20 +145,19 @@ WORKER_ID = f"worker-{socket.gethostname()}"
 # Marge, wie lange eine Einreichung über ihre eigentliche Obergrenze hinaus
 # als RUNNING gilt, bevor der Durchlauf aus #82 sie für hängengeblieben hält
 # und erneut einreiht. Gilt in zwei Rollen: als Frist ab der Übernahme
-# (_uebernehmen), solange die Aufgabe noch nicht gelesen ist, und danach als
-# Marge über der tatsächlichen Obergrenze der Aufgabe (_urteil), sobald die
-# feststeht. Eine feste Zahl als Frist selbst könnte über der Summe aller
-# Testfälle einer Aufgabe nie zuverlässig liegen, die Zahl der Testfälle ist
-# nicht gedeckelt. Als Marge auf die aus der Aufgabe berechnete Summe
-# angewendet, wächst die Frist dagegen mit der Aufgabe mit.
+# (_uebernehmen), solange noch kein Testfall bestanden ist, und danach als
+# Marge auf die Obergrenze je Testfall (_urteil), neu gesetzt nach jedem
+# bestandenen Fall statt einmal für die Summe aller (#136, Beschluss aus
+# #111). Ein Worker, der auf einem einzelnen Fall hängt, reißt seine Frist so
+# nach spätestens einem Fall, nicht erst nach der Summe aller, und die Zahl
+# der Testfälle spielt für die Frist keine Rolle mehr.
 #
 # Abzudecken ist, was ein Lauf über die reine Rechenzeit hinaus braucht. Je
 # Testfall kommen der Start des Prozesses, das Schreiben der Eingabe, das
 # Aufräumen und ein Schreibzugriff auf MongoDB dazu, und die Frist je Lauf
-# liegt mit zeit + 1 + ZEITFRIST_PUFFER über der zeit, mit der die Summe
-# rechnet. 90 ist keine berechnete Zahl, sondern eine runde Wahl mit Abstand.
-# Bei sehr vielen Testfällen reicht ein fester Wert dafür nicht, die Aufgaben
-# im Repo haben zwei bis drei.
+# liegt mit zeit + 1 + ZEITFRIST_PUFFER über der Zeit, die ein einzelner
+# Testfall selbst schon abdeckt. 90 ist keine berechnete Zahl, sondern eine
+# runde Wahl mit Abstand.
 #
 # Mit dem Takt des Durchlaufs hat die Marge nichts zu tun. Ein selteneres
 # Laufen holt eine hängende Einreichung später zurück, und ein Worker, der über
@@ -993,9 +993,9 @@ def run_code_in_sandbox(code: str, test_input: str, zeit: int, speicher: int):
         # würde sonst die eigentliche Exception verdrängen und die Schritte
         # danach auslassen. Seit process_queue Fehler je Job abfängt, überlebt
         # der Worker das, und file descriptors und Verzeichnisse würden sich
-        # über die Läufe hinweg ansammeln. Das Kind ist an dieser Stelle immer
-        # schon über wait4 eingesammelt, _reste_beenden holt nur noch Prozesse,
-        # die die Einreichung selbst gestartet hat.
+        # über die Läufe hinweg ansammeln. Das Kind ist an dieser Stelle nicht
+        # immer schon über wait4 eingesammelt, siehe SIGKILL_FRIST oben;
+        # _reste_beenden fängt auch diesen Rest mit ab.
         try:
             _reste_beenden()
         except Exception as e:
@@ -1072,7 +1072,8 @@ def _uebernehmen(sub_id):
 
     Die Frist hier ist nur der Platzhalter für die Zeit bis dahin: Die Aufgabe
     ist an dieser Stelle noch nicht gelesen, ihre echte Obergrenze also noch
-    nicht bekannt. _urteil ersetzt sie, sobald die Aufgabe vorliegt.
+    nicht bekannt. _urteil ersetzt sie erst nach dem ersten bestandenen
+    Testfall, der erste Fall läuft noch unter diesem Platzhalter.
     """
     token = uuid.uuid4().hex
     frist = datetime.now(timezone.utc) + timedelta(seconds=CLAIM_FRIST_PUFFER_SEKUNDEN)
@@ -1098,6 +1099,11 @@ def _urteil(sub_id, token, submission, task):
     bedeutet damit "so viele bestanden, dann abgebrochen", nicht "das ist der
     einzige Fehler". Wie die Ergebnisseite das benennt, gehört zu #56, hier
     entsteht nur die Datengrundlage dafür.
+
+    Bricht außerdem ab, sobald die Übernahme nicht mehr gültig ist, und gibt
+    dann None, None zurück statt eines Urteils: Ein anderer Worker hat die
+    Einreichung inzwischen neu übernommen, dieser Lauf hat nichts mehr
+    beizutragen.
     """
     test_cases = task.get("test_cases", [])
 

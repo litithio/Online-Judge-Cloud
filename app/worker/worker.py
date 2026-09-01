@@ -1112,9 +1112,8 @@ def _urteil(sub_id, token, submission, task):
     # bestünde, auch ungültiger Code (#53). Das ist ein Fehler der Aufgabe,
     # kein Urteil über den Code. laden.py lehnt solche Aufgaben beim
     # Einspielen ab, hier geht es um Aufgaben, die daran vorbei in die
-    # Datenbank kamen. UNRESOLVED wie ENDZUSTAND_ERSCHOEPFT in durchlauf.py:
-    # nur "kein Urteil zustande gekommen", welchen Namen nicht beurteilbare
-    # Einreichungen endgültig tragen, entscheidet #81. Die Prüfung steht vor
+    # Datenbank kamen. UNRESOLVED wie ENDZUSTAND_ERSCHOEPFT in durchlauf.py,
+    # der Zustand für Einreichungen ohne Urteil (#81). Die Prüfung steht vor
     # grenzen_der_aufgabe, damit eine Aufgabe mit beiden Mängeln zugleich
     # hier mit dem Grund endet statt als Umgebungsfehler in den Requeues.
     if not test_cases:

@@ -102,8 +102,8 @@ spec:
             - name: MONGO_URI
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.externe.mongoSecret.name | quote }}
-                  key: {{ .Values.externe.mongoSecret.key | quote }}
+                  name: {{ .Values.externe.mongoSecrets.backend.name | quote }}
+                  key: {{ .Values.externe.mongoSecrets.backend.key | quote }}
             # Keine KEYCLOAK_URL. Die Identität prüft das Gateway, die App liest
             # sie aus den X-Auth-Request-*-Headern (app/backend/auth.py).
             #

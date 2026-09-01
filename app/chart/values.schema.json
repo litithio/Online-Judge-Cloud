@@ -58,8 +58,8 @@
       "type": "object",
       "required": [
         "mongoSecrets",
-        "redisUri",
-        "redisKedaAdresse",
+        "redisService",
+        "redisPort",
         "gatewaySecret",
         "aufgabenSeedConfigMap"
       ],
@@ -89,14 +89,15 @@
             }
           }
         },
-        "redisUri": {
-          "type": "string",
-          "minLength": 1
-        },
-        "redisKedaAdresse": {
+        "redisService": {
           "type": "string",
           "minLength": 1,
-          "description": "Queue als host:port mit vollem DNS-Namen. Der KEDA-Operator läuft in einem anderen Namespace, ein kurzer Name würde dort aufgelöst."
+          "description": "Servicename der Queue im Namespace des Release. Aus ihm und redisPort bauen die Helper die URI für die Dienste und die host:port-Adresse für KEDA."
+        },
+        "redisPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
         },
         "aufgabenSeedConfigMap": {
           "type": "string",

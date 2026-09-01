@@ -253,7 +253,7 @@ spec:
   triggers:
     - type: redis
       metadata:
-        address: {{ $.Values.externe.redisKedaAdresse | quote }}
+        address: {{ include "online-judge.redisKedaAdresse" $ | quote }}
         listName: judge:{{ .name }}
         listLength: {{ .keda.listLength | quote }}
         activationListLength: {{ .keda.activationListLength | quote }}

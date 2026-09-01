@@ -86,7 +86,7 @@
                   - name: MONGO_URI
                     valueFrom:
                       secretKeyRef:
-                        name: mongodb-coding-platform-app
+                        name: mongodb-coding-platform-loader
                         key: connectionString.standard
                 volumeMounts:
                   - name: seed

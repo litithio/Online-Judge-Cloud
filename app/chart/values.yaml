@@ -30,10 +30,23 @@ image:
 # <instanz>-<datenbank>-<benutzer> (ansible/files/mongodb-instance.yaml), das
 # Deployment liest sie per secretKeyRef von dort. Eine URI in den values würde
 # das Passwort in die Helm-Historie schreiben.
+#
+# Je Dienst ein eigenes Secret, weil mongodb-instance.yaml je Dienst einen
+# eigenen Benutzer führt (#61) und der Operator je Benutzer ein eigenes
+# Connection-Secret schreibt. Die Rollen sind heute noch identisch (readWrite),
+# die Trennung erlaubt aber, ein einzelnes Passwort zu tauschen und die Rollen
+# später je Dienst zu verengen.
 externe:
-  mongoSecret:
-    name: "mongodb-coding-platform-app"
-    key: "connectionString.standard"
+  mongoSecrets:
+    backend:
+      name: "mongodb-coding-platform-backend"
+      key: "connectionString.standard"
+    worker:
+      name: "mongodb-coding-platform-worker"
+      key: "connectionString.standard"
+    durchlauf:
+      name: "mongodb-coding-platform-durchlauf"
+      key: "connectionString.standard"
   # Herkunftswert des Gateways (#79). Angelegt wird das Secret von
   # ansible/tasks/app.yaml aus auth-credentials.yaml, denselben Wert setzt die
   # Middleware als Header X-Gateway-Auth. Ohne den Wert startet die API nicht.

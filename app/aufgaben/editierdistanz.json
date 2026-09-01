@@ -1,8 +1,8 @@
 {
   "title": "Editierdistanz",
-  "description": "Bestimme die kleinste Zahl an Einfügungen, Löschungen und Ersetzungen, mit der das erste Wort in das zweite übergeht.",
-  "input_format": "Zwei Zeilen mit je einem Wort.",
-  "output_format": "Die kleinste Zahl an Schritten als ganze Zahl.",
+  "description": "Gegeben sind zwei Wörter. Bestimme die kleinste Zahl an Einfügungen, Löschungen und Ersetzungen einzelner Zeichen, mit der das erste Wort in das zweite übergeht.",
+  "input_format": "Zwei Zeilen mit je einem Wort aus Kleinbuchstaben, jedes 1 bis 2 200 Zeichen lang.",
+  "output_format": "Eine Zeile mit der kleinsten Zahl an Schritten als ganze Zahl.",
   "difficulty": "schwer",
   "time_limit_seconds": 4,
   "memory_limit_mb": 64,

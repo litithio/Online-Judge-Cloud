@@ -16,9 +16,9 @@ die vorhandene MongoDB.
 ```json
 {
   "title": "Primzahlen zählen",
-  "description": "Zähle die Primzahlen bis zu einer Grenze.",
-  "input_format": "Eine Zeile mit der Zahl n.",
-  "output_format": "Die Anzahl der Primzahlen kleiner oder gleich n.",
+  "description": "Eine Primzahl ist eine ganze Zahl größer als 1, die nur durch 1 und durch sich selbst teilbar ist. Gegeben ist eine Grenze n. Bestimme, wie viele Primzahlen kleiner oder gleich n sind.",
+  "input_format": "Eine Zeile mit der ganzen Zahl n, 1 ≤ n ≤ 15 000 000.",
+  "output_format": "Eine Zeile mit der Anzahl der Primzahlen kleiner oder gleich n.",
   "difficulty": "mittel",
   "time_limit_seconds": 2,
   "memory_limit_mb": 96,
@@ -55,6 +55,13 @@ nicht abschalten und nicht mehr Speicher erlauben, als der Worker-Container
 insgesamt hat.
 
 ## Eine Aufgabe dazulegen
+
+Die Texte folgen dem Muster der Aufgaben auf Kattis. `description` benennt die
+Variablen und definiert die Fachbegriffe, die Aufgabe ist allein aus den drei
+Textfeldern lösbar. `input_format` nennt die Wertebereiche, zum Beispiel
+1 ≤ n ≤ 15 000 000. Die Grenze verrät, welcher Algorithmus reichen muss, und
+der größte verborgene Testfall belegt sie. Wächst der größte Testfall, wächst
+die Grenze im Text mit.
 
 Die erwartete Ausgabe nie von Hand rechnen, sondern die eigene Lösung gegen die
 Eingabe laufen lassen und ihre Ausgabe übernehmen. Ein früherer Satz Aufgaben

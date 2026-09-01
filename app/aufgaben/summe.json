@@ -1,8 +1,8 @@
 {
   "title": "Summe zweier Zahlen",
-  "description": "Addiere zwei ganze Zahlen von der Standardeingabe.",
-  "input_format": "Eine Zeile mit zwei durch Leerzeichen getrennten ganzen Zahlen.",
-  "output_format": "Die Summe der beiden Zahlen.",
+  "description": "Gegeben sind zwei ganze Zahlen a und b. Bestimme ihre Summe.",
+  "input_format": "Eine Zeile mit den ganzen Zahlen a und b, durch ein Leerzeichen getrennt, -1 000 000 ≤ a, b ≤ 1 000 000.",
+  "output_format": "Eine Zeile mit der Summe a + b.",
   "difficulty": "leicht",
   "test_cases": [
     {
@@ -15,6 +15,11 @@
       "name": "Negative Zahl",
       "input": "-5 5\n",
       "expected_output": "0"
+    },
+    {
+      "name": "An der Bereichsgrenze",
+      "input": "1000000 1000000\n",
+      "expected_output": "2000000"
     }
   ]
 }

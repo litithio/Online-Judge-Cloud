@@ -8,6 +8,25 @@
     "externe",
     "judge"
   ],
+  "definitions": {
+    "secretRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "key"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
   "properties": {
     "image": {
       "type": "object",
@@ -38,7 +57,7 @@
     "externe": {
       "type": "object",
       "required": [
-        "mongoSecret",
+        "mongoSecrets",
         "redisUri",
         "redisKedaAdresse",
         "gatewaySecret",
@@ -47,20 +66,26 @@
       "description": "Anbindung der vorhandenen Datendienste. Das Chart legt sie nicht an, es verbindet sich nur.",
       "properties": {
         "mongoSecret": {
+          "not": {},
+          "description": "Ersetzt durch mongoSecrets mit je einem Benutzer je Dienst (#61). Ohne dieses Verbot würde ein alter Override still ignoriert und die Templates läsen die neuen Vorgabe-Secrets."
+        },
+        "mongoSecrets": {
           "type": "object",
           "required": [
-            "name",
-            "key"
+            "backend",
+            "worker",
+            "durchlauf"
           ],
-          "description": "Operator-Secret mit der MongoDB-URI samt Zugangsdaten.",
+          "description": "Operator-Secrets mit der MongoDB-URI samt Zugangsdaten, je Dienst ein eigener Benutzer (#61).",
           "properties": {
-            "name": {
-              "type": "string",
-              "minLength": 1
+            "backend": {
+              "$ref": "#/definitions/secretRef"
             },
-            "key": {
-              "type": "string",
-              "minLength": 1
+            "worker": {
+              "$ref": "#/definitions/secretRef"
+            },
+            "durchlauf": {
+              "$ref": "#/definitions/secretRef"
             }
           }
         },

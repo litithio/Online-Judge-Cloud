@@ -183,8 +183,8 @@ spec:
             - name: MONGO_URI
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Values.externe.mongoSecret.name | quote }}
-                  key: {{ $.Values.externe.mongoSecret.key | quote }}
+                  name: {{ $.Values.externe.mongoSecrets.worker.name | quote }}
+                  key: {{ $.Values.externe.mongoSecrets.worker.key | quote }}
           # Dasselbe Kommando wie die liveness darunter, nach dem Muster des
           # Backends. Bis sie durchläuft, gilt der Container als nicht
           # gestartet, und die liveness ruht so lange. Das Fenster von 60
@@ -332,7 +332,7 @@ spec:
                 - name: MONGO_URI
                   valueFrom:
                     secretKeyRef:
-                      name: {{ .Values.externe.mongoSecret.name | quote }}
-                      key: {{ .Values.externe.mongoSecret.key | quote }}
+                      name: {{ .Values.externe.mongoSecrets.durchlauf.name | quote }}
+                      key: {{ .Values.externe.mongoSecrets.durchlauf.key | quote }}
               resources:
                 {{- toYaml .Values.judge.durchlauf.resources | nindent 16 }}

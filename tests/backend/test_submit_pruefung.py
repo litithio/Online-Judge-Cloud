@@ -7,7 +7,7 @@ wie in test_einreichung_zugriff.py gegen die Fake-Datenbank aus fakes.py.
 
 Je nachgestelltem Weg aus #80 ein eigener Test. task_id ohne
 ObjectId-Format, code als null oder Zahl und code mit einzelnem Surrogat
-erreichten bisher den Worker und endeten dort als SYSTEM_ERROR.
+erreichten bisher den Worker und scheiterten erst dort statt an der API.
 """
 
 import asyncio

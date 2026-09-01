@@ -568,8 +568,9 @@ class SubmitBody(BaseModel):
 
     Beide Werte gehen unverändert in submissions und von dort in den Worker.
     Was die Prüfung hier durchlässt, muss der Worker verarbeiten können,
-    sonst bucht er die Einreichung als SYSTEM_ERROR und ein Nutzer kann eine
-    falsche Lösung als Störung des Judges erscheinen lassen.
+    sonst endet die Einreichung nach erschöpften Versuchen als UNRESOLVED und
+    ein Nutzer kann eine falsche Lösung als Störung des Judges erscheinen
+    lassen.
 
     extra="forbid" lehnt unbekannte Felder ab. Sie landeten sonst zwar nicht
     im Dokument, ein Tippfehler wie "sprach" fiele aber stumm auf den

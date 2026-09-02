@@ -287,7 +287,21 @@ im Namespace, nicht als ConfigMap, denn er trägt das Client-Secret und die
 Passwörter beider Konten. Der Import greift nur, solange es
 den Realm noch nicht gibt. Einen vorhandenen überspringt Keycloak mit der
 Strategie IGNORE_EXISTING, eine geänderte Vorlage erreicht den laufenden
-Cluster also erst nach einem leeren PVC (#146). Das Plugin wird in der statischen
+Cluster also erst nach einem leeren PVC (#146).
+
+Die Anmeldeseite zeigt das DHBW-Layout aus `docs/oberflaeche/login.html`
+(#122). Das Theme `dhbw` ist kein eigenes Image, sondern eine ConfigMap, die
+das Play als Ordner `/opt/keycloak/themes/dhbw` in den Pod hängt. Es ersetzt
+keine Freemarker-Vorlage. `ansible/files/keycloak-theme/theme.properties`
+tauscht nur die Klassen des Elterns `keycloak.v2` gegen die aus dem Entwurf,
+`dhbw.css` und `logo.jpg` kommen aus `app/backend/static`, damit Anwendung
+und Anmeldung dieselbe Datei tragen. Der Realm-Import setzt `loginTheme` und
+Deutsch als einzige Sprache. Auf einem Cluster mit vorhandenem Realm greift
+das erst nach einem leeren PVC oder einmalig über die Admin-Konsole unter
+Realm settings, Themes. Eine geänderte ConfigMap liest Keycloak erst nach
+einem Neustart des Pods.
+
+Das Plugin wird in der statischen
 Traefik-Konfiguration aktiviert (`tasks/traefik-plugin.yaml`, per
 `HelmChartConfig`), wobei Traefik einmal neu startet. Keycloak und die
 Traefik-Anbindung (Middleware + Ingress) rollt das Play mit dem Tag `auth` aus:

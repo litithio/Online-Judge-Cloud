@@ -75,6 +75,43 @@
         realm.json: "{{ lookup('template', 'templates/keycloak-realm.json.j2') }}"
   no_log: true
 
+# Das Login-Theme im DHBW-Layout (#122). Fünf Dateien, gemountet als Ordner
+# /opt/keycloak/themes/dhbw, siehe extraVolumes unten. theme.properties und
+# die Meldungen liegen in files/keycloak-theme, dhbw.css und das Logo kommen
+# aus app/backend/static, damit Anwendung und Anmeldung dieselbe Datei tragen.
+# messages_en bleibt neben messages_de, weil ein Realm von vor diesem Stand
+# ohne Import weiter englisch anzeigt und die Überschrift auch dort gelten soll.
+# Eine ConfigMap statt eines eigenen Keycloak-Image, weil das Theme nichts
+# Geheimes trägt und kein zusätzlicher Build anfällt.
+#
+# Das Logo ist binär, lookup('file') liest nur Text. slurp auf dem
+# Kontrollknoten liefert es base64-kodiert, so wie binaryData es erwartet.
+# become aus, sonst fragt der Kontrollknoten nach dem sudo-Passwort.
+- name: Logo für das Login-Theme lesen
+  ansible.builtin.slurp:
+    src: "{{ playbook_dir }}/../app/backend/static/logo.jpg"
+  delegate_to: localhost
+  become: false
+  register: keycloak_theme_logo
+
+- name: ConfigMap mit dem Login-Theme
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: keycloak-theme-dhbw
+        namespace: "{{ auth_namespace }}"
+      data:
+        theme.properties: "{{ lookup('file', 'files/keycloak-theme/theme.properties') }}"
+        messages_de.properties: "{{ lookup('file', 'files/keycloak-theme/messages_de.properties') }}"
+        messages_en.properties: "{{ lookup('file', 'files/keycloak-theme/messages_en.properties') }}"
+        dhbw.css: "{{ lookup('file', playbook_dir ~ '/../app/backend/static/dhbw.css') }}"
+      binaryData:
+        logo.jpg: "{{ keycloak_theme_logo.content }}"
+
 # retries, weil Helm den Chart bei jedem Lauf von github.com lädt und GitHub
 # in Wellen Verbindungen abweist (beobachtet am 12. und 13.08.2026, betrifft
 # alle Clients ohne eigene Wiederholung). Fünf Versuche mit 30 Sekunden
@@ -151,6 +188,11 @@
             name: keycloak-admin
       # PVC auf data, das Realm-Secret überlagert nur das Unterverzeichnis
       # import. Kubernetes erlaubt den verschachtelten Mount.
+      #
+      # Das Theme liegt flach in der ConfigMap, die Pfade in items bauen den
+      # Ordnerbaum, den Keycloak für ein Login-Theme erwartet. Keycloak liest
+      # den Ordner beim Start, eine geänderte ConfigMap greift erst nach
+      # einem Neustart des Pods.
       extraVolumes: |
         - name: data
           persistentVolumeClaim:
@@ -158,11 +200,28 @@
         - name: realm-import
           secret:
             secretName: keycloak-realm-import
+        - name: theme-dhbw
+          configMap:
+            name: keycloak-theme-dhbw
+            items:
+              - key: theme.properties
+                path: login/theme.properties
+              - key: messages_de.properties
+                path: login/messages/messages_de.properties
+              - key: messages_en.properties
+                path: login/messages/messages_en.properties
+              - key: dhbw.css
+                path: login/resources/dhbw.css
+              - key: logo.jpg
+                path: login/resources/logo.jpg
       extraVolumeMounts: |
         - name: data
           mountPath: /opt/keycloak/data
         - name: realm-import
           mountPath: /opt/keycloak/data/import
+          readOnly: true
+        - name: theme-dhbw
+          mountPath: /opt/keycloak/themes/dhbw
           readOnly: true
       # Gemessen mit app/anmeldelast.py, das echte Anmeldungen über den
       # Authorization-Code-Flow fährt. Der Client judge-gateway erlaubt keine

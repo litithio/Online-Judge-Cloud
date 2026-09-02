@@ -183,19 +183,26 @@ spec:
     - Ingress
   ingress:
     - from:
-        # Pods aus diesem Chart: Backend untereinander (der Node-übergreifende
-        # Test in scripts/smoke.sh) und die Helm-Testpods. Enger als der ganze
-        # Namespace, MongoDB, Valkey und Keycloak sind nicht drin. part-of und
-        # nicht instance, weil instance der Release-Name ist.
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/part-of: online-judge
+        # Der Weg von außen: Traefik -> Middleware -> dieser Service.
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik
+        # Backend untereinander, für den Node-übergreifenden Test in
+        # scripts/smoke.sh.
+        - podSelector:
+            matchLabels:
+              app: backend
+        # Die beiden Helm-Test-Jobs. Beide rufen http://backend:8000 auf,
+        # siehe app/chart/tests/api_pruefen.py und loesungen_pruefen.py.
+        - podSelector:
+            matchLabels:
+              batch.kubernetes.io/job-name: test-api
+        - podSelector:
+            matchLabels:
+              batch.kubernetes.io/job-name: test-loesungen
       ports:
         - protocol: TCP
           port: 8000

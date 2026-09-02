@@ -1,5 +1,5 @@
-# Ingress zu Valkey (#62). Ausnahme zum namespace-weiten default-deny in
-# judge-networkpolicy.yaml. Nur Ingress, der Egress bleibt vorerst offen.
+# Ingress und Egress zu Valkey (#62). Ausnahme zum namespace-weiten
+# default-deny in judge-networkpolicy.yaml.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

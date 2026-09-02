@@ -40,8 +40,7 @@
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/valkey-service.yaml') | from_yaml }}"
 
-# Erster Schritt zu #62. Ohne namespace-weites default-deny, der podSelector
-# isoliert allein diesen Pod. Nur Ingress, Egress bleibt offen.
+# Ausnahme zum namespace-weiten default-deny aus tasks/namespace.yaml (#62).
 - name: Valkey NetworkPolicy anwenden
   kubernetes.core.k8s:
     state: present

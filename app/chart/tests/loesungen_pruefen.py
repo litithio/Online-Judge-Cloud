@@ -101,6 +101,24 @@ def main():
     if not titel_je_stamm:
         print(f"keine Aufgaben-JSONs unter {AUFGABEN}")
         return 1
+
+    # helm test kann direkt nach dem Upgrade laufen, und kube-router braucht
+    # nach dem Start eines Pods einen Moment, bis dessen Adresse in den
+    # Regeln der NetworkPolicy steht (#62). Bis dahin wird die erste
+    # Verbindung abgewiesen, gemessen am 02.09. mit einem Testjob: erster
+    # Versuch abgewiesen, acht Sekunden später verbunden. Gewartet wird wie
+    # in api_pruefen.py höchstens 60 Sekunden.
+    frist = time.monotonic() + 60
+    while True:
+        try:
+            anfrage("/tasks")
+            break
+        except OSError as fehler:
+            if time.monotonic() >= frist:
+                print(f"{API} nicht erreichbar, {fehler}")
+                return 1
+            time.sleep(5)
+
     id_je_titel = {t["title"]: t["id"] for t in anfrage("/tasks")}
 
     fehler = []

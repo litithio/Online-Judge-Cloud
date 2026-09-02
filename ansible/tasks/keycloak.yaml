@@ -208,6 +208,16 @@
           - hosts:
               - "{{ keycloak_host }}"
 
+# Ingress nur von Traefik (#62). Steht nach dem Helm-Task, weil die Policy den
+# Pod über app.kubernetes.io/name=keycloakx trifft und dieses Label erst mit
+# dem StatefulSet entsteht. Und vor dem Wartetask darunter, damit der schon
+# unter den Bedingungen wartet, die danach im Betrieb gelten.
+- name: Keycloak NetworkPolicy anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition: "{{ lookup('template', 'files/keycloak-networkpolicy.yaml') | from_yaml }}"
+
 # Wie bei MongoDB und Valkey. Der Schritt steht außerhalb des Helm-Tasks,
 # damit dessen retries das Warten auf die Bereitschaft nicht mitwiederholen.
 # 420 Sekunden liegen über dem Startfenster der startupProbe von 315 Sekunden

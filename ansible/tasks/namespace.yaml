@@ -7,4 +7,10 @@
       apiVersion: v1
       kind: Namespace
       metadata:
-        name: judge
+        name: "{{ app_namespace }}"
+
+- name: Default-deny für eingehenden Verkehr
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/judge-networkpolicy.yaml') | from_yaml }}"

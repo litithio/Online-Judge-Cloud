@@ -1,0 +1,25 @@
+# Ingress nur von Traefik (#62). Keycloak liegt trotz eigener Variable im
+# selben Namespace wie die Anwendung (auth_namespace == judge), die Trennung
+# der Login-Sitzung läuft über den eigenen Host.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak
+  namespace: "{{ auth_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloakx
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080

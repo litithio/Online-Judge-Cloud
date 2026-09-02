@@ -67,8 +67,14 @@
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/mongodb-instance.yaml') | from_yaml }}"
 
-# === MongoDB Wait ===
+# === MongoDB NetworkPolicy ===
+- name: Apply MongoDB NetworkPolicy
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/mongodb-networkpolicy.yaml') | from_yaml }}"
 
+# === MongoDB Wait ===
 - name: Wait for MongoDB StatefulSet to exist
   kubernetes.core.k8s_info:
     kind: StatefulSet

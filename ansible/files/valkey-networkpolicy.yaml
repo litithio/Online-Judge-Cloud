@@ -1,0 +1,37 @@
+# Ingress zu Valkey (#62). Ausnahme zum namespace-weiten default-deny in
+# judge-networkpolicy.yaml. Nur Ingress, der Egress bleibt vorerst offen.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey
+  namespace: "{{ app_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: valkey
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+        # Sprachunabhängig, das Label sitzt am Pod-Template jedes Workers
+        # (app/chart/templates/judge.yaml). app: code-worker-<sprache> wäre
+        # je Sprache ein eigener Eintrag.
+        - podSelector:
+            matchLabels:
+              komponente: judge-worker
+        - podSelector:
+            matchLabels:
+              app: durchlauf
+        # KEDA liest die Länge der Warteschlange für das ScaledObject.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keda
+          podSelector:
+            matchLabels:
+              app: keda-operator
+      ports:
+        - protocol: TCP
+          port: 6379

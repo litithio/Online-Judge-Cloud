@@ -1,0 +1,38 @@
+# Egress für den Seed-Job (#62). laden.py schreibt die Aufgaben-JSONs direkt
+# in MongoDB, es spricht weder Valkey noch die API an. Kein Ingress-Block,
+# der Job nimmt keine Verbindungen an.
+#
+# app: aufgaben-seed kommt aus #276. Das automatisch vergebene
+# batch.kubernetes.io/job-name wäre hier zwar stabil, weil der Job immer
+# denselben Namen trägt, das eigene Label ist aber die verlässlichere Wahl.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aufgaben-seed
+  namespace: "{{ app_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: aufgaben-seed
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+      ports:
+        - protocol: TCP
+          port: 27017

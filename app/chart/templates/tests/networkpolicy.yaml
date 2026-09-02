@@ -1,0 +1,41 @@
+# Egress für die beiden Helm-Test-Jobs (#62). Beide rufen die API über
+# http://backend:8000 auf, der Vorgabewert von API_URL in api_pruefen.py und
+# loesungen_pruefen.py. Kein Ingress-Block, sie nehmen keine Verbindungen an.
+#
+# Selektor über batch.kubernetes.io/job-name statt über ein eigenes Label:
+# beide Jobs heißen immer gleich, Helm legt sie unter festem Namen an. Zwei
+# Regeln, weil eine matchLabels-Angabe nur einen Wert je Schlüssel kennt.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: helm-tests
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: batch.kubernetes.io/job-name
+        operator: In
+        values: ["test-api", "test-loesungen"]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 8000

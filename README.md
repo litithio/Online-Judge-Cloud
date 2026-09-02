@@ -626,6 +626,19 @@ Der Preis, der CI-Job baut je Lauf beide Images und holt pytest von PyPI.
 `tests/` liegt auf oberster Ebene, unter `app/worker` oder `app/backend`
 wanderte es über das COPY mit ins ausgelieferte Image.
 
+### Lastgenerator als Pod im Cluster
+
+Der Lastgenerator läuft als Pod im Namespace `judge`, die backend-Policy nennt
+ihn über das Label `app: lastgenerator`, der Aufruf steht unter Dashboard. Die
+Alternative war ein Lauf vom Server-Node mit einer Freigabe seiner
+Absenderadresse in der Policy, gemessen `fd00:42::`, die Adresse von
+`flannel-v6.1` auf dem Server. Den Ausschlag gibt, dass diese Adresse jeder
+Prozess auf dem Server-Node teilt und ihr Bestand nach einem Neuaufbau
+ungeprüft ist. Ein Label trifft genau den Pod, der einreichen soll. Der Preis,
+andere Werte für Rate, Dauer und Mix brauchen ein Upgrade des Release, und der
+Pod hält den Herkunftswert des Gateways aus dem Secret, wie die Test-Jobs
+auch. Die Policy bleibt dabei der zweite Riegel, die Herkunftsprüfung der API
+gilt für ihn wie für jeden anderen Absender.
 
 ## Grenzen
 

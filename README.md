@@ -314,7 +314,7 @@ der Forward erreicht im Pod-Netz `localhost` nicht über IPv6.
 
 ```bash
 # VPN aus, <server> ist die IPv6 des Servers aus dem Inventory
-tar czf - -C app lastgenerator.py aufgaben \
+tar czf - -C app lastgenerator.py aufgaben chart/loesungen \
     | ssh ubuntu@<server> 'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
 kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
 ssh ubuntu@<server> "GATEWAY_SECRET=<gateway_secret aus auth-credentials.yaml> \

@@ -221,3 +221,28 @@ judge:
     # Unter CLAIM_FRIST_PUFFER_SEKUNDEN aus worker.py, siehe Kommentar im Template.
     schedule: "*/2 * * * *"
     maxVersuche: 3
+
+# ---------------------------------------------------------------------------
+# Lastgenerator
+# ---------------------------------------------------------------------------
+# Vorlage für den Lastlauf aus #12, als angehaltener CronJob im Cluster (#275).
+# Einen Lauf startet kubectl create job --from=cronjob/lastgenerator, die Werte
+# hier sind seine Argumente. Andere Werte brauchen ein Upgrade des Release, ein
+# Job aus der Vorlage lässt sich nicht umparametrieren.
+lastgenerator:
+  # Einreichungen je Sekunde und Sekunden. 2 über 90 sind 180 Einreichungen,
+  # die Werte der Dashboard-Szene im README. Damit steigt die Warteschlange auf
+  # gut 70 und KEDA skaliert die Worker von null auf fünf.
+  rate: 2
+  dauer: 90
+  # Gewichte je Sorte, die Sorten erklärt lastgenerator.py.
+  mix: "korrekt=6,langsam=2,falsch=1,kaputt=1"
+  # Wie die Test-Jobs, ein kurzes Python-Skript mit Netzaufrufen. Der Pool
+  # hält höchstens 32 Verbindungen offen, gerechnet wird nichts.
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "128Mi"

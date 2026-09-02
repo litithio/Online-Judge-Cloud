@@ -162,9 +162,9 @@ spec:
       targetPort: 8000
 
 ---
-# Ingress nur von Traefik (#62). Der Weg von außen führt über Traefik ->
-# Middleware -> diesen Service, ein anderer Absender ist nicht vorgesehen.
-# Kein Egress-Block: der bleibt offen, bis die Egress-Regeln stehen.
+# Ingress und Egress des Backends (#62), Ausnahme zum default-deny aus
+# ansible/files/judge-networkpolicy.yaml. Von außen kommt nur Traefik, dazu
+# die Absender im Cluster, die http://backend:8000 direkt aufrufen.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

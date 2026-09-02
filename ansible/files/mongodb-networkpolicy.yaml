@@ -1,7 +1,6 @@
-# Ingress zu MongoDB (#62). Ausnahme zum namespace-weiten default-deny in
-# judge-networkpolicy.yaml. Nur Ingress -- den Egress der Pods zur K8s-API
-# (sie schreiben über den ServiceAccount mongodb-database selbst) regelt
-# ein späterer Schritt.
+# Ingress und Egress zu MongoDB (#62). Ausnahme zum namespace-weiten
+# default-deny in judge-networkpolicy.yaml. Die Adresse der K8s-API liest
+# der Task davor in tasks/mongodb.yaml aus dem Cluster.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -64,7 +63,7 @@ spec:
     # ohne diese Regel bleibt ein neu gestarteter Pod bei 1/2 stehen, die
     # Readiness-Probe des Agents läuft in ihren Timeout von einer Sekunde.
     # Die drei laufenden Pods merken davon nichts, kube-router lässt
-    # bestehende Verbindungen im Zustand ESTABLISHED durch -- der Ausfall
+    # bestehende Verbindungen im Zustand ESTABLISHED durch. Der Ausfall
     # zeigt sich erst beim nächsten Neustart.
     #
     # Die ClusterIP taugt nicht als Ziel: kube-proxy schreibt sie in der
@@ -73,7 +72,7 @@ spec:
     # steht nicht im Manifest, sondern kommt aus dem Task davor, denn die
     # Nodes jedes Clusters haben andere Adressen und sie können sich beim
     # Neuaufbau ändern. Der Zugriff auf die erste Adresse setzt einen
-    # Server-Node voraus; ein HA-Aufbau bräuchte eine Regel je Adresse.
+    # Server-Node voraus, ein HA-Aufbau braucht eine Regel je Adresse.
     - to:
         - ipBlock:
             cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"

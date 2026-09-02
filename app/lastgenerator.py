@@ -13,15 +13,11 @@ ansible/auth-credentials.yaml, und der Compose-Stand antwortet mit 401:
     GATEWAY_SECRET=nur-lokal-ohne-gateway-kein-geheimnis \
         python3 lastgenerator.py --rate 5 --dauer 60
 
-Gegen den Cluster läuft das Skript auf dem Server-Node, kubectl port-forward
-scheitert dort, weil das Backend nur auf :: bindet und der Forward im
-Pod-Netns localhost nicht über IPv6 erreicht:
+Gegen den Cluster läuft das Skript über kubectl port-forward, das Backend
+nimmt seit #123 auch IPv4 an:
 
-    tar czf - -C app lastgenerator.py aufgaben chart/loesungen | ssh ubuntu@<server> \
-        'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
-    # Service-IP: kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
-    ssh ubuntu@<server> 'GATEWAY_SECRET=<wert> python3 /tmp/last/lastgenerator.py \
-        --rate 2 --dauer 60 --api "http://[<service-ip>]:8000"'
+    kubectl port-forward -n judge svc/backend 8000:8000
+    python3 lastgenerator.py --rate 2 --dauer 60
 
 Die Identität kommt als X-Auth-Request-Header mit, so wie das Gateway sie
 setzen würde. Der Weg über das Gateway selbst bräuchte eine Browser-Session
@@ -30,8 +26,7 @@ Anmeldung.
 
 Dazu kommt X-Gateway-Auth. Seit #79 lehnt die API einen Aufruf ohne diesen
 Header ab, auch aus dem Cluster heraus. Den Wert nimmt das Skript aus
-GATEWAY_SECRET, sonst aus ansible/auth-credentials.yaml. Auf dem Server-Node
-liegt die Datei nicht, deshalb steht sie im Aufruf oben als Variable. Gegen den
+GATEWAY_SECRET, sonst aus ansible/auth-credentials.yaml. Gegen den
 Compose-Stand gilt der feste Wert aus app/docker-compose.yml. Nur
 Standardbibliothek, damit der Aufruf keine eigene Umgebung braucht.
 """
@@ -49,6 +44,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+from anmeldelast import ZUGANG, lies_wert
 
 # Nur python. Die API nimmt über AKTIVE_SPRACHEN in app/backend/main.py auch
 # nur python an und lehnt jede andere Sprache mit 400 ab, ein Worker-Image
@@ -85,18 +82,13 @@ ERGEBNISSE = (
 def _herkunftswert():
     """Der Wert, mit dem das Gateway sich bei der API ausweist (#79).
 
-    Aus der Umgebung, sonst aus ansible/auth-credentials.yaml. Auf dem
-    Server-Node liegt die Datei nicht, dort setzt der Aufruf die Variable. Der
-    Import steht deshalb in der Funktion und nicht oben, sonst scheiterte ein
-    Lauf dort schon am fehlenden anmeldelast.py, das der tar-Aufruf im
-    Docstring nicht mitkopiert.
+    Aus der Umgebung, sonst aus ansible/auth-credentials.yaml. Gegen den
+    Compose-Stand setzt der Aufruf die Variable, dort gilt ein anderer Wert
+    als in der Datei.
     """
     wert = os.getenv("GATEWAY_SECRET")
     if wert:
         return wert
-
-    from anmeldelast import ZUGANG, lies_wert
-
     return lies_wert(ZUGANG, "gateway_secret")
 
 

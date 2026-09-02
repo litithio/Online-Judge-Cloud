@@ -1,11 +1,10 @@
-# Namespace-weites default-deny für eingehenden Verkehr (#62). Der leere
-# podSelector trifft jeden Pod in judge, ohne ingress-Block bleibt nichts
-# erlaubt. Die Ausnahmen stehen als eigene Policies daneben: valkey,
-# mongodb, backend (aus dem Chart) und keycloak.
+# Namespace-weites default-deny für ein- und ausgehenden Verkehr (#62). Der
+# leere podSelector trifft jeden Pod in judge, ohne ingress- und egress-Block
+# bleibt nichts erlaubt. Die Ausnahmen stehen als eigene Policies daneben.
 #
-# Vorerst nur Ingress. Egress kommt erst, wenn die Regeln für DNS und die
-# K8s-API stehen -- ohne die verlören MongoDB-Pods, der MongoDB-Operator
-# und die Worker still ihre Verbindungen.
+# Ein Pod ohne eigene Egress-Policy verliert damit auch DNS und findet dann
+# gar nichts mehr, auch nicht die Dienste im eigenen Namespace. Wer eine neue
+# Komponente in judge aufnimmt, braucht mindestens eine Regel auf kube-dns.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -15,3 +14,4 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
+    - Egress

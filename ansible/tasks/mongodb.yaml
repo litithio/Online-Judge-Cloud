@@ -1,10 +1,43 @@
+# === MongoDB NetworkPolicy ===
+# Die Policies stehen vor der Installation, damit der Operator und die drei
+# Pods schon beim ersten Aufbau unter den Bedingungen anlaufen, die später im
+# Betrieb gelten. Stünden sie dahinter, würde der Wartetask unten einen Stand
+# abnehmen, den es danach nicht mehr gibt, und ein Fehler in einer Regel fiele
+# erst beim nächsten Neustart auf -- kube-router lässt bestehende
+# Verbindungen im Zustand ESTABLISHED durch.
+
+# Die Adresse des API-Servers aus dem Cluster statt aus dem Inventar. Der
+# Inventar-Hostname ist die SSH-Adresse, hier zufällig dieselbe; die Policy
+# braucht die Adresse, unter der der API-Server tatsächlich erreichbar ist.
+# Endpoints ist ab v1.33 als veraltet markiert, funktioniert aber weiter --
+# der Nachfolger wäre EndpointSlice.
+- name: Adresse des API-Servers ermitteln
+  kubernetes.core.k8s_info:
+    kind: Endpoints
+    name: kubernetes
+    namespace: default
+    kubeconfig: "{{ kubeconfig_root }}"
+  register: api_endpunkt
+
+- name: NetworkPolicy für den MongoDB-Operator anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/mongodb-operator-networkpolicy.yaml') | from_yaml }}"
+
+- name: NetworkPolicy für MongoDB anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/mongodb-networkpolicy.yaml') | from_yaml }}"
+
 # === MongoDB Operator ===
-- name: Add MongoDB Helm repository
+- name: MongoDB-Helm-Repository hinzufügen
   kubernetes.core.helm_repository:
     name: mongodb
     repo_url: https://mongodb.github.io/helm-charts
 
-- name: Install MongoDB operator
+- name: MongoDB-Operator über Helm ausrollen
   kubernetes.core.helm:
     name: community-operator
     chart_ref: mongodb/community-operator
@@ -55,27 +88,20 @@
               online-judge/rolle: dienste
 
 # === MongoDB Instance ===
-- name: Apply MongoDB password Secret
+- name: MongoDB-Passwort-Secret anwenden
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/mongodb-password.yaml') | from_yaml }}"
 
-- name: Apply MongoDB Instance
+- name: MongoDB-Instanz anwenden
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/mongodb-instance.yaml') | from_yaml }}"
 
-# === MongoDB NetworkPolicy ===
-- name: Apply MongoDB NetworkPolicy
-  kubernetes.core.k8s:
-    state: present
-    kubeconfig: "{{ kubeconfig_root }}"
-    definition: "{{ lookup('template', 'files/mongodb-networkpolicy.yaml') | from_yaml }}"
-
 # === MongoDB Wait ===
-- name: Wait for MongoDB StatefulSet to exist
+- name: Auf das MongoDB-StatefulSet warten
   kubernetes.core.k8s_info:
     kind: StatefulSet
     name: mongodb
@@ -84,7 +110,7 @@
     wait: true
     wait_timeout: 300
 
-- name: Wait for MongoDB to be ready
+- name: Auf Bereitschaft von MongoDB warten
   ansible.builtin.command:
     argv: [kubectl, rollout, status, statefulset/mongodb, -n, "{{ app_namespace }}", --timeout=300s]
   environment:

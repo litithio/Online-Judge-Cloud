@@ -1,0 +1,49 @@
+# Egress für den MongoDB-Operator (#62). Er reconciled über die K8s-API, legt
+# die Benutzer in MongoDB an und liest den Zustand des Replica Sets.
+#
+# Kein Ingress-Block, der Operator nimmt keine Verbindungen an. Das
+# namespace-weite default-deny deckt ihn dafür ab.
+#
+# Die Adresse des API-Servers kommt aus dem Task davor, nicht aus dem
+# Manifest -- die Nodes jedes Clusters haben andere Adressen und sie können
+# sich beim Neuaufbau ändern. Die ClusterIP taugt nicht als Ziel, kube-proxy
+# schreibt sie in der nat-Tabelle um, bevor kube-router in der filter-Tabelle
+# greift. Der Zugriff auf die erste Adresse setzt einen Server-Node voraus;
+# ein HA-Aufbau bräuchte eine Regel je Adresse.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mongodb-kubernetes-operator
+  namespace: "{{ app_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      name: mongodb-kubernetes-operator
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+      ports:
+        - protocol: TCP
+          port: 27017
+    - to:
+        - ipBlock:
+            cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"
+      ports:
+        - protocol: TCP
+          port: 6443

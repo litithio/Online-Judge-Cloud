@@ -11,6 +11,7 @@ spec:
       app: valkey
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - podSelector:
@@ -35,3 +36,19 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
+  egress:
+    # Valkey baut von sich aus nur DNS-Anfragen auf. Zwei Regeln, weil eine
+    # NetworkPolicy ohne protocol TCP meint und die gewöhnlichen Anfragen
+    # über UDP laufen (kube-dns bietet beides an).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

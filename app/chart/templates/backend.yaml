@@ -177,6 +177,7 @@ spec:
       app: backend
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         # Der Weg von außen: Traefik -> Middleware -> dieser Service.
@@ -207,3 +208,32 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Die Warteschlange für eingereichte Lösungen.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Aufgaben lesen, Einreichungen und Ergebnisse schreiben.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+      ports:
+        - protocol: TCP
+          port: 27017

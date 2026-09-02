@@ -369,3 +369,100 @@ spec:
                       key: {{ .Values.externe.redisSecret.key | quote }}
               resources:
                 {{- toYaml .Values.judge.durchlauf.resources | nindent 16 }}
+---
+# Egress für alle Worker (#62). komponente: judge-worker sitzt sprachunabhängig
+# am Pod-Template, eine Policy deckt damit jede Sprache ab -- deshalb steht sie
+# außerhalb der range oben.
+#
+# Kein Ingress-Block: der Worker nimmt keine Verbindungen an, er zieht selbst
+# aus der Warteschlange. Das namespace-weite default-deny deckt ihn dafür ab.
+#
+# Für den eingereichten Code ist das der zweite Riegel. Den ersten setzt
+# SANDBOX_NETZ_ERZWINGEN in der ConfigMap oben, der Subprozess bekommt einen
+# eigenen Netz-Namespace. Fiele der einmal weg, begrenzt diese Policy den
+# Worker-Pod weiterhin auf drei Ziele im Cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: code-worker
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      komponente: judge-worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Lösungen aus der Warteschlange holen.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Urteile und Testfallergebnisse schreiben.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+      ports:
+        - protocol: TCP
+          port: 27017
+
+---
+# Egress für den Rückhol-CronJob (#62). Wie beim Worker, durchlauf.py liest
+# abgelaufene Einreichungen aus MongoDB und reiht sie über Valkey neu ein.
+# Kein Ingress-Block, der Job nimmt keine Verbindungen an.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: durchlauf
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: durchlauf
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+      ports:
+        - protocol: TCP
+          port: 27017

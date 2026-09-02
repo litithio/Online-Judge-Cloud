@@ -13,6 +13,7 @@ spec:
       app: mongodb-svc
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - podSelector:
@@ -38,3 +39,44 @@ spec:
       ports:
         - protocol: TCP
           port: 27017
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Replikation der drei Pods untereinander.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+      ports:
+        - protocol: TCP
+          port: 27017
+    # Der Agent-Container braucht beim Start die K8s-API. Gemessen am 02.09.:
+    # ohne diese Regel bleibt ein neu gestarteter Pod bei 1/2 stehen, die
+    # Readiness-Probe des Agents läuft in ihren Timeout von einer Sekunde.
+    # Die drei laufenden Pods merken davon nichts, kube-router lässt
+    # bestehende Verbindungen im Zustand ESTABLISHED durch -- der Ausfall
+    # zeigt sich erst beim nächsten Neustart.
+    #
+    # Die ClusterIP taugt nicht als Ziel: kube-proxy schreibt sie in der
+    # nat-Tabelle um, bevor kube-router in der filter-Tabelle greift. Nötig
+    # ist die Adresse aus kubectl get endpoints kubernetes mit Port 6443. Sie
+    # steht nicht im Manifest, sondern kommt aus dem Task davor, denn die
+    # Nodes jedes Clusters haben andere Adressen und sie können sich beim
+    # Neuaufbau ändern. Der Zugriff auf die erste Adresse setzt einen
+    # Server-Node voraus; ein HA-Aufbau bräuchte eine Regel je Adresse.
+    - to:
+        - ipBlock:
+            cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"
+      ports:
+        - protocol: TCP
+          port: 6443

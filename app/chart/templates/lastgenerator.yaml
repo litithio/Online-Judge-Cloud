@@ -127,3 +127,39 @@ spec:
                   - key: {{ base (dir $pfad) }}__{{ base $pfad }}
                     path: {{ base (dir $pfad) }}/{{ base $pfad }}
                   {{- end }}
+
+---
+# Egress für den Lastgenerator (#62). Er reicht Lösungen über die API ein und
+# spricht sonst nichts an. Kein Ingress-Block, er nimmt keine Verbindungen an.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lastgenerator
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: lastgenerator
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 8000

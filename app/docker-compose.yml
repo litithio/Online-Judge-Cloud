@@ -60,10 +60,6 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Das Compose-Netz ist IPv4, die Portfreigabe oben leitet dorthin. Der
-      # Cluster vergibt dagegen nur IPv6, deshalb bindet das Image ohne diesen
-      # Wert auf ::.
-      BIND_HOST: 0.0.0.0
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://valkey:6379
       # Ohne diesen Wert startet die API nicht (app/backend/auth.py). Im

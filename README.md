@@ -220,6 +220,15 @@ cronjob,scaledobject` zeigt `durchlauf` und `code-worker-python`. Das
 Worker-Deployment hat ohne wartende Einreichungen null Replicas, KEDA startet
 es bei Last.
 
+Die Ergebnisseite `/einreichung/{sub_id}` zeigt je Testfall Urteil, Laufzeit
+und Speicher, bei überschrittener Zeit- oder Ausgabegrenze dazu die Meldung
+des Judge. Mehr zeigt sie nur für Beispiele, also Testfälle mit `sample` in
+der Aufgabe. Dort stehen der Name und bei falscher Ausgabe Eingabe, erwartete
+und erhaltene Ausgabe. Jeder andere Testfall heißt "Testfall N", und bei
+falscher Ausgabe, Laufzeitfehler oder Speicherfehler steht dort nur "Testfall
+nicht einsehbar" (#208). `/submission/{sub_id}` gibt das Dokument roh als JSON
+zurück, `eingabe`, `erwartet` und `erhalten` stehen darin nur bei Beispielen.
+
 ### Aufgaben laden
 
 Das Play mit dem Tag `seed` führt den Seed der Aufgaben als Job aus. Der Job
@@ -267,9 +276,15 @@ und weist eine Anfrage ohne sie mit 401 ab. Damit bleibt die Anwendung frei von
 Login-Seite und Token-Austausch (zero-code).
 
 Keycloak läuft als einzelner Pod mit einem PVC auf `/opt/keycloak/data`, sodass
-Realm und Benutzer einen Pod-Neustart überleben. Realm, OIDC-Client und ein
-Test-Benutzer kommen als Code über `--import-realm`, die Vorlage liegt in
-`ansible/templates/keycloak-realm.json.j2`. Der Import greift nur, solange es
+Realm und Benutzer einen Pod-Neustart überleben. Realm, OIDC-Client, die
+Rolle `dozent`, ein Test-Benutzer und ein Dozentenkonto mit dieser Rolle
+kommen als Code über `--import-realm`, die Vorlage liegt in
+`ansible/templates/keycloak-realm.json.j2`, die Namen und Passwörter der
+Konten in `auth-credentials.yaml`. Ein Mapper am Client schreibt die
+Realm-Rollen ins ID-Token, aus dem das Traefik-Plugin die Header baut, ohne
+ihn käme die Rolle nicht an der API an. Der gerenderte Import liegt als Secret
+im Namespace, nicht als ConfigMap, denn er trägt das Client-Secret und die
+Passwörter beider Konten. Der Import greift nur, solange es
 den Realm noch nicht gibt. Einen vorhandenen überspringt Keycloak mit der
 Strategie IGNORE_EXISTING, eine geänderte Vorlage erreicht den laufenden
 Cluster also erst nach einem leeren PVC (#146). Das Plugin wird in der statischen
@@ -611,6 +626,19 @@ Der Preis, der CI-Job baut je Lauf beide Images und holt pytest von PyPI.
 `tests/` liegt auf oberster Ebene, unter `app/worker` oder `app/backend`
 wanderte es über das COPY mit ins ausgelieferte Image.
 
+### Lastgenerator als Pod im Cluster
+
+Der Lastgenerator läuft als Pod im Namespace `judge`, die backend-Policy nennt
+ihn über das Label `app: lastgenerator`, der Aufruf steht unter Dashboard. Die
+Alternative war ein Lauf vom Server-Node mit einer Freigabe seiner
+Absenderadresse in der Policy, gemessen `fd00:42::`, die Adresse von
+`flannel-v6.1` auf dem Server. Den Ausschlag gibt, dass diese Adresse jeder
+Prozess auf dem Server-Node teilt und ihr Bestand nach einem Neuaufbau
+ungeprüft ist. Ein Label trifft genau den Pod, der einreichen soll. Der Preis,
+andere Werte für Rate, Dauer und Mix brauchen ein Upgrade des Release, und der
+Pod hält den Herkunftswert des Gateways aus dem Secret, wie die Test-Jobs
+auch. Die Policy bleibt dabei der zweite Riegel, die Herkunftsprüfung der API
+gilt für ihn wie für jeden anderen Absender.
 
 ## Grenzen
 
@@ -765,3 +793,16 @@ alte Valkey-Pod mit dem alten Passwort weiter, ein neuer Worker und der nächste
 `backend` und die Worker. Auf einem Cluster, der noch ohne Passwort läuft, gilt das auch für
 die Umstellung selbst, zwischen dem Play `valkey` und dem Play `app` weist
 Valkey jede Verbindung ab.
+
+Was der Judge über einen verborgenen Testfall preisgibt, ist seit #208 das
+Urteil, die Laufzeit, der Speicher und bei überschrittener Zeit- oder
+Ausgabegrenze die Meldung des Judge, nicht mehr Eingabe, erwartete oder
+erhaltene Ausgabe. Eine Einreichung, die ihre Eingabe ausgibt oder nach
+stderr schreibt, bekommt sie so nicht zurück. Offen bleibt die Zahl der
+Einreichungen, sie begrenzt nichts. Wer eine Vermutung zur Eingabe hat, kann
+sie je Einreichung gegen einen Fall prüfen, das Urteil sagt nur, ob die
+Ausgabe passt. Zwei Lücken sind bewusst. Bei einem Laufzeitfehler an einem
+verborgenen Fall fehlen auch die Hinweise des Judge, etwa das Signal oder der
+gescheiterte Start eines Threads, weil sie zum Teil Text der Einreichung
+tragen. Und die Namen verborgener Testfälle bleiben auch für die Rolle
+`dozent` weg, die Ergebnisseite unterscheidet dort nicht nach Rolle.

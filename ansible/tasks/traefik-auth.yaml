@@ -65,10 +65,11 @@
                 Value: "{% raw %}{{ .claims.preferred_username }}{% endraw %}"
               # Rolle dozent für die Verwaltung (#240). realm_access.roles ist
               # ein JSON-Array im Token, range reiht es kommagetrennt auf, wie
-              # app/backend/auth.py es erwartet. Unverifiziert gegen das
-              # Plugin: ob .claims.realm_access.roles als Map-Zugriff genauso
-              # funktioniert wie die flachen Claims oben, prüft erst ein Lauf
-              # gegen den echten Cluster.
+              # app/backend/auth.py es erwartet. Das Plugin nimmt die Claims
+              # aus dem ID-Token, und Keycloak legt die Realm-Rollen dort nur
+              # über den Mapper realm-roles am Client ab, siehe
+              # templates/keycloak-realm.json.j2. Ohne ihn kommt der Header
+              # leer an, gemessen am 01.09.2026 und am 02.09.2026.
               - Name: X-Auth-Request-Roles
                 Value: "{% raw %}{{ range .claims.realm_access.roles }}{{ . }},{{ end }}{% endraw %}"
               - Name: X-Gateway-Auth

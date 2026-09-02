@@ -4,6 +4,14 @@
   "sslRequired": "external",
   "loginWithEmailAllowed": true,
   "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "dozent",
+        "description": "Verwaltung der Anwendung, app/backend/auth.py prüft auf diesen Namen"
+      }
+    ]
+  },
   "clients": [
     {
       "clientId": "{{ oidc_client_id }}",
@@ -34,6 +42,19 @@
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
+        },
+        {
+          "name": "realm-roles-{{ oidc_client_id }}",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "false"
+          }
         }
       ]
     }
@@ -50,6 +71,22 @@
         {
           "type": "password",
           "value": "{{ test_user_password }}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "{{ dozent_user_username }}",
+      "enabled": true,
+      "email": "{{ dozent_user_email }}",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "Dozent",
+      "realmRoles": ["dozent"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "{{ dozent_user_password }}",
           "temporary": false
         }
       ]

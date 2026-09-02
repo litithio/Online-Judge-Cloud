@@ -68,6 +68,13 @@
           <td>
             {{ t.name or "Testfall " ~ t.nummer }}
             {% if t.zusatz %}<span class="zusatz">{{ t.zusatz }}</span>{% endif %}
+            {% if t.diff %}
+            <div class="diff">
+              <div><em>Eingabe</em>{{ t.diff.eingabe }}</div>
+              <div><em>Erwartet</em>{{ t.diff.erwartet }}</div>
+              <div><em>Erhalten</em><span class="ist">{{ t.diff.erhalten }}</span></div>
+            </div>
+            {% endif %}
           </td>
           {% if t.offen %}
           <td>steht aus</td>

@@ -53,8 +53,17 @@ externe:
   gatewaySecret:
     name: "gateway-auth"
     key: "secret"
+  # Nur noch für den KEDA-Trigger (redisKedaAdresse in _helpers.tpl). Die
+  # URI der Dienste kommt fertig aus dem Secret darunter, ihren Host und Port
+  # setzt ansible/tasks/valkey.yaml, beide müssen zu diesen Werten passen.
   redisService: "valkey"
   redisPort: 6379
+  # Passwort-Secret aus ansible/files/valkey-password.yaml (#61). Anders als
+  # bei MongoDB kein Secret je Dienst: Valkey kennt mit requirepass nur ein
+  # einziges Passwort, nicht mehrere Benutzer.
+  redisSecret:
+    name: "valkey-app-password"
+    key: "connectionString"
   # ConfigMap mit den Aufgaben-JSONs und laden.py, angelegt von
   # ansible/tasks/seed.yaml. Der Prüflauf unter templates/tests liest daraus
   # die Zuordnung von Lösungsverzeichnis zu Aufgabentitel, eine Kopie der

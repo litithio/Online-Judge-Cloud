@@ -60,6 +60,7 @@
         "mongoSecrets",
         "redisService",
         "redisPort",
+        "redisSecret",
         "gatewaySecret",
         "aufgabenSeedConfigMap"
       ],
@@ -98,6 +99,9 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 65535
+        },
+        "redisSecret": {
+          "$ref": "#/definitions/secretRef"
         },
         "aufgabenSeedConfigMap": {
           "type": "string",

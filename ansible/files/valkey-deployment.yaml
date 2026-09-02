@@ -30,7 +30,24 @@ spec:
       containers:
         - name: valkey
           image: valkey/valkey:8-alpine
-          args: ["valkey-server", "--appendonly", "yes"]
+          # sh -c statt args, damit das Passwort nur in der Umgebung steht und
+          # nicht in der Pod-Spec landet, die kubectl describe und die
+          # Kubernetes-API jedem mit Lesezugriff auf den Namespace zeigen.
+          command: ["sh", "-c", "exec valkey-server --appendonly yes --requirepass \"$VALKEY_PASSWORD\""]
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-app-password
+                  key: password
+            # Für die Probes. valkey-cli liest das Passwort aus dieser
+            # Variable, dann steht es nicht in den Argumenten des
+            # Probe-Prozesses und valkey-cli warnt nicht bei jedem Aufruf.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-app-password
+                  key: password
           ports:
             - containerPort: 6379
           # Gemessen unter Last am 27.08. über Prometheus, ein Lauf des
@@ -61,14 +78,17 @@ spec:
             limits:
               cpu: "250m"
               memory: "256Mi"
+          # -e, sonst endet valkey-cli auch bei NOAUTH oder WRONGPASS mit 0,
+          # und die Probe würde einen Pod für bereit halten, der keine
+          # Verbindung annimmt. Geprüft mit valkey-cli 8.1.9.
           readinessProbe:
             exec:
-              command: ["valkey-cli", "ping"]
+              command: ["valkey-cli", "-e", "ping"]
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             exec:
-              command: ["valkey-cli", "ping"]
+              command: ["valkey-cli", "-e", "ping"]
             initialDelaySeconds: 10
             periodSeconds: 10
           volumeMounts:

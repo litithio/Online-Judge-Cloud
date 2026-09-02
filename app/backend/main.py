@@ -316,9 +316,127 @@ def _testfaelle_ansicht(test_results, namen=None):
         if not eintrag["offen"]:
             eintrag["klasse"] = "ok" if t["verdict"] == "AC" else "fehler"
             eintrag["text"] = VERDICT_TEXT.get(t["verdict"], t["verdict"])
-            eintrag["zusatz"] = None if t["verdict"] == "AC" else t.get("detail")
+            # eingabe/erwartet/erhalten stehen nur bei WA und erst seit #252
+            # (worker.py, _urteil) - eine Einreichung von davor trägt bei WA
+            # nur detail als fertigen Satz, diff bleibt dann None und zusatz
+            # zeigt wie bisher den Satz.
+            eintrag["diff"] = (
+                {
+                    "eingabe": t["eingabe"],
+                    "erwartet": t["erwartet"],
+                    "erhalten": t["erhalten"],
+                }
+                if t["verdict"] == "WA" and "erwartet" in t
+                else None
+            )
+            eintrag["zusatz"] = (
+                None if t["verdict"] == "AC" or eintrag["diff"] else t.get("detail")
+            )
         ansicht.append(eintrag)
     return ansicht
+
+
+# Statusse, die einen ausgewerteten Punktstand tragen (test_results
+# vollständig, nicht nur ein Platzhalter). PENDING/RUNNING/UNRESOLVED zählen
+# nicht mit, siehe _stand_je_aufgabe.
+STAND_ZAEHLT_STATUS = ("SUCCESS", "FAILED")
+
+
+def _stand_je_aufgabe(user_id, task_id=None):
+    """Letzte und beste eigene Einreichung je Aufgabe (#252, "Ihr Stand").
+
+    In Python gruppiert statt über eine Aggregation: db.tasks.aggregate wird
+    von FakeCollection (tests/backend/fakes.py) bewusst nicht nachgebildet,
+    aufgaben_seite und aufgabe_seite laufen aber direkt gegen FakeDb
+    (test_seiten_rendern.py, test_aufgabe_rubriken.py). find()+sort() kennt
+    der Fake dagegen, wie schon _einreichungen_liste zeigt - derselbe
+    Aufbau hier hält die Routen ohne echte MongoDB testbar.
+
+    "Beste" vergleicht die Quote bestandener Testfälle (bestanden/gesamt),
+    nicht die reine Anzahl: gesamt kann sich zwischen Revisionen einer
+    Aufgabe unterscheiden (neue Testfälle im Seed), eine reine Anzahl wäre
+    dann nicht vergleichbar. Einreichungen ohne ausgewerteten Punktstand
+    (PENDING vor dem ersten Fall, UNRESOLVED ohne test_results) tragen
+    keine Quote und fallen damit aus dem Vergleich heraus.
+
+    task_id schränkt auf eine einzelne Aufgabe ein (aufgabe_seite), ohne
+    liefert die Gruppierung für jede Aufgabe mit eigenen Einreichungen einen
+    Eintrag (aufgaben_seite).
+    """
+    filter_query = {"user_id": user_id}
+    if task_id is not None:
+        filter_query["task_id"] = task_id
+    # Neueste zuerst, damit das erste Vorkommen je Aufgabe unten "letzte"
+    # ist, wie schon _einreichungen_liste sortiert.
+    submissions = db.submissions.find(filter_query).sort("created_at", -1)
+
+    gruppiert = {}
+    for s in submissions:
+        eintrag = gruppiert.setdefault(s["task_id"], {"letzte": None, "beste": None})
+        test_results = s.get("test_results") or []
+        bestanden = sum(1 for t in test_results if t.get("verdict") == "AC")
+        gesamt = len(test_results)
+        zaehlt = s["status"] in STAND_ZAEHLT_STATUS
+
+        if eintrag["letzte"] is None:
+            eintrag["letzte"] = {
+                "id": str(s["_id"]),
+                "status": s["status"],
+                "zaehlt": zaehlt,
+                "bestanden": bestanden,
+                "gesamt": gesamt,
+            }
+        if zaehlt and gesamt > 0:
+            quote = bestanden / gesamt
+            bisher = eintrag["beste"]
+            if bisher is None or quote > bisher["quote"]:
+                eintrag["beste"] = {
+                    "bestanden": bestanden,
+                    "gesamt": gesamt,
+                    "quote": quote,
+                }
+
+    ergebnis = {}
+    for tid, eintrag in gruppiert.items():
+        letzte = eintrag["letzte"]
+        beste = eintrag["beste"]
+        # Nur zeigen, wenn "beste" tatsächlich von "letzte" abweicht - sonst
+        # stünde dieselbe Zahl zweimal da (Entscheidung zu #252).
+        beste_weicht_ab = beste is not None and (
+            not letzte["zaehlt"]
+            or (beste["bestanden"], beste["gesamt"])
+            != (letzte["bestanden"], letzte["gesamt"])
+        )
+        ergebnis[tid] = {
+            "id": letzte["id"],
+            "status": letzte["status"],
+            "klasse": STATUS_KLASSE.get(letzte["status"], "fehler"),
+            "zaehlt": letzte["zaehlt"],
+            "bestanden": letzte["bestanden"],
+            "gesamt": letzte["gesamt"],
+            "beste_bestanden": beste["bestanden"] if beste_weicht_ab else None,
+            "beste_gesamt": beste["gesamt"] if beste_weicht_ab else None,
+        }
+    return ergebnis
+
+
+def _stand_text(eintrag):
+    """Text für die Spalte/den Hinweis aus _stand_je_aufgabe.
+
+    eintrag ist None, wenn die Aufgabe noch keine eigene Einreichung hat -
+    _stand_je_aufgabe trägt dafür gar keinen Schlüssel ein.
+    """
+    if eintrag is None:
+        return "noch nicht abgegeben"
+    if eintrag["zaehlt"]:
+        return f"{eintrag['bestanden']} von {eintrag['gesamt']}"
+    return STATUS_TEXT.get(eintrag["status"], eintrag["status"])
+
+
+def _stand_beste_text(eintrag):
+    if eintrag is None or eintrag["beste_bestanden"] is None:
+        return None
+    return f"{eintrag['beste_bestanden']} von {eintrag['beste_gesamt']}"
 
 
 # Klartext für fehler.html, siehe README ("Herkunftsprüfung"/#15): MongoDB
@@ -459,12 +577,21 @@ def aufgaben_seite(request: Request, user=Depends(get_current_user)):
         tasks = list(db.tasks.find({}, {"test_cases": 0}))
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, "/aufgaben")
+    try:
+        stand = _stand_je_aufgabe(user.get("sub"))
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, "/aufgaben")
     ansicht = []
     for t in tasks:
         t = parse_json(t)
         # Dieselbe Vorgabe wie auf der Detailseite (aufgabe_seite): ohne
         # eigenes Limit setzt der Worker durch, nicht ab, "–" wäre falsch.
         t["zeit_s"] = t.get("time_limit_seconds") or WORKER_STANDARD_ZEIT_S
+        eintrag = stand.get(t["id"])
+        t["stand_klasse"] = eintrag["klasse"] if eintrag else "wartet"
+        t["stand_vorhanden"] = eintrag is not None
+        t["stand_text"] = _stand_text(eintrag)
+        t["stand_beste"] = _stand_beste_text(eintrag)
         ansicht.append(t)
     return templates.TemplateResponse(
         request,
@@ -536,6 +663,10 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
         for fall in testfaelle
         if isinstance(fall, dict) and fall.get("sample") is True
     ]
+    try:
+        letzte = _stand_je_aufgabe(user.get("sub"), task_id=task_id).get(task_id)
+    except PyMongoError as fehler:
+        return _dienst_nicht_erreichbar(request, fehler, f"/aufgabe/{task_id}")
     return templates.TemplateResponse(
         request,
         "aufgabe.html",
@@ -550,6 +681,12 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
             "speicher_mb": task.get("memory_limit_mb") or WORKER_STANDARD_SPEICHER_MB,
             "user": user,
             "ist_admin": _ist_admin(user),
+            # None ohne eigene Einreichung - editor-fuss zeigt den Hinweis
+            # dann gar nicht (#252).
+            "letzte_einreichung_id": letzte["id"] if letzte else None,
+            "letzte_einreichung_text": _stand_text(letzte),
+            "letzte_einreichung_zaehlt": letzte["zaehlt"] if letzte else False,
+            "letzte_einreichung_beste": _stand_beste_text(letzte),
         },
     )
 

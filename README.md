@@ -96,10 +96,17 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 cp ansible/dns-credentials.yaml.example ansible/dns-credentials.yaml
 cp ansible/auth-credentials.yaml.example ansible/auth-credentials.yaml
 cp ansible/files/mongodb-password.yaml.example ansible/files/mongodb-password.yaml
+cp ansible/files/valkey-password.yaml.example ansible/files/valkey-password.yaml
 direnv allow
 ```
 
-Alle vier Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+Alle fünf Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
+`valkey-password.yaml` trägt das `requirepass` von Valkey (#61), ein einziges
+Passwort für den ganzen Dienst statt eines Benutzers je Dienst wie bei
+MongoDB. Die Datei hält nur das rohe Passwort, `ansible/tasks/valkey.yaml`
+leitet daraus die URI für Backend, Worker und `durchlauf` ab und legt sie als
+`connectionString` in dasselbe Secret. Der KEDA-Trigger liest das rohe
+Passwort über eine TriggerAuthentication.
 `auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
 OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
 stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
@@ -111,7 +118,7 @@ Cluster hochbringen:
 scripts/deploy.sh
 ```
 
-Das Skript prüft erst die vier Kopien und die Werkzeuge, wartet mit VPN an
+Das Skript prüft erst die fünf Kopien und die Werkzeuge, wartet mit VPN an
 auf die OpenStack-API und lässt `terraform init` und `terraform apply`
 laufen. Dann hält es an der VPN-Grenze, fordert zum Ausschalten auf und
 wartet, bis der Server über IPv6 auf Port 22 antwortet. Danach laufen
@@ -172,9 +179,10 @@ Das Chart `app/chart` rollt die eigenen Dienste aus, die API (`backend`) und
 die Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob. MongoDB, Valkey
 und der Seed der Aufgaben gehören zur Infrastruktur und stehen schon im
 Cluster. Das Chart verbindet sich mit ihnen über `externe` in den values, mit
-der Queue über den Service-Namen und mit MongoDB über das Operator-Secret, das
-die URI samt Zugangsdaten hält. Das Play mit dem Tag `app` kopiert den Chart
-auf den Server und ruft `helm upgrade --install`.
+MongoDB über das Operator-Secret, das die URI samt Zugangsdaten hält, und mit
+Valkey über das Secret aus `ansible/files/valkey-password.yaml` (#61). Das
+Play mit dem Tag `app` kopiert den Chart auf den Server und ruft
+`helm upgrade --install`.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
@@ -746,3 +754,13 @@ hat der Controller schon eine alte Replica entfernt und holt sie nicht zurück,
 ein automatisches Rollback gibt es nicht. Mit einem Tag, den die Registry nicht
 kennt, stand prod nach 45 Sekunden bei einer verfügbaren Replica und dev bei
 null. Ohne `maxUnavailable: 1` laufen die alten Pods in diesem Fall weiter.
+
+Ein Wechsel des Valkey-Passworts erreicht laufende Pods nicht. Das Secret
+hängt als Umgebungsvariable an Valkey, Backend, Worker und `durchlauf`, und
+keine Pod-Vorlage ändert sich mit dem Wert. Nach dem Play `valkey` läuft der
+alte Valkey-Pod mit dem alten Passwort weiter, ein neuer Worker und der nächste
+`durchlauf` kommen schon mit dem neuen. Die Reihenfolge ist deshalb
+`kubectl rollout restart deployment/valkey -n judge`, danach dasselbe für
+`backend` und die Worker. Auf einem Cluster, der noch ohne Passwort läuft, gilt das auch für
+die Umstellung selbst, zwischen dem Play `valkey` und dem Play `app` weist
+Valkey jede Verbindung ab.

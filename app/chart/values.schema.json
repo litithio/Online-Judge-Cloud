@@ -6,7 +6,8 @@
   "required": [
     "image",
     "externe",
-    "judge"
+    "judge",
+    "lastgenerator"
   ],
   "definitions": {
     "secretRef": {
@@ -260,6 +261,36 @@
           "type": "integer",
           "minimum": 68,
           "description": "Frist in Sekunden zwischen SIGTERM und SIGKILL am Worker-Pod. Der Worker rechnet die laufende Bewertung nach dem SIGTERM zu Ende, die Herleitung des tragfähigen Werts steht in values.yaml. Das Minimum von 68 ist die berechenbare Untergrenze aus worker.py für den reinen Sandbox-Anteil eines einzelnen Testfalls am maximalen Zeitlimit samt Aufräumen, GRENZE_ZEIT_MAX + 1 + ZEITFRIST_PUFFER plus SIGKILL_FRIST plus REST_FRIST, also 67,5. Die MongoDB-Zugriffe einer Bewertung kommen obendrauf, sie stehen in der Herleitung in values.yaml. Es ist eine Untergrenze gegen offensichtlichen Unsinn und kein tragfähiger Wert, darunter kann schon ein einzelner Testfall am maximalen Zeitlimit nicht zu Ende gerechnet werden."
+        }
+      }
+    },
+    "lastgenerator": {
+      "type": "object",
+      "required": [
+        "rate",
+        "dauer",
+        "mix",
+        "resources"
+      ],
+      "description": "Argumente des Lastlaufs (#275). Der angehaltene CronJob ist die Vorlage für kubectl create job --from, ein Job daraus lässt sich nicht mehr umparametrieren, deshalb müssen die Werte hier vollständig stehen.",
+      "properties": {
+        "rate": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Einreichungen je Sekunde. lastgenerator.py lehnt 0 und negative Werte ab, das Schema fängt sie vor dem Job."
+        },
+        "dauer": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Sekunden. Ganzzahlig, weil activeDeadlineSeconds im Template daraus rechnet."
+        },
+        "mix": {
+          "type": "string",
+          "pattern": "^(korrekt|langsam|falsch|kaputt)=[0-9]+(,(korrekt|langsam|falsch|kaputt)=[0-9]+)*$",
+          "description": "Gewichte je Sorte wie --mix in lastgenerator.py. Das Muster prüft Form und Sortennamen, die Summe über 0 prüft das Skript."
+        },
+        "resources": {
+          "type": "object"
         }
       }
     }

@@ -1,0 +1,20 @@
+# Die Beispiellösungen aus loesungen/ als ConfigMap. Zwei Pods lesen sie, der
+# Prüflauf test-loesungen (#19) und der Lastgenerator (#275). Ein gewöhnliches
+# Objekt des Release statt eines test-Hooks, damit der Lastgenerator sie auch
+# ohne vorherigen helm test vorfindet.
+#
+# Schlüssel dürfen keinen Schrägstrich tragen, aus loesungen/summe/akzeptiert.py
+# wird deshalb summe__akzeptiert.py. Der Prüflauf trennt am doppelten
+# Unterstrich wieder auf, der Lastgenerator stellt die Verzeichnisse über
+# items und path am Volume wieder her.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loesungen
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+data:
+  {{- range $pfad, $_ := .Files.Glob "loesungen/*/*.py" }}
+  {{ base (dir $pfad) }}__{{ base $pfad }}: |-
+{{ $.Files.Get $pfad | indent 4 }}
+  {{- end }}

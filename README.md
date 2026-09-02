@@ -308,18 +308,23 @@ Passwort setzt `grafana_admin_password` aus `auth-credentials.yaml`. Anders als
 die Anwendung hängt Grafana nicht hinter der Anmeldung aus #20, es prüft
 selbst.
 
-Ohne Last stehen beide Kurven auf null. Einreichungen erzeugt
-`app/lastgenerator.py`, lokal aus dem Repo über `kubectl port-forward`. Den
-Wert für `X-Gateway-Auth` liest es aus `ansible/auth-credentials.yaml`.
+Ohne Last stehen beide Kurven auf null. Einreichungen erzeugt der
+Lastgenerator `app/chart/lastgenerator.py`. Er läuft als Pod im Namespace
+`judge`, weil die backend-NetworkPolicy aus #62 Ingress nur von benannten Pods
+zulässt und ein Aufruf vom Steuerrechner unter die Sperre fällt. Das Chart legt
+ihn als angehaltenen CronJob an, einen Lauf startet ein Job aus dieser Vorlage.
 
 ```bash
-# VPN aus, in einem zweiten Terminal
-kubectl port-forward -n judge svc/backend 8000:8000
-python3 app/lastgenerator.py --rate 2 --dauer 90
+# VPN aus
+kubectl create job -n judge --from=cronjob/lastgenerator lastgenerator-1
+kubectl logs -n judge -f job/lastgenerator-1
 ```
 
-Mit diesen Werten laufen 180 Einreichungen durch, die Warteschlange steigt auf
-gut 70 und KEDA skaliert die Worker von null auf fünf.
+Rate und Dauer stehen in `app/chart/values.yaml` unter `lastgenerator`. Mit
+den Vorgaben, 2 je Sekunde über 90 Sekunden, laufen 180 Einreichungen durch,
+die Warteschlange steigt auf gut 70 und KEDA skaliert die Worker von null auf
+fünf. Der Job bleibt mit seinem Log stehen, bis `kubectl delete job` ihn
+entfernt, ein zweiter Lauf braucht einen neuen Namen.
 
 Vor dem Push:
 
@@ -468,7 +473,7 @@ Operator 500m an. Ein mongodb-Pod forderte damit 600m, die 100m von `mongod`
 plus die 500m des Sidecars, und mit dem Operator kamen die drei Pods auf 2300m.
 
 Den Ausschlag gibt, dass Sidecar und Operator ihre Spitze nicht unter
-Anwendungslast haben. Gemessen mit `app/lastgenerator.py`, 15 Einreichungen je
+Anwendungslast haben. Gemessen mit `app/chart/lastgenerator.py`, 15 Einreichungen je
 Sekunde über 180 Sekunden, bleibt der Sidecar bei 17m und der Operator bei 1m.
 Ihre Arbeit hängt am Abgleich der Replica-Set-Konfiguration, und der fällt beim
 Ausrollen an. Dort sind 30m für den Sidecar und 10m für den Operator gemessen,
@@ -504,7 +509,7 @@ Metaspace und 33Mi Code-Cache. Zurück ging der Wert im beobachteten Zeitraum
 nicht, auch die Bereinigung holte ihn nicht herunter. Ein Request am Leerlauf
 läge damit schon nach der ersten Anmeldewelle unter dem Verbrauch, und der
 Scheduler plante den Pod zu klein ein. Das Skript ist ein zweites neben
-`app/lastgenerator.py`, weil jenes die Anmeldung überspringt. Es setzt die
+`app/chart/lastgenerator.py`, weil jenes die Anmeldung überspringt. Es setzt die
 `X-Auth-Request`-Header selbst und spricht den `backend`-Service direkt an,
 Keycloak sieht davon nichts.
 

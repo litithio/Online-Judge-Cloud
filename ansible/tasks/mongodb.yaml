@@ -17,7 +17,7 @@
         # Ohne diesen Block gelten die Vorgaben des Charts mit 500m und
         # 200Mi als Request, und der Operator hielte damit mehr CPU fest als
         # die drei mongod zusammen. Gemessen am 22.08. mit kubectl top pod
-        # --containers, unter Last aus app/lastgenerator.py mit 15
+        # --containers, unter Last aus app/chart/lastgenerator.py mit 15
         # Einreichungen je Sekunde über 180 Sekunden, bleibt er bei 1m und
         # 15Mi und damit auf dem Wert aus dem Leerlauf. Das ist erwartbar,
         # denn er gleicht nur die MongoDBCommunity mit dem StatefulSet ab und

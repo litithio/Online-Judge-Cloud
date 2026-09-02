@@ -165,10 +165,6 @@ spec:
 # Ingress nur von Traefik (#62). Der Weg von außen führt über Traefik ->
 # Middleware -> diesen Service, ein anderer Absender ist nicht vorgesehen.
 # Kein Egress-Block: der bleibt offen, bis die Egress-Regeln stehen.
-#
-# Der Lastgenerator ist davon ausgesperrt. Er läuft laut seinem Docstring
-# auf dem Server-Node gegen die Service-IP, nicht als Pod, und fällt damit
-# unter keinen Selektor. Offener Punkt in #62.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -203,6 +199,11 @@ spec:
         - podSelector:
             matchLabels:
               batch.kubernetes.io/job-name: test-loesungen
+        # Der Lastgenerator aus #275, ein Job aus dem CronJob lastgenerator.
+        # Festes Label, der Job-Name steht bei jedem Lauf anders.
+        - podSelector:
+            matchLabels:
+              app: lastgenerator
       ports:
         - protocol: TCP
           port: 8000

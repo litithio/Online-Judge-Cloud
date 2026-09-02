@@ -352,7 +352,7 @@ kubectl logs -n judge -f job/lastgenerator-1
 Rate und Dauer stehen in `app/chart/values.yaml` unter `lastgenerator`. Mit
 den Vorgaben, 2 je Sekunde über 90 Sekunden, laufen 180 Einreichungen durch,
 die Warteschlange steigt auf gut 70 und KEDA skaliert die Worker von null auf
-fünf. Der Job bleibt mit seinem Log stehen, bis `kubectl delete job` ihn
+sechs. Der Job bleibt mit seinem Log stehen, bis `kubectl delete job` ihn
 entfernt, ein zweiter Lauf braucht einen neuen Namen.
 
 Vor dem Push:
@@ -385,11 +385,19 @@ meldet, wenn eine `.mmd` neuer ist als ihr SVG.
 Der Cluster hat drei Dienste-Nodes und zwei Judge-Nodes, der Server nimmt nur
 noch die Addons von k3s auf. Drei Dienste-Nodes, weil das MongoDB-Replica-Set
 den Verlust eines Nodes nur übersteht, wenn seine drei Members auf drei Nodes
-liegen. Zwei Judge-Nodes wegen des Durchsatzes. `keda.max` steht auf 5, und
-ein Judge-Worker fordert einen ganzen Kern. Auf einem Judge-Node sind 4 Kerne
-verfügbar und ohne Einreichungen 0 davon angefordert, weil dort weder Longhorn
-noch Traefik, cert-manager, external-dns oder KEDA laufen. Zwei Nodes tragen
-die fünf Worker also mit Reserve, ein einzelner Node käme auf vier und
+liegen. Zwei Judge-Nodes wegen des Durchsatzes. Ein Judge-Worker fordert
+einen ganzen Kern. Auf einem Judge-Node sind 4 Kerne verfügbar und ohne
+Einreichungen 0 davon angefordert, weil dort weder Longhorn noch Traefik,
+cert-manager, external-dns oder KEDA laufen. `keda.max` steht auf 6,
+hergeleitet aus diesen acht Kernen. Acht Worker passen rechnerisch, dann sind
+beide Nodes sicher voll, und kubelet, containerd und die runsc-Sandbox jedes
+Pods laufen dort ohne eigenen Request. Bei sechs bleibt in der Verteilung drei
+zu drei ein Kern je Node frei. Zugesagt ist das nicht. Die Verteilungsregel am
+Worker ist eine Präferenz, ein einzelner Node kann vier Worker tragen, und
+diesen Fall gibt es bei fünf ebenso. Der Preis von sechs gegenüber fünf ist
+ein gebundener Kern mehr unter Volllast, nicht ein neuer Fall. Bis zum 02.09.
+stand `keda.max` auf 5, die Zahl stammte aus der Zeit, in der drei Agents Judge
+und Dienste zusammen trugen. Ein einzelner Judge-Node käme auf vier und
 `keda.max` müsste herunter.
 
 Die Alternative ohne zusätzliche Nodes war eine podAntiAffinity am Worker
@@ -416,8 +424,8 @@ Sekunden aus dem Worker zurück. Bekommt ein Worker seinen Kern nicht, weil
 andere Pods auf demselben Node rechnen, wächst nur die vergangene Zeit. Die
 Rechenzeit bleibt unter dem Limit, die Frist reißt trotzdem, und eine korrekte
 Einreichung bekommt TLE. Das Urteil hinge dann an der Belegung des Nodes statt
-an der Lösung. Deshalb Request gleich Limit. Der Preis dafür sind fünf
-gebundene Kerne bei fünf Workern, und über fünf hinaus skaliert der Judge
+an der Lösung. Deshalb Request gleich Limit. Der Preis dafür sind sechs
+gebundene Kerne bei sechs Workern, und über sechs hinaus skaliert der Judge
 erst, wenn Nodes dazukommen. Gemessen sind unter Last 897m bis 1009m CPU und
 44 bis 48 MiB je Worker, das Speicherlimit deckt zusätzlich die 256 MB ab, die
 eine Aufgabe für den Kindprozess fordern darf.

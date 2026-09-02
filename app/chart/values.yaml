@@ -196,7 +196,15 @@ judge:
       keda:
         # 0, damit ohne Einreichungen kein Pod steht.
         min: 0
-        max: 5
+        # 6 aus den Kernen der beiden Judge-Nodes. Je Node 4 Kerne allocatable
+        # und ohne Einreichungen 0 angefordert, ein Worker fordert einen Kern.
+        # Acht passen rechnerisch, dann sind beide Nodes sicher voll, und
+        # kubelet, containerd und die runsc-Sandbox jedes Pods laufen dort
+        # ohne eigenen Request. Bei 6 bleibt in der Verteilung drei zu drei
+        # ein Kern je Node frei. Zugesagt ist das nicht, die Verteilungsregel
+        # im Template ist eine Präferenz, ein Node kann vier Worker tragen.
+        # Diesen Fall gibt es bei 5 ebenso, 6 macht ihn nicht wahrscheinlicher.
+        max: 6
         # Ab dieser Länge je Replica skaliert KEDA hoch.
         listLength: 5
         # KEDA aktiviert, sobald die Länge über diesem Wert liegt. Bei 1 bliebe
@@ -232,7 +240,7 @@ judge:
 lastgenerator:
   # Einreichungen je Sekunde und Sekunden. 2 über 90 sind 180 Einreichungen,
   # die Werte der Dashboard-Szene im README. Damit steigt die Warteschlange auf
-  # gut 70 und KEDA skaliert die Worker von null auf fünf.
+  # gut 70 und KEDA skaliert die Worker von null auf sechs.
   rate: 2
   dauer: 90
   # Gewichte je Sorte, die Sorten erklärt lastgenerator.py.

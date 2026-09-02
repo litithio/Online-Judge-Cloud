@@ -40,6 +40,14 @@ spec:
                 secretKeyRef:
                   name: valkey-app-password
                   key: password
+            # Für die Probes. valkey-cli liest das Passwort aus dieser
+            # Variable, dann steht es nicht in den Argumenten des
+            # Probe-Prozesses und valkey-cli warnt nicht bei jedem Aufruf.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-app-password
+                  key: password
           ports:
             - containerPort: 6379
           # Gemessen unter Last am 27.08. über Prometheus, ein Lauf des
@@ -70,14 +78,17 @@ spec:
             limits:
               cpu: "250m"
               memory: "256Mi"
+          # -e, sonst endet valkey-cli auch bei NOAUTH oder WRONGPASS mit 0,
+          # und die Probe würde einen Pod für bereit halten, der keine
+          # Verbindung annimmt. Geprüft mit valkey-cli 8.1.9.
           readinessProbe:
             exec:
-              command: ["sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" ping"]
+              command: ["valkey-cli", "-e", "ping"]
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             exec:
-              command: ["sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" ping"]
+              command: ["valkey-cli", "-e", "ping"]
             initialDelaySeconds: 10
             periodSeconds: 10
           volumeMounts:

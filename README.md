@@ -103,10 +103,10 @@ direnv allow
 Alle fünf Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
 `valkey-password.yaml` trägt das `requirepass` von Valkey (#61), ein einziges
 Passwort für den ganzen Dienst statt eines Benutzers je Dienst wie bei
-MongoDB. Die Datei hat zwei Felder mit demselben Wert, `password` für den
-Server (`ansible/files/valkey-deployment.yaml`) und `connectionString` für
-Backend, Worker, `durchlauf` und den KEDA-Trigger, damit keiner von ihnen das
-Passwort selbst in eine URI einsetzen muss.
+MongoDB. Die Datei hält nur das rohe Passwort, `ansible/tasks/valkey.yaml`
+leitet daraus die URI für Backend, Worker und `durchlauf` ab und legt sie als
+`connectionString` in dasselbe Secret. Der KEDA-Trigger liest das rohe
+Passwort über eine TriggerAuthentication.
 `auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
 OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
 stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
@@ -754,3 +754,13 @@ hat der Controller schon eine alte Replica entfernt und holt sie nicht zurück,
 ein automatisches Rollback gibt es nicht. Mit einem Tag, den die Registry nicht
 kennt, stand prod nach 45 Sekunden bei einer verfügbaren Replica und dev bei
 null. Ohne `maxUnavailable: 1` laufen die alten Pods in diesem Fall weiter.
+
+Ein Wechsel des Valkey-Passworts erreicht laufende Pods nicht. Das Secret
+hängt als Umgebungsvariable an Valkey, Backend, Worker und `durchlauf`, und
+keine Pod-Vorlage ändert sich mit dem Wert. Nach dem Play `valkey` läuft der
+alte Valkey-Pod mit dem alten Passwort weiter, ein neuer Worker und der nächste
+`durchlauf` kommen schon mit dem neuen. Die Reihenfolge ist deshalb
+`kubectl rollout restart deployment/valkey -n judge`, danach dasselbe für
+`backend` und die Worker. Auf einem Cluster, der noch ohne Passwort läuft, gilt das auch für
+die Umstellung selbst, zwischen dem Play `valkey` und dem Play `app` weist
+Valkey jede Verbindung ab.

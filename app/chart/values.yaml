@@ -53,6 +53,9 @@ externe:
   gatewaySecret:
     name: "gateway-auth"
     key: "secret"
+  # Nur noch für den KEDA-Trigger (redisKedaAdresse in _helpers.tpl). Die
+  # URI der Dienste kommt fertig aus dem Secret darunter, ihren Host und Port
+  # setzt ansible/tasks/valkey.yaml, beide müssen zu diesen Werten passen.
   redisService: "valkey"
   redisPort: 6379
   # Passwort-Secret aus ansible/files/valkey-password.yaml (#61). Anders als

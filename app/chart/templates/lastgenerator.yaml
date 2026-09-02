@@ -1,0 +1,129 @@
+# Lastgenerator als Pod im Cluster (#275). Die backend-Policy aus #62 lässt
+# Ingress nur von benannten Pods zu, ein Aufruf vom Steuerrechner oder vom
+# Server-Node fällt unter die Sperre. Der Pod trägt dafür das Label
+# app: lastgenerator, das die Policy nennt.
+#
+# Ein CronJob mit suspend statt eines Jobs. Ein Job im Chart liefe beim ersten
+# Install einmal und danach nie wieder, Helm legt ein unverändertes Objekt
+# nicht neu an. Der angehaltene CronJob ist die Vorlage, aus der
+# kubectl create job --from=cronjob/lastgenerator je Lauf einen Job baut.
+# schedule ist ein Pflichtfeld des CronJob, mit suspend läuft es nie an.
+#
+# Das Skript kommt als ConfigMap aus lastgenerator.py neben dem Chart, so
+# bleibt es für ruff und für den lokalen Aufruf gegen den Compose-Stand eine
+# gewöhnliche Python-Datei, wie die Skripte unter tests/.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lastgenerator
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+data:
+  lastgenerator.py: |-
+{{ .Files.Get "lastgenerator.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lastgenerator
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  schedule: "@yearly"
+  suspend: true
+  jobTemplate:
+    spec:
+      # Kein zweiter Versuch. Ein gescheiterter Lauf soll den Grund zeigen, ein
+      # Wiederholung schickte alle Einreichungen noch einmal.
+      backoffLimit: 0
+      # Obere Schranke aus lastgenerator.py. Höchstens WARTEFRIST mit 60
+      # Sekunden auf die API, dann die Dauer des Laufs. Der Pool hält 32
+      # Verbindungen offen und jede endet nach spätestens 10 Sekunden Timeout,
+      # antwortet die API gar nicht, brauchen rate mal dauer Einreichungen also
+      # höchstens 10 Sekunden je angefangene 32. Dazu 60 für den Pod-Start,
+      # wie die Reserve bei test-api. Genau dieser Fall soll den Bericht noch
+      # erreichen, "unbekannt" je Einreichung ist dann die Aussage.
+      activeDeadlineSeconds: {{ add 120 (int .Values.lastgenerator.dauer) (mul 10 (int (ceil (divf (mulf .Values.lastgenerator.rate .Values.lastgenerator.dauer) 32)))) }}
+      template:
+        metadata:
+          labels:
+            # Fester Selektor für die backend-Policy. Der Name des Jobs steht
+            # bei jedem Lauf anders, batch.kubernetes.io/job-name taugt hier
+            # nicht als Selektor.
+            app: lastgenerator
+        spec:
+          restartPolicy: Never
+          # Wie die Test-Jobs. Der Pod trägt den Herkunftswert des Gateways, und
+          # die Judge-Nodes nehmen über ihr Sandbox-Taint ohnehin nur Worker an.
+          nodeSelector:
+            online-judge/rolle: dienste
+          # Kein Token im Pod, das Skript spricht nur die API an.
+          automountServiceAccountToken: false
+          containers:
+            - name: lastgenerator
+              # Das Backend-Image, es liegt schon auf den Dienste-Nodes und
+              # bringt das python3 für das Skript mit.
+              image: {{ include "online-judge.image" (dict "root" . "repo" .Values.backend.repository) }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - python3
+                - /lastgenerator/lastgenerator.py
+                - --api
+                # Der Service aus backend.yaml, wie in tests/api_pruefen.py.
+                - http://backend:8000
+                - --rate
+                - {{ .Values.lastgenerator.rate | quote }}
+                - --dauer
+                - {{ .Values.lastgenerator.dauer | quote }}
+                - --mix
+                - {{ .Values.lastgenerator.mix | quote }}
+              env:
+                # Dasselbe Secret liest die API. Ohne den Wert antwortet sie
+                # auf jede Route mit 401 (#79).
+                - name: GATEWAY_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.externe.gatewaySecret.name | quote }}
+                      key: {{ .Values.externe.gatewaySecret.key | quote }}
+                - name: AUFGABEN_PFAD
+                  value: /aufgaben
+                - name: LOESUNGEN_PFAD
+                  value: /loesungen
+                # Ohne Terminal puffert python die Ausgabe bis zum Ende, die
+                # Startzeile käme in kubectl logs -f erst mit dem Bericht.
+                - name: PYTHONUNBUFFERED
+                  value: "1"
+              # Wie die Test-Jobs. Das Skript hält höchstens 32 Verbindungen
+              # offen und rechnet selbst nichts.
+              resources:
+                {{- toYaml .Values.lastgenerator.resources | nindent 16 }}
+              volumeMounts:
+                - name: skript
+                  mountPath: /lastgenerator
+                  readOnly: true
+                - name: aufgaben
+                  mountPath: /aufgaben
+                  readOnly: true
+                - name: loesungen
+                  mountPath: /loesungen
+                  readOnly: true
+          volumes:
+            - name: skript
+              configMap:
+                name: lastgenerator
+            # Die ConfigMap des Seed, wie beim Prüflauf. Das Skript liest daraus
+            # die Zuordnung von Lösungsverzeichnis zu Aufgabentitel.
+            - name: aufgaben
+              configMap:
+                name: {{ .Values.externe.aufgabenSeedConfigMap | quote }}
+            # Die Schlüssel tragen den Verzeichnisnamen mit doppeltem
+            # Unterstrich (loesungen.yaml). path stellt das Verzeichnis wieder
+            # her, das Skript liest dann dieselbe Struktur wie im Repo.
+            - name: loesungen
+              configMap:
+                name: loesungen
+                items:
+                  {{- range $pfad, $_ := .Files.Glob "loesungen/*/*.py" }}
+                  - key: {{ base (dir $pfad) }}__{{ base $pfad }}
+                    path: {{ base (dir $pfad) }}/{{ base $pfad }}
+                  {{- end }}

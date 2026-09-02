@@ -99,3 +99,19 @@ muss_scheitern tmpSizeLimit --set-string judge.tmpSizeLimit=ganzviel
 # Testfall am maximalen Zeitlimit nicht zu Ende gerechnet werden.
 muss_scheitern terminationGracePeriodSeconds --set judge.terminationGracePeriodSeconds=null
 muss_scheitern terminationGracePeriodSeconds --set judge.terminationGracePeriodSeconds=67
+# Argumente des Lastgenerators (#275). Ein Job aus der CronJob-Vorlage lässt
+# sich nicht mehr umparametrieren, ein kaputter Wert fiele erst im Pod auf.
+muss_scheitern rate --set lastgenerator.rate=0
+muss_scheitern mix --set lastgenerator.mix=schnell=1
+
+# Die Frist des Lastgenerator-Jobs muss den Fall decken, dass jede Einreichung
+# in den Client-Timeout läuft. 1000 Einreichungen sind 32 angefangene Runden
+# des Pools zu je 10 Sekunden, dazu 120 Reserve und die Dauer 1, also 441.
+echo "== Frist des Lastgenerator-Jobs =="
+frist=$(helm template /chart --set image.tag=0.0.0-test --set lastgenerator.rate=1000 --set lastgenerator.dauer=1 \
+    --show-only templates/lastgenerator.yaml | sed -nE 's/^ *activeDeadlineSeconds: ([0-9]+)$/\1/p')
+if [ "$frist" != "441" ]; then
+    echo "activeDeadlineSeconds bei rate 1000 und dauer 1 ist $frist statt 441"
+    exit 1
+fi
+echo "Frist bei rate 1000 und dauer 1 ist 441 wie erwartet"

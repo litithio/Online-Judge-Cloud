@@ -11,7 +11,7 @@ Die Lösungen kommen als ConfigMap aus dem Chart, mit Schlüsseln der Form
 verzeichnis__datei.py. Die Zuordnung von Verzeichnis zu Aufgabe läuft über
 die Aufgaben-JSONs aus der ConfigMap des Seed. Das Verzeichnis heißt wie der
 Dateistamm der JSON, deren Titel ist der Schlüssel in der Datenbank, wie in
-app/lastgenerator.py.
+app/chart/lastgenerator.py.
 """
 
 import json
@@ -25,7 +25,7 @@ API = os.getenv("API_URL", "http://backend:8000")
 LOESUNGEN = pathlib.Path(os.getenv("LOESUNGEN_PFAD", "/loesungen"))
 AUFGABEN = pathlib.Path(os.getenv("AUFGABEN_PFAD", "/aufgaben"))
 
-# Dieselben Header wie in app/lastgenerator.py, siehe api_pruefen.py.
+# Dieselben Header wie in app/chart/lastgenerator.py, siehe api_pruefen.py.
 KOPFZEILEN = {
     "X-Auth-Request-User": "helm-test",
     "X-Auth-Request-Preferred-Username": "helm-test",

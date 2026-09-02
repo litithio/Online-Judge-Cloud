@@ -1,9 +1,10 @@
 # Zweiter helm-test-Job (#19), der Prüflauf gegen die Beispiellösungen. Je
 # Aufgabe muss eine Lösung bestehen und eine an einem Limit scheitern, der
 # Dateiname sagt, was erwartet wird, damit prüft der Judge sich selbst. Die
-# Lösungen liegen unter loesungen/ im Chart und kommen von dort als ConfigMap
-# in den Pod. Eingereicht wird über /submit, ein Lauf deckt also API, Queue,
-# das Anlaufen der Worker aus null Replicas und die Bewertung ab.
+# Lösungen liegen unter loesungen/ im Chart und kommen über die ConfigMap
+# loesungen (templates/loesungen.yaml) in den Pod. Eingereicht wird über
+# /submit, ein Lauf deckt also API, Queue, das Anlaufen der Worker aus null
+# Replicas und die Bewertung ab.
 #
 # Die Zuordnung von Lösungsverzeichnis zu Aufgabentitel steht in den
 # Aufgaben-JSONs. Deren einzige Quelle im Cluster ist die ConfigMap des Seed
@@ -23,25 +24,6 @@ metadata:
 data:
   loesungen_pruefen.py: |-
 {{ .Files.Get "tests/loesungen_pruefen.py" | indent 4 }}
----
-# Die Lösungen als eigene ConfigMap. Schlüssel dürfen keinen Schrägstrich
-# tragen, aus loesungen/summe/akzeptiert.py wird deshalb summe__akzeptiert.py,
-# und das Skript trennt am doppelten Unterstrich wieder auf.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: test-loesungen-dateien
-  labels:
-    {{- include "online-judge.labels" . | nindent 4 }}
-  annotations:
-    "helm.sh/hook": test
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation
-data:
-  {{- range $pfad, $_ := .Files.Glob "loesungen/*/*.py" }}
-  {{ base (dir $pfad) }}__{{ base $pfad }}: |-
-{{ $.Files.Get $pfad | indent 4 }}
-  {{- end }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -108,7 +90,7 @@ spec:
             name: test-loesungen
         - name: loesungen
           configMap:
-            name: test-loesungen-dateien
+            name: loesungen
         - name: aufgaben
           configMap:
             name: {{ .Values.externe.aufgabenSeedConfigMap | quote }}

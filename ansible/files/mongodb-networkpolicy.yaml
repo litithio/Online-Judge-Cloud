@@ -1,0 +1,40 @@
+# Ingress zu MongoDB (#62). Ausnahme zum namespace-weiten default-deny in
+# judge-networkpolicy.yaml. Nur Ingress -- den Egress der Pods zur K8s-API
+# (sie schreiben über den ServiceAccount mongodb-database selbst) regelt
+# ein späterer Schritt.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mongodb
+  namespace: "{{ app_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb-svc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+        - podSelector:
+            matchLabels:
+              komponente: judge-worker
+        - podSelector:
+            matchLabels:
+              app: durchlauf
+        - podSelector:
+            matchLabels:
+              app: aufgaben-seed
+        # Replikation der drei Pods untereinander.
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+        # Der Operator legt Benutzer an und liest den Zustand.
+        - podSelector:
+            matchLabels:
+              name: mongodb-kubernetes-operator
+      ports:
+        - protocol: TCP
+          port: 27017

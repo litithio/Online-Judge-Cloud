@@ -160,3 +160,50 @@ spec:
   ports:
     - port: 8000
       targetPort: 8000
+
+---
+# Ingress nur von Traefik (#62). Der Weg von außen führt über Traefik ->
+# Middleware -> diesen Service, ein anderer Absender ist nicht vorgesehen.
+# Kein Egress-Block: der bleibt offen, bis die Egress-Regeln stehen.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Der Weg von außen: Traefik -> Middleware -> dieser Service.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        # Backend untereinander, für den Node-übergreifenden Test in
+        # scripts/smoke.sh.
+        - podSelector:
+            matchLabels:
+              app: backend
+        # Die beiden Helm-Test-Jobs. Beide rufen http://backend:8000 auf,
+        # siehe app/chart/tests/api_pruefen.py und loesungen_pruefen.py.
+        - podSelector:
+            matchLabels:
+              batch.kubernetes.io/job-name: test-api
+        - podSelector:
+            matchLabels:
+              batch.kubernetes.io/job-name: test-loesungen
+        # Der Lastgenerator aus #275, ein Job aus dem CronJob lastgenerator.
+        # Festes Label, der Job-Name steht bei jedem Lauf anders.
+        - podSelector:
+            matchLabels:
+              app: lastgenerator
+      ports:
+        - protocol: TCP
+          port: 8000

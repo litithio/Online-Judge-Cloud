@@ -1,0 +1,33 @@
+# Erste Policy (#62). Bewusst ohne namespace-weites default-deny: der
+# podSelector schaltet allein diesen Pod auf deny, alles andere in judge
+# bleibt offen. Nur Ingress, damit weder DNS noch die K8s-API hier eine
+# Rolle spielen.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey
+  namespace: "{{ app_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: valkey
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Pods aus dem Chart: backend, code-worker (je Sprache ein eigenes
+        # Deployment, part-of trifft alle) und durchlauf. MongoDB, Keycloak
+        # und der MongoDB-Operator liegen im selben Namespace, haben an der
+        # Queue aber nichts zu suchen.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: online-judge
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keda
+          podSelector:
+            matchLabels:
+              app: keda-operator
+      ports:
+        - protocol: TCP
+          port: 6379

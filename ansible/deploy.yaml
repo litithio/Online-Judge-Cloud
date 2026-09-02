@@ -331,6 +331,8 @@
   hosts: judge_k3s_server
   tags: [namespace]
   become: true
+  vars_files:
+    - vars/app.yaml
   tasks:
     - name: Namespace der Anwendung
       ansible.builtin.import_tasks: tasks/namespace.yaml

@@ -1,0 +1,41 @@
+# Zweiter Schritt zu #62, nach valkey-networkpolicy.yaml. Ohne
+# namespace-weites default-deny: der podSelector isoliert allein die drei
+# MongoDB-Pods. Nur Ingress, damit weder DNS noch die K8s-API hier eine
+# Rolle spielen -- den Egress der Pods zur API (sie schreiben ueber den
+# ServiceAccount mongodb-database selbst) regelt ein spaeterer Schritt.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mongodb
+  namespace: "{{ app_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb-svc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Pods aus dem Chart: backend, code-worker, durchlauf. Der
+        # aufgaben-seed kommt nicht von dort, er läuft als eigener Job aus
+        # ansible/tasks/seed.yaml -- deshalb die dritte Regel unten.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: online-judge
+        # Replikation der drei Pods untereinander.
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+        # Der Operator legt Benutzer an und liest den Zustand.
+        - podSelector:
+            matchLabels:
+              name: mongodb-kubernetes-operator
+        # Der Seed-Job kommt aus ansible/tasks/seed.yaml, nicht aus dem Chart,
+        # und trägt part-of deshalb nicht. job-name ist hier stabil, weil der
+        # Job immer denselben Namen hat.
+        - podSelector:
+            matchLabels:
+              batch.kubernetes.io/job-name: aufgaben-seed
+      ports:
+        - protocol: TCP
+          port: 27017

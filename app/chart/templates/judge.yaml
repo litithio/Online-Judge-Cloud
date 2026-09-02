@@ -296,6 +296,11 @@ spec:
         metadata:
           annotations:
             checksum/config: {{ toYaml $durchlaufDaten | sha256sum }}
+          # Ein CronJob vererbt seine Labels nicht ans Pod-Template. Ohne diesen
+          # Block trägt der Pod nur die von Kubernetes vergebenen job-name-Label,
+          # und die NetworkPolicies für MongoDB und Valkey greifen nicht (#62).
+          labels:
+            {{- include "online-judge.labels" . | nindent 12 }}
         spec:
           restartPolicy: Never
           # Kein Token im Pod, wie beim Worker. durchlauf.py spricht nur

@@ -25,6 +25,14 @@
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/valkey-service.yaml') | from_yaml }}"
 
+# Erster Schritt zu #62. Ohne namespace-weites default-deny, der podSelector
+# isoliert allein diesen Pod. Nur Ingress, Egress bleibt offen.
+- name: Valkey NetworkPolicy anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/valkey-networkpolicy.yaml') | from_yaml }}"
+
 - name: Warten, bis Valkey bereit ist
   ansible.builtin.command:
     argv: [kubectl, rollout, status, deployment/valkey, -n, "{{ app_namespace }}", --timeout=300s]

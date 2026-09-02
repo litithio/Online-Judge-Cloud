@@ -172,3 +172,42 @@ spec:
   ports:
     - port: 8000
       targetPort: 8000
+
+---
+# Ingress nur von Traefik (#62). Der Weg von außen führt über Traefik ->
+# Middleware -> diesen Service, ein anderer Absender ist nicht vorgesehen.
+# Kein Egress-Block: der bleibt offen, bis die Egress-Regeln stehen.
+#
+# Der Lastgenerator ist davon ausgesperrt. Er läuft laut seinem Docstring
+# auf dem Server-Node gegen die Service-IP, nicht als Pod, und fällt damit
+# unter keinen Selektor. Offener Punkt in #62.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Pods aus diesem Chart: Backend untereinander (der Node-übergreifende
+        # Test in scripts/smoke.sh) und die Helm-Testpods. Enger als der ganze
+        # Namespace, MongoDB, Valkey und Keycloak sind nicht drin. part-of und
+        # nicht instance, weil instance der Release-Name ist.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: online-judge
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000

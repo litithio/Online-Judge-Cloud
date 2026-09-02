@@ -12,6 +12,7 @@ spec:
       app.kubernetes.io/name: keycloakx
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - namespaceSelector:
@@ -23,3 +24,22 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+  egress:
+    # Keycloak baut von sich aus nur DNS-Anfragen auf. Die Datenbank ist
+    # dev-file (H2 auf dem PVC), der Realm kommt als ConfigMap, ein externer
+    # Identity Provider oder SMTP ist nicht konfiguriert.
+    #
+    # KC_CACHE_STACK=jdbc-ping bildet bei replicas: 1 keinen Cluster. Ab dem
+    # zweiten Pod braucht es hier eine Regel für Keycloak untereinander.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

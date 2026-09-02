@@ -67,6 +67,19 @@
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/mongodb-instance.yaml') | from_yaml }}"
 
+# Die Adresse des API-Servers aus dem Cluster statt aus dem Inventar. Der
+# Inventar-Hostname ist die SSH-Adresse, hier zufällig dieselbe; die Policy
+# braucht die Adresse, unter der der API-Server tatsächlich erreichbar ist.
+# Endpoints ist ab v1.33 als veraltet markiert, funktioniert aber weiter --
+# der Nachfolger wäre EndpointSlice.
+- name: Adresse des API-Servers ermitteln
+  kubernetes.core.k8s_info:
+    kind: Endpoints
+    name: kubernetes
+    namespace: default
+    kubeconfig: "{{ kubeconfig_root }}"
+  register: api_endpunkt
+
 # === MongoDB NetworkPolicy ===
 - name: Apply MongoDB NetworkPolicy
   kubernetes.core.k8s:

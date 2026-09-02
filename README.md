@@ -309,18 +309,13 @@ die Anwendung hängt Grafana nicht hinter der Anmeldung aus #20, es prüft
 selbst.
 
 Ohne Last stehen beide Kurven auf null. Einreichungen erzeugt
-`app/lastgenerator.py`, und der läuft auf dem Server statt lokal, weil
-`kubectl port-forward` das Backend nicht erreicht. Es bindet nur auf `::`, und
-der Forward erreicht im Pod-Netz `localhost` nicht über IPv6.
+`app/lastgenerator.py`, lokal aus dem Repo über `kubectl port-forward`. Den
+Wert für `X-Gateway-Auth` liest es aus `ansible/auth-credentials.yaml`.
 
 ```bash
-# VPN aus, <server> ist die IPv6 des Servers aus dem Inventory
-tar czf - -C app lastgenerator.py aufgaben chart/loesungen \
-    | ssh ubuntu@<server> 'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
-kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
-ssh ubuntu@<server> "GATEWAY_SECRET=<gateway_secret aus auth-credentials.yaml> \
-    python3 /tmp/last/lastgenerator.py --rate 2 --dauer 90 \
-    --api 'http://[<service-ip>]:8000'"
+# VPN aus, in einem zweiten Terminal
+kubectl port-forward -n judge svc/backend 8000:8000
+python3 app/lastgenerator.py --rate 2 --dauer 90
 ```
 
 Mit diesen Werten laufen 180 Einreichungen durch, die Warteschlange steigt auf

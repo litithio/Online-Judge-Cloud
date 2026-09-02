@@ -57,18 +57,21 @@
             storage: "{{ keycloak_pvc_size }}"
 
 # Der gerenderte Realm. Keycloak importiert beim Start alles aus
-# data/import; die ConfigMap wird unten in genau dieses Verzeichnis gemountet.
-- name: ConfigMap mit dem Realm-Import
+# data/import; das Secret wird unten in genau dieses Verzeichnis gemountet.
+# Ein Secret statt einer ConfigMap, weil die Vorlage das Client-Secret und
+# die Passwörter beider Konten trägt. Eine ConfigMap liest jeder mit der
+# Rolle view im Namespace, ein Secret nicht.
+- name: Secret mit dem Realm-Import
   kubernetes.core.k8s:
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
     definition:
       apiVersion: v1
-      kind: ConfigMap
+      kind: Secret
       metadata:
         name: keycloak-realm-import
         namespace: "{{ auth_namespace }}"
-      data:
+      stringData:
         realm.json: "{{ lookup('template', 'templates/keycloak-realm.json.j2') }}"
   no_log: true
 
@@ -146,15 +149,15 @@
       extraEnvFrom: |
         - secretRef:
             name: keycloak-admin
-      # PVC auf data, die Realm-ConfigMap überlagert nur das Unterverzeichnis
+      # PVC auf data, das Realm-Secret überlagert nur das Unterverzeichnis
       # import. Kubernetes erlaubt den verschachtelten Mount.
       extraVolumes: |
         - name: data
           persistentVolumeClaim:
             claimName: keycloak-data
         - name: realm-import
-          configMap:
-            name: keycloak-realm-import
+          secret:
+            secretName: keycloak-realm-import
       extraVolumeMounts: |
         - name: data
           mountPath: /opt/keycloak/data
@@ -216,3 +219,17 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   changed_when: false
+
+# Die ConfigMap gleichen Namens aus dem Stand vor dem Secret. Auf einem
+# Cluster von davor bliebe sie sonst mit demselben Inhalt lesbar liegen. Erst
+# hier, nach dem Helm-Lauf und der Bereitschaft: Bis dahin zeigt die
+# Pod-Vorlage des StatefulSet noch auf die ConfigMap, und ein Pod, der in
+# dieser Zeit neu entsteht, bliebe ohne sie in FailedMount hängen.
+- name: Alte ConfigMap mit dem Realm-Import entfernen
+  kubernetes.core.k8s:
+    state: absent
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    api_version: v1
+    kind: ConfigMap
+    name: keycloak-realm-import
+    namespace: "{{ auth_namespace }}"

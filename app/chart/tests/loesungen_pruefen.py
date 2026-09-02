@@ -101,7 +101,7 @@ def main():
     if not titel_je_stamm:
         print(f"keine Aufgaben-JSONs unter {AUFGABEN}")
         return 1
-    
+
     # helm test kann direkt nach dem Upgrade laufen, und kube-router braucht
     # nach dem Start eines Pods einen Moment, bis dessen Adresse in den
     # Regeln der NetworkPolicy steht (#62). Bis dahin wird die erste

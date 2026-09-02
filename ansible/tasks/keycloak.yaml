@@ -1,6 +1,7 @@
 ---
 # Keycloak als einzelner Pod mit persistentem H2-Datenspeicher. Der Realm samt
-# Gateway-Client und Test-Benutzer kommt als Code über --import-realm.
+# Gateway-Client, Rolle dozent und die beiden Konten kommt als Code über
+# --import-realm.
 #
 # H2 (database.vendor dev-file) statt einer externen Datenbank: ein zweiter Pod
 # ist nicht vorgesehen, und die H2-Datei liegt auf einem PVC unter

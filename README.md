@@ -108,9 +108,9 @@ leitet daraus die URI für Backend, Worker und `durchlauf` ab und legt sie als
 `connectionString` in dasselbe Secret. Der KEDA-Trigger liest das rohe
 Passwort über eine TriggerAuthentication.
 `auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
-OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer). Ohne direnv
-stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die Datei setzt
-KUBECONFIG relativ zum aktuellen Verzeichnis.
+OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer und Dozentenkonto).
+Ohne direnv stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die
+Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
 
 Cluster hochbringen:
 
@@ -287,8 +287,9 @@ ansible-playbook -i inventory/generated-inventory.yml \
 Prüfen: `https://auth.<zone>` zeigt den Realm `judge`, ein Aufruf von
 `https://app.<zone>` leitet unangemeldet zur Anmeldung um, und nach der
 Anmeldung mit dem Test-Benutzer aus `auth-credentials.yaml` ist die API
-erreichbar. Ein direkter Aufruf des `backend`-Service im Cluster (ohne
-Gateway-Header) endet mit 401.
+erreichbar. Das Dozentenkonto aus derselben Datei trägt die Realm-Rolle
+`dozent` und sieht zusätzlich `/verwaltung`. Ein direkter Aufruf des
+`backend`-Service im Cluster (ohne Gateway-Header) endet mit 401.
 
 ### Dashboard
 

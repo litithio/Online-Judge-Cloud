@@ -8,14 +8,24 @@
 # unter app/chart; die Helm-Module laufen aber auf dem Server, deshalb wird er
 # zuerst dorthin kopiert.
 
+# Erst löschen, dann kopieren. ansible.builtin.copy legt an und überschreibt,
+# es entfernt nichts. Eine im Repo gelöschte oder umbenannte Vorlage steht
+# sonst auf dem Server weiter, und Helm rollt sie beim nächsten Lauf mit aus.
+# ansible.posix.synchronize mit delete wäre der schmalere Weg, scheitert aber
+# vom Mac aus. Das Modul übergibt das Ziel als [user@2001:...]:pfad, und das
+# openrsync von macOS liest daraus die Adresse 0.0.7.209. Die drei Tasks melden
+# deshalb bei jedem Lauf changed.
+- name: Alten Chart-Stand auf dem Server entfernen
+  ansible.builtin.file:
+    path: "{{ app_chart_remote }}"
+    state: absent
+
 - name: Verzeichnis für den Chart auf dem Server
   ansible.builtin.file:
     path: "{{ app_chart_remote }}"
     state: directory
     mode: "0755"
 
-# Der ganze Chart-Ordner. delete unused, damit eine im Repo gelöschte Vorlage
-# auch auf dem Server verschwindet und ein alter Stand nicht mit ausgerollt wird.
 - name: Chart auf den Server kopieren
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../app/chart/"

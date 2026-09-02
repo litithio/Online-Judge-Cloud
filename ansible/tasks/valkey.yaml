@@ -13,6 +13,21 @@
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/valkey-pvc.yaml') | from_yaml }}"
 
+# Die lokale Datei trägt nur password. connectionString entsteht hier aus
+# demselben Wert, sonst müsste das Passwort an zwei Stellen gepflegt werden
+# und nichts würde auffallen, wenn sie auseinanderlaufen. Percent-Encoding,
+# weil redis-py die URI mit urllib zerlegt, ein "/", "#" oder "?" im
+# Passwort würde sonst die URI an dieser Stelle beenden. urlencode lässt "/"
+# stehen, deshalb das zusätzliche replace.
+- name: Valkey-Passwort-Secret anwenden
+  vars:
+    valkey_secret: "{{ lookup('template', 'files/valkey-password.yaml') | from_yaml }}"
+    valkey_passwort_uri: "{{ valkey_secret.stringData.password | urlencode | replace('/', '%2F') }}"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ valkey_secret | combine({'stringData': {'connectionString': 'redis://:' ~ valkey_passwort_uri ~ '@valkey:6379'}}, recursive=True) }}"
+
 - name: Valkey Deployment anwenden
   kubernetes.core.k8s:
     state: present

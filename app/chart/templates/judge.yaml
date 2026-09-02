@@ -16,6 +16,23 @@
 # richtige Ergebnis, der Neustart macht die Datei frisch und die Messung wieder
 # brauchbar. Einen Sprung nach vorn fängt das nicht, siehe README ## Grenzen.
 {{- $heartbeat := printf "alter=$(( $(date +%%s) - $(stat -c %%Y /run/heartbeat) )); test $alter -ge 0 && test $alter -lt %d" (int .Values.judge.heartbeatFrist) }}
+# TriggerAuthentication liest das Valkey-Passwort direkt aus dem Secret,
+# einmal für alle Sprachen, nicht in der range unten. Unabhängig vom
+# Worker-Deployment: der redis-Trigger fragt Valkey unter minReplicaCount 0
+# auch dann ab, wenn gerade kein Worker-Pod läuft, passwordFromEnv bräuchte
+# also einen Pod, den es zu diesem Zeitpunkt gar nicht gibt (#61).
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: valkey-app-password
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: {{ .Values.externe.redisSecret.name | quote }}
+      key: password
+---
 {{- range .Values.judge.sprachen }}
 # Die Konfiguration dieses Workers. WORKER_SPRACHE bestimmt, welche Liste er
 # abfragt (judge:<sprache>) und worauf sein ScaledObject weiter unten zielt.
@@ -23,7 +40,7 @@
 # Netz-Namespace, anders als im lokalen Compose-Stand. Ohne den Schalter würde
 # die Trennung stillschweigend wegfallen, sobald der Aufruf einmal nicht
 # durchgeht, und Einreichungen erreichten wieder die Datenbank.
-{{- $daten := dict "REDIS_URI" (include "online-judge.redisUri" $) "WORKER_SPRACHE" .name "SANDBOX_NETZ_ERZWINGEN" "1" }}
+{{- $daten := dict "WORKER_SPRACHE" .name "SANDBOX_NETZ_ERZWINGEN" "1" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -179,12 +196,18 @@ spec:
             - configMapRef:
                 name: code-worker-{{ .name }}
           env:
-            # Getrennt von der ConfigMap, weil die URI das Passwort enthält.
+            # Getrennt von der ConfigMap, weil beide URIs ein Passwort
+            # enthalten (#61).
             - name: MONGO_URI
               valueFrom:
                 secretKeyRef:
                   name: {{ $.Values.externe.mongoSecrets.worker.name | quote }}
                   key: {{ $.Values.externe.mongoSecrets.worker.key | quote }}
+            - name: REDIS_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.externe.redisSecret.name | quote }}
+                  key: {{ $.Values.externe.redisSecret.key | quote }}
           # Dasselbe Kommando wie die liveness darunter, nach dem Muster des
           # Backends. Bis sie durchläuft, gilt der Container als nicht
           # gestartet, und die liveness ruht so lange. Das Fenster von 60
@@ -252,6 +275,8 @@ spec:
   maxReplicaCount: {{ .keda.max }}
   triggers:
     - type: redis
+      authenticationRef:
+        name: valkey-app-password
       metadata:
         address: {{ include "online-judge.redisKedaAdresse" $ | quote }}
         listName: judge:{{ .name }}
@@ -262,7 +287,7 @@ spec:
 # Nimmt Einreichungen zurück, deren Frist ohne Ergebnis verstrichen ist, siehe
 # app/worker/durchlauf.py. Ein CronJob für alle Sprachen, das Skript selbst
 # braucht nur MongoDB und Valkey, keine eigene Laufzeitumgebung wie der Worker.
-{{- $durchlaufDaten := dict "REDIS_URI" (include "online-judge.redisUri" .) "MAX_VERSUCHE" (.Values.judge.durchlauf.maxVersuche | toString) }}
+{{- $durchlaufDaten := dict "MAX_VERSUCHE" (.Values.judge.durchlauf.maxVersuche | toString) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -330,11 +355,17 @@ spec:
                 - configMapRef:
                     name: durchlauf
               env:
-                # Getrennt von der ConfigMap, weil die URI das Passwort enthält.
+                # Getrennt von der ConfigMap, weil beide URIs ein Passwort
+                # enthalten (#61).
                 - name: MONGO_URI
                   valueFrom:
                     secretKeyRef:
                       name: {{ .Values.externe.mongoSecrets.durchlauf.name | quote }}
                       key: {{ .Values.externe.mongoSecrets.durchlauf.key | quote }}
+                - name: REDIS_URI
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.externe.redisSecret.name | quote }}
+                      key: {{ .Values.externe.redisSecret.key | quote }}
               resources:
                 {{- toYaml .Values.judge.durchlauf.resources | nindent 16 }}

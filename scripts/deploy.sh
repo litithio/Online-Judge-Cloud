@@ -41,6 +41,7 @@ brauche_datei terraform/terraform.tfvars
 brauche_datei ansible/dns-credentials.yaml
 brauche_datei ansible/auth-credentials.yaml
 brauche_datei ansible/files/mongodb-password.yaml
+brauche_datei ansible/files/valkey-password.yaml
 brauche_werkzeug terraform
 brauche_werkzeug ansible-galaxy
 brauche_werkzeug ansible-playbook

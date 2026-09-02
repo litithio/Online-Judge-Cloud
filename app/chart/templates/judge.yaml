@@ -63,8 +63,8 @@ spec:
   #
   # maxSurge 0 statt der Vorgabe. Auf den Worker zeigt kein Service, er holt
   # seine Arbeit aus der Warteschlange, ein zusätzlicher Pod während des
-  # Rollouts bringt nichts. Bei keda.max 5 ergäben die vorgegebenen 25 Prozent
-  # aufgerundet zwei zusätzliche Pods, zusammen 7000m auf zwei Judge-Nodes mit
+  # Rollouts bringt nichts. Bei keda.max 6 ergäben die vorgegebenen 25 Prozent
+  # aufgerundet zwei zusätzliche Pods, zusammen 8000m auf zwei Judge-Nodes mit
   # 8000m. Terminierende Pods halten ihre Anforderung dabei weiter, ein Rollout
   # unter Last ließe Worker deshalb Pending stehen. Beide Werte auf 0 lässt die
   # API nicht zu, deshalb maxUnavailable 1.

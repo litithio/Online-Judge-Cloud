@@ -323,10 +323,9 @@
         dienste_hostnames: "{{ groups['judge_k3s_agent_dienste']
                                | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
 
-# Der Namespace für die Anwendung, kommt vor den Datendiensten (MongoDB/Valkey)
-# und der App, weil die künftig hier reingehören -- vorerst
-# bleiben alle Workloads aber noch in default, dieser Schritt legt nur den
-# leeren Namespace an.
+# Der Namespace für die Anwendung, vor den Datendiensten, der App und
+# Keycloak, weil sie alle hineingehören. Dazu das default-deny für beide
+# Richtungen (#62), die Ausnahmen legen die Plays der Dienste und das Chart an.
 - name: Namespace anlegen
   hosts: judge_k3s_server
   tags: [namespace]

@@ -662,6 +662,24 @@ Pod hält den Herkunftswert des Gateways aus dem Secret, wie die Test-Jobs
 auch. Die Policy bleibt dabei der zweite Riegel, die Herkunftsprüfung der API
 gilt für ihn wie für jeden anderen Absender.
 
+### NetworkPolicy im Namespace judge
+
+Ein namespace-weites default-deny für beide Richtungen liegt in
+`ansible/files/judge-networkpolicy.yaml`, daneben je Pod-Art eine Policy mit
+ihren Absendern und Zielen als Pod-Label, den Worker über
+`komponente: judge-worker`, denn `app: code-worker-<sprache>` verlangt je
+Sprache einen eigenen Eintrag. Kein Pod in `judge` erreicht das Internet
+direkt, den Pods mit Policy bleiben DNS-Anfragen an CoreDNS. Für den Worker
+ist das der zweite Riegel neben `SANDBOX_NETZ_ERZWINGEN`. Die
+K8s-API steht mit der Adresse ihres Endpunkts und Port 6443 in der Regel, die
+ClusterIP schreibt kube-proxy um, bevor kube-router greift, deshalb liest
+`tasks/mongodb.yaml` die Adresse beim Ausrollen aus dem Cluster. Ein
+default-deny auch in `keda`, `kube-system` und `monitoring` ist zurückgestellt,
+dort hängen Systemkomponenten dran. Der Preis, jede neue Komponente in `judge`
+braucht eine eigene Policy mit mindestens einer Regel auf kube-dns, sonst
+findet sie nichts. Die Herkunftsprüfung der API bleibt der erste Riegel, die
+Policy ist der zweite.
+
 ## Grenzen
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je Lauf
@@ -815,6 +833,25 @@ alte Valkey-Pod mit dem alten Passwort weiter, ein neuer Worker und der nächste
 `backend` und die Worker. Auf einem Cluster, der noch ohne Passwort läuft, gilt das auch für
 die Umstellung selbst, zwischen dem Play `valkey` und dem Play `app` weist
 Valkey jede Verbindung ab.
+
+Die NetworkPolicy greift erst kurz nach dem Start eines Pods. kube-router
+trägt die Adresse eines neuen Pods nach dem Start in die Regeln ein. Gemessen
+am 02.09. in drei Läufen mit Testpods in `judge` je zwei Sekunden und ein
+abgewiesener Versuch, in einer Messung mit einem Testjob am selben Tag acht
+Sekunden.
+Für den Absender heißt das, seine erste Verbindung zu Backend, Valkey oder
+MongoDB kann scheitern, für das Ziel, dass es diese zwei Sekunden ohne Regel
+läuft. Der Seed und `durchlauf` überstehen das, pymongo wiederholt bis zu 30
+Sekunden, die Test-Jobs und der Lastgenerator warten selbst rund 60 Sekunden
+auf die API.
+
+Auf einem Cluster, der schon läuft, sperrt das Play `namespace` jeden Pod in
+`judge` in beide Richtungen, bis die Plays `mongodb`, `valkey`, `seed`, `app`
+und `auth` ihre Ausnahmen anlegen, das Backend und Keycloak kommen als letzte
+dran. Bricht ein Play dazwischen ab, bleibt die Sperre stehen. Beim ersten
+Lauf mit den Policies deshalb erst `--tags mongodb,valkey,seed,app,auth`, dann
+`--tags namespace`. Ein späterer voller Lauf findet alle Policies vor und
+ändert nichts an ihnen.
 
 Was der Judge über einen verborgenen Testfall preisgibt, ist seit #208 das
 Urteil, die Laufzeit, der Speicher und bei überschrittener Zeit- oder

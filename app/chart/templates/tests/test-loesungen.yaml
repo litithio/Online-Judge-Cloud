@@ -41,10 +41,16 @@ spec:
   # Kein zweiter Versuch, wie bei test-api. Jeder Versuch reichte alle
   # Lösungen erneut ein.
   backoffLimit: 0
-  # Über der Frist von 480 Sekunden im Skript (Herleitung dort), damit das
-  # Skript zuerst abläuft und die offenen Einreichungen benennt, statt dass
-  # Kubernetes den Pod wortlos beendet.
-  activeDeadlineSeconds: 600
+  # Über dem, was das Skript selbst braucht, damit es zuerst abläuft und die
+  # offenen Einreichungen benennt, statt dass Kubernetes den Pod wortlos
+  # beendet. Vor der Frist von 480 Sekunden (Herleitung im Skript) liegen bis
+  # zu 70 Sekunden Warten auf die API und zehn Einreichungen mit je 10
+  # Sekunden Zeitlimit, zusammen 650. 700 lässt den Pod-Start und eine letzte
+  # Abfragerunde mit antwortender API obendrauf. Schöpft die API auch dort
+  # jeden Aufruf mit 10 Sekunden aus, reicht das nicht, dann endet der Pod
+  # ohne die Liste. Mehr geht nicht, smoke.sh gibt helm test 15 Minuten für
+  # beide Jobs zusammen.
+  activeDeadlineSeconds: 700
   template:
     metadata:
       labels:

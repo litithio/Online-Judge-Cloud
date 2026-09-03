@@ -9,7 +9,7 @@
       metadata:
         name: "{{ app_namespace }}"
 
-- name: Default-deny für eingehenden Verkehr
+- name: Default-deny für beide Richtungen
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_root }}"

@@ -19,6 +19,7 @@ import os
 import pathlib
 import sys
 import time
+import urllib.error
 import urllib.request
 
 API = os.getenv("API_URL", "http://backend:8000")
@@ -56,6 +57,13 @@ ERWARTET = {
 FRIST_SEKUNDEN = 480
 ABFRAGE_ABSTAND = 5
 
+# helm test kann direkt nach dem Upgrade laufen, und kube-router trägt die
+# Adresse eines neuen Pods erst nach dem Start in die Regeln der NetworkPolicy
+# ein (#62). Bis dahin weist die API die erste Verbindung ab, gemessen am 02.09.
+# mit Testpods zwei Sekunden und ein Fehlversuch, mit einem Testjob acht
+# Sekunden. Die 60 Sekunden sind dasselbe Fenster wie in api_pruefen.py.
+WARTEFRIST = 60
+
 
 def anfrage(pfad, daten=None):
     """GET oder, mit daten, POST gegen die API, Antwort als JSON."""
@@ -63,6 +71,24 @@ def anfrage(pfad, daten=None):
     aufruf = urllib.request.Request(f"{API}{pfad}", data=koerper, headers=KOPFZEILEN)
     with urllib.request.urlopen(aufruf, timeout=10) as antwort:
         return json.load(antwort)
+
+
+def _aufgaben_abwarten(frist=WARTEFRIST):
+    """Holt /tasks und wartet dabei bis zu frist Sekunden auf die API.
+
+    Nur Verbindungsfehler lösen einen neuen Versuch aus. Eine HTTP-Antwort wie
+    401 ist eine Antwort der API, sie würde sich beim Warten nicht ändern.
+    """
+    ende = time.monotonic() + frist
+    while True:
+        try:
+            return anfrage("/tasks")
+        except urllib.error.HTTPError:
+            raise
+        except OSError as fehler:
+            if time.monotonic() >= ende:
+                raise SystemExit(f"{API} nicht erreichbar, {fehler}")
+            time.sleep(5)
 
 
 def _titel_je_stamm():
@@ -102,24 +128,7 @@ def main():
         print(f"keine Aufgaben-JSONs unter {AUFGABEN}")
         return 1
 
-    # helm test kann direkt nach dem Upgrade laufen, und kube-router braucht
-    # nach dem Start eines Pods einen Moment, bis dessen Adresse in den
-    # Regeln der NetworkPolicy steht (#62). Bis dahin wird die erste
-    # Verbindung abgewiesen, gemessen am 02.09. mit einem Testjob: erster
-    # Versuch abgewiesen, acht Sekunden später verbunden. Gewartet wird wie
-    # in api_pruefen.py höchstens 60 Sekunden.
-    frist = time.monotonic() + 60
-    while True:
-        try:
-            anfrage("/tasks")
-            break
-        except OSError as fehler:
-            if time.monotonic() >= frist:
-                print(f"{API} nicht erreichbar, {fehler}")
-                return 1
-            time.sleep(5)
-
-    id_je_titel = {t["title"]: t["id"] for t in anfrage("/tasks")}
+    id_je_titel = {t["title"]: t["id"] for t in _aufgaben_abwarten()}
 
     fehler = []
 

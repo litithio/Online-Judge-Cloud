@@ -108,8 +108,20 @@ else
     # --force, weil galaxy eine installierte Rolle sonst behält, auch wenn in
     # requirements.yml eine andere Version steht. Ohne das Flag prüfen lint und
     # syntax-check gegen den alten Stand und melden trotzdem Erfolg.
-    ansible-galaxy install -r ansible/requirements.yml --force >/dev/null
-    result $?
+    #
+    # Drei Versuche, weil Galaxy zeitweise mit "The read operation timed out"
+    # abbricht, in 40 CI-Läufen einmal. Gemessen in der CI dauert der Schritt
+    # 9 Sekunden, der Abbruch kam nach 67 Sekunden. Drei Versuche bleiben
+    # damit weit unter dem Zeitlimit des Jobs von 15 Minuten. Eine Obergrenze
+    # je Versuch gibt es nicht, ein hängender Abruf blockiert auch ohne
+    # Wiederholung bis zum Zeitlimit.
+    for versuch in 1 2 3; do
+      ansible-galaxy install -r ansible/requirements.yml --force >/dev/null
+      rc=$?
+      [ "$rc" -eq 0 ] && break
+      [ "$versuch" -lt 3 ] && echo "    Versuch $versuch fehlgeschlagen, erneut" >&2
+    done
+    result "$rc"
   fi
 
   if command -v ansible-lint >/dev/null; then

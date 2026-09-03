@@ -1,7 +1,9 @@
 ---
 # Keycloak als einzelner Pod mit persistentem H2-Datenspeicher. Der Realm samt
-# Gateway-Client, Rolle dozent und die beiden Konten kommt als Code über
-# --import-realm.
+# Gateway-Client, Rolle dozent und die beiden Konten kommt als Code aus
+# templates/keycloak-realm.json.j2. Ein Init-Container spielt die Vorlage mit
+# kc.sh import --override true in die H2-Datei, sobald sie sich von der
+# zuletzt importierten unterscheidet, siehe extraInitContainers unten (#146).
 #
 # H2 (database.vendor dev-file) statt einer externen Datenbank: ein zweiter Pod
 # ist nicht vorgesehen, und die H2-Datei liegt auf einem PVC unter
@@ -37,7 +39,9 @@
   no_log: true
 
 # H2 liegt hier. Ohne PVC legt Keycloak die Datei ins Container-Dateisystem und
-# verliert Realm und Benutzer beim Ersetzen des Pods. StorageClass bleibt offen:
+# verliert Master-Realm, Admin-Konto und die Signaturschlüssel des Realms beim
+# Ersetzen des Pods, der Realm selbst käme aus der Vorlage zurück, siehe den
+# Init-Container unten. StorageClass bleibt offen:
 # die Rolle setzt auf dem Mehr-Node-Cluster Longhorn als Standard.
 - name: PVC für den Keycloak-Datenspeicher
   kubernetes.core.k8s:
@@ -56,9 +60,9 @@
           requests:
             storage: "{{ keycloak_pvc_size }}"
 
-# Der gerenderte Realm. Keycloak importiert beim Start alles aus
-# data/import; das Secret wird unten in genau dieses Verzeichnis gemountet.
-# Ein Secret statt einer ConfigMap, weil die Vorlage das Client-Secret und
+# Der gerenderte Realm. Der Init-Container liest ihn aus data/import, das
+# Secret wird unten in genau dieses Verzeichnis gemountet. Ein Secret statt
+# einer ConfigMap, weil die Vorlage das Client-Secret und
 # die Passwörter beider Konten trägt. Eine ConfigMap liest jeder mit der
 # Rolle view im Namespace, ein Secret nicht.
 - name: Secret mit dem Realm-Import
@@ -79,8 +83,8 @@
 # /opt/keycloak/themes/dhbw, siehe extraVolumes unten. theme.properties und
 # die Meldungen liegen in files/keycloak-theme, dhbw.css und das Logo kommen
 # aus app/backend/static, damit Anwendung und Anmeldung dieselbe Datei tragen.
-# messages_en bleibt neben messages_de, weil ein Realm von vor diesem Stand
-# ohne Import weiter englisch anzeigt und die Überschrift auch dort gelten soll.
+# messages_en bleibt neben messages_de, damit die Überschrift auch in einem
+# Realm gilt, der nicht auf Deutsch steht.
 # Eine ConfigMap statt eines eigenen Keycloak-Image, weil das Theme nichts
 # Geheimes trägt und kein zusätzlicher Build anfällt.
 #
@@ -144,7 +148,10 @@
         online-judge/rolle: dienste
       image:
         tag: "{{ keycloak_image_tag }}"
-      # Produktivmodus mit Import. dev-file als DB genügt für den einzelnen Pod.
+      # Produktivmodus. dev-file als DB genügt für den einzelnen Pod. Kein
+      # --import-realm mehr, den Import erledigt der Init-Container unten,
+      # denn start --import-realm überspringt einen vorhandenen Realm
+      # (Strategie IGNORE_EXISTING) und kennt kein --override.
       # Die Health-Endpunkte schaltet der Chart selbst über KC_HEALTH_ENABLED
       # ein, ein eigenes Flag im command braucht es dafür nicht. Die Probes
       # kommen unverändert aus dem Chart, startup auf /health, liveness auf
@@ -153,7 +160,94 @@
         - "/opt/keycloak/bin/kc.sh"
         - "start"
         - "--http-port=8080"
-        - "--import-realm"
+      # Der Realm-Import als eigener Lauf vor dem Server (#146). kc.sh import
+      # ersetzt einen vorhandenen Realm, die Doku verlangt dafür, dass kein
+      # Keycloak läuft, und genau das stellt ein Init-Container sicher. --file
+      # statt --dir, weil --dir nur Dateien nach dem Muster <realm>-realm.json
+      # liest und das Secret die Datei als realm.json ausliefert.
+      #
+      # Importiert wird nur, wenn sich die Vorlage geändert hat. Der Container
+      # merkt sich die Prüfsumme der importierten Datei auf dem PVC und
+      # überspringt den Import, solange sie gleich bleibt. Ein Override nimmt
+      # nämlich den ganzen Realm mit, auch seine Signaturschlüssel, und das
+      # Traefik-Plugin lädt neue Schlüssel bei unbekannter kid höchstens alle
+      # fünf Minuten nach (src/oidc/jwks.go in traefik-oidc-auth v0.21.0).
+      # Bei jedem Start importiert, könnte sich nach jedem Neustart des Pods
+      # bis zu fünf Minuten niemand anmelden. So trifft das nur eine
+      # Änderung an der Vorlage, und die ist ein bewusstes Ausrollen. Nach
+      # so einer Änderung ist die Vorlage der Stand des Realms, was in der
+      # Admin-Konsole geändert oder angelegt wurde, ist dann weg. Die
+      # Benutzer in der Vorlage tragen deshalb ein festes id-Feld aus
+      # to_uuid, ohne das vergibt jeder Import neue IDs, und die API führt
+      # Einreichungen unter dieser ID als sub aus dem Token. Die Prüfsumme
+      # wird erst nach dem Import geschrieben, ein abgebrochener Import
+      # läuft beim nächsten Start erneut. pipefail, damit ein Fehler von
+      # sha256sum das Skript beendet, statt mit leerer Summe zu importieren.
+      # Ohne Merker, also auf einem Cluster von vor diesem Stand, importiert
+      # der erste Lauf einmal auch bei unveränderter Vorlage. Der Import baut wie der Server die
+      # Quarkus-Konfiguration neu, das Ergebnis bleibt im Dateisystem des
+      # Init-Containers und verkürzt den Serverstart nicht.
+      #
+      # Das Image steht hier ausgeschrieben, weil der Chart den Block durch
+      # tpl schickt und ein Helm-Ausdruck an dieser Stelle schon von Ansible
+      # als Jinja gelesen würde. Ressourcen wie beim Hauptcontainer, ein
+      # Init-Container zählt für den Scheduler nur mit seinem Höchstwert
+      # gegen die Container des Pods, der Pod braucht also nicht mehr Platz
+      # als vorher. Gemessen lag der Import lokal bei 593Mi Spitzenwert.
+      extraInitContainers: |
+        - name: realm-import
+          image: "quay.io/keycloak/keycloak:{{ keycloak_image_tag }}"
+          command:
+            - "/bin/bash"
+            - "-ec"
+            - |
+              set -o pipefail
+              datei=/opt/keycloak/data/import/realm.json
+              merker=/opt/keycloak/data/import.sha256
+              summe=$(sha256sum "$datei" | cut -d' ' -f1)
+              if [ -f "$merker" ] && [ "$(cat "$merker")" = "$summe" ]; then
+                echo "Realm-Vorlage unverändert, Import übersprungen"
+                exit 0
+              fi
+              /opt/keycloak/bin/kc.sh import --file "$datei" --override true
+              echo "$summe" > "$merker"
+          env:
+            - name: KC_DB
+              value: "dev-file"
+            - name: JAVA_OPTS_KC_HEAP
+              value: "-Xms256m -Xmx512m"
+          # Auf einem leeren PVC legt schon der Import den Master-Realm an,
+          # und den Bootstrap-Admin legt Keycloak nur zusammen mit dem
+          # Master-Realm an. Ohne die Variablen hier fände der Server den
+          # Master-Realm vor und die Admin-Konsole bliebe ohne Konto,
+          # lokal geprüft gegen ein leeres Volume.
+          envFrom:
+            - secretRef:
+                name: keycloak-admin
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "832Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1152Mi"
+          volumeMounts:
+            - name: data
+              mountPath: /opt/keycloak/data
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      # Die Prüfsumme der gerenderten Vorlage an der Pod-Vorlage. Ein
+      # geändertes Secret allein startet den Pod nicht neu, erst die geänderte
+      # Annotation lässt das StatefulSet den Pod ersetzen, und der neue Pod
+      # importiert die neue Vorlage. Damit landet eine Änderung an der Vorlage
+      # mit --tags auth im laufenden Realm. Der Init-Container vergleicht
+      # unabhängig davon die Datei selbst mit seinem Merker auf dem PVC.
+      podAnnotations:
+        checksum/realm: "{{ lookup('template', 'templates/keycloak-realm.json.j2') | hash('sha256') }}"
       database:
         vendor: dev-file
       # Setzt KC_PROXY_HEADERS=forwarded und KC_HTTP_ENABLED=true, damit Keycloak
@@ -187,7 +281,9 @@
         - secretRef:
             name: keycloak-admin
       # PVC auf data, das Realm-Secret überlagert nur das Unterverzeichnis
-      # import. Kubernetes erlaubt den verschachtelten Mount.
+      # import. Kubernetes erlaubt den verschachtelten Mount. Der Server
+      # bekommt das Secret weiter gemountet, obwohl nur der Init-Container es
+      # liest, so bleibt die Struktur unter data für beide dieselbe.
       #
       # Das Theme liegt flach in der ConfigMap, die Pfade in items bauen den
       # Ordnerbaum, den Keycloak für ein Login-Theme erwartet. Keycloak liest

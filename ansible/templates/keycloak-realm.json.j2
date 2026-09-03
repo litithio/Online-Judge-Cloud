@@ -67,6 +67,7 @@
   ],
   "users": [
     {
+      "id": "{{ test_user_username | to_uuid }}",
       "username": "{{ test_user_username }}",
       "enabled": true,
       "email": "{{ test_user_email }}",
@@ -82,6 +83,7 @@
       ]
     },
     {
+      "id": "{{ dozent_user_username | to_uuid }}",
       "username": "{{ dozent_user_username }}",
       "enabled": true,
       "email": "{{ dozent_user_email }}",

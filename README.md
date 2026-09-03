@@ -276,18 +276,36 @@ und weist eine Anfrage ohne sie mit 401 ab. Damit bleibt die Anwendung frei von
 Login-Seite und Token-Austausch (zero-code).
 
 Keycloak läuft als einzelner Pod mit einem PVC auf `/opt/keycloak/data`, sodass
-Realm und Benutzer einen Pod-Neustart überleben. Realm, OIDC-Client, die
-Rolle `dozent`, ein Test-Benutzer und ein Dozentenkonto mit dieser Rolle
-kommen als Code über `--import-realm`, die Vorlage liegt in
-`ansible/templates/keycloak-realm.json.j2`, die Namen und Passwörter der
-Konten in `auth-credentials.yaml`. Ein Mapper am Client schreibt die
+die H2-Datei mit Master-Realm, Admin-Konto und dem importierten Realm einen
+Pod-Neustart überlebt. Realm, OIDC-Client, die Rolle `dozent`, ein
+Test-Benutzer und ein Dozentenkonto mit dieser Rolle kommen als Code aus der
+Vorlage `ansible/templates/keycloak-realm.json.j2`, die Namen und Passwörter
+der Konten aus `auth-credentials.yaml`. Ein Mapper am Client schreibt die
 Realm-Rollen ins ID-Token, aus dem das Traefik-Plugin die Header baut, ohne
 ihn käme die Rolle nicht an der API an. Der gerenderte Import liegt als Secret
 im Namespace, nicht als ConfigMap, denn er trägt das Client-Secret und die
-Passwörter beider Konten. Der Import greift nur, solange es
-den Realm noch nicht gibt. Einen vorhandenen überspringt Keycloak mit der
-Strategie IGNORE_EXISTING, eine geänderte Vorlage erreicht den laufenden
-Cluster also erst nach einem leeren PVC (#146).
+Passwörter beider Konten. Den Import fährt ein Init-Container mit `kc.sh
+import --override true` auf derselben H2-Datei, bevor der Server startet, und
+nur, wenn sich die Vorlage seit dem letzten Import geändert hat. Die Prüfsumme
+der importierten Datei liegt als Merker auf dem PVC (#146). Eine Prüfsumme der
+gerenderten Vorlage steht außerdem als Annotation an der Pod-Vorlage, eine
+Änderung an der Vorlage ersetzt den Pod deshalb mit `--tags auth` und landet
+im laufenden Realm. Nach so einer Änderung ist die Vorlage der Stand des
+Realms, was in der Admin-Konsole geändert oder angelegt wurde, ist dann weg.
+Der Init-Container bekommt auch das Admin-Secret, denn auf einem leeren PVC
+legt schon er den Master-Realm an, und nur dabei entsteht der Bootstrap-Admin.
+Die beiden Konten tragen in der Vorlage eine feste ID aus dem Benutzernamen
+(`to_uuid`), denn die API führt Einreichungen unter `sub`, und ein Import ohne
+festes `id`-Feld vergibt bei jedem Import neue IDs. Mit dem Realm gehen auch
+seine Signaturschlüssel. Auf einem Cluster mit Realm von vor #146 fehlt der
+Merker, der erste Lauf importiert deshalb einmal auch ohne Änderung an der
+Vorlage, mit allem, was ein Import mitnimmt. Die IDs ändern sich dabei
+einmalig, die Einreichungen von davor sind für ihre Konten danach nicht mehr
+sichtbar. Das Plugin lädt neue Schlüssel bei unbekannter `kid`
+höchstens alle fünf Minuten nach, in den ersten Minuten nach einer Änderung
+an der Vorlage kann eine Anmeldung deshalb scheitern, und wer angemeldet war,
+meldet sich neu an. Ein Neustart ohne Änderung an der Vorlage lässt Realm und
+Schlüssel stehen.
 
 Die Anmeldeseite zeigt das DHBW-Layout aus `docs/oberflaeche/login.html`
 (#122). Das Theme `dhbw` ist kein eigenes Image, sondern eine ConfigMap, die
@@ -296,9 +314,8 @@ keine Freemarker-Vorlage. `ansible/files/keycloak-theme/theme.properties`
 tauscht nur die Klassen des Elterns `keycloak.v2` gegen die aus dem Entwurf,
 `dhbw.css` und `logo.jpg` kommen aus `app/backend/static`, damit Anwendung
 und Anmeldung dieselbe Datei tragen. Der Realm-Import setzt `loginTheme` und
-Deutsch als einzige Sprache. Auf einem Cluster mit vorhandenem Realm greift
-das erst nach einem leeren PVC oder einmalig über die Admin-Konsole unter
-Realm settings, Themes. Eine geänderte ConfigMap liest Keycloak erst nach
+Deutsch als einzige Sprache, über den Init-Container auch auf einem Cluster
+mit vorhandenem Realm. Eine geänderte ConfigMap liest Keycloak erst nach
 einem Neustart des Pods.
 
 Das Plugin wird in der statischen
@@ -570,19 +587,37 @@ auf `/health` mit 315 Sekunden Fenster, liveness auf `/health/live` mit 5
 Sekunden Frist, readiness auf `/health/ready` mit 1 Sekunde, alle am
 Management-Port 9000. Vorher waren sie über leere Strings abgeschaltet, ohne
 rekonstruierbaren Grund (#147). Ohne readiness würde Traefik den OIDC-Flow an
-einen Pod schicken, der den Realm noch importiert, ohne liveness würde ein
+einen Pod schicken, der noch nicht antwortet, ohne liveness würde ein
 hängender Keycloak stehen bleiben.
 
 Die Übernahme stützt sich auf Messungen, denn eine zu enge Probe hätte den
 einzigen Pod mitten in der Anmeldespitze für den 55-Sekunden-Neustart aus
 #163 aus dem Verkehr genommen. Der Start braucht höchstens 35 Sekunden bis
-zum ersten 200, mit Realm-Import 43. Unter Anmeldelast mit bis zu 22
+zum ersten 200, mit Realm-Import im Server 43. Seit #146 läuft der Import im
+Init-Container vor dem Server, das Fenster der startupProbe zählt erst ab dem
+Server. Unter Anmeldelast mit bis zu 22
 Anmeldungen je Sekunde lieferten 1170 Abfragen der beiden Endpunkte
 durchgehend 200 in höchstens 168 Millisekunden. Helm wartet weiter nicht
 (`wait: false`), auf die Bereitschaft wartet ein eigener
 rollout-status-Schritt, sonst würden die retries des Helm-Tasks auch jeden
 Warte-Timeout wiederholen.
 
+
+### Realm-Import vor dem Serverstart
+
+`start --import-realm` überspringt einen vorhandenen Realm, nur der eigene
+Befehl `kc.sh import` kennt `--override`. Er läuft als Init-Container auf
+derselben H2-Datei, so ist beim Import kein Server aktiv, wie die Keycloak-Doku
+es verlangt (#146). Die Alternative wäre die Admin-API aus Ansible, sie ließe
+von Hand angelegte Benutzer stehen und käme ohne Neustart aus. Dafür bräuchte
+sie Token-Handling im Play und einen zweiten Aufruf für die Realm-Einstellungen,
+denn der Teil-Import der API deckt `loginTheme` und die Sprache nicht. Der
+Import kostet die Dauer eines Serverstarts, lokal 10 Sekunden, wechselt die
+Signaturschlüssel des Realms und nimmt jede Änderung aus der Admin-Konsole
+mit. Deshalb läuft er nur, wenn sich die Vorlage geändert hat, ein Merker mit
+der Prüfsumme liegt auf dem PVC. Bei jedem Start importiert, könnte sich nach
+jedem Neustart bis zu fünf Minuten niemand anmelden, so lange hält das Plugin
+an seinen Schlüsseln fest.
 
 ### Liveness-Probe am Judge-Worker
 

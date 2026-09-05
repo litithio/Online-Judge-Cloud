@@ -263,6 +263,24 @@ nachgebaut. Für die Fehlersuche darüber hinaus taugen k9s und
 `kubectl logs -l <selector> --prefix`, bei Bedarf stern, das sich auch an
 später gestartete Pods hängt.
 
+Die NetworkPolicies prüft ein eigenes Skript:
+
+```bash
+scripts/policycheck.sh
+```
+Je Pod eine Verbindung, die gehen muss, und eine, die nicht gehen darf.
+Kurzlebige Pods (Seed, Durchlauf, Lastgenerator, Helm-Tests) prüft es über
+Wegwerf-Pods mit demselben Label, das `sleep` davor überbrückt das Fenster
+nach dem Pod-Start, in dem kube-router die Adresse noch nicht in den Regeln
+stehen hat. Gemessen wird der Rückgabewert von `kubectl exec`, ein fehlendes
+Werkzeug im Image sähe damit aus wie eine Sperre. Deshalb geht jede Prüfung
+über ein Werkzeug, das im jeweiligen Image nachweislich liegt, `python3` in
+den Judge- und MongoDB-Images, `bash` im Keycloak-Image, `wget` im
+Traefik-Image, `nc` in busybox. Ein neues Image braucht hier einen eigenen
+Aufruf. Der MongoDB-Operator fehlt, sein Image bringt weder Shell noch Python
+mit; seine Regeln zeigen sich stattdessen an einem Neustart des Pods, dessen
+Reconcile danach ohne Timeout durchlaufen muss.
+
 ### Authentifizierung
 
 Die Anmeldung passiert am Gateway, nicht in der Anwendung (Issue #20). Eine

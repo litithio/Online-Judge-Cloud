@@ -1,0 +1,57 @@
+---
+# Rüstet den kube-apiserver des laufenden Servers zum OIDC-Prüfer nach
+# (Viewer-Kennung, W6). Die Flags gehören zu den Serverargumenten, die die
+# Rolle nur bei der Erstinstallation über INSTALL_K3S_EXEC setzt; ein Cluster,
+# der schon läuft, bekommt sie deshalb hier über einen Config-Drop-in und einen
+# gezielten Neustart. Läuft nur auf dem Server, der Agent trägt keinen
+# apiserver.
+#
+# Kein Sperr-Risiko: die Admin-kubeconfig (ServiceAccount-Token) bleibt neben
+# der OIDC-Prüfung gültig. Fällt der Login aus, steuert der Admin den Cluster
+# weiter wie bisher.
+
+# Der Drop-in-Ordner steht nach der Erstinstallation, ist aber nicht garantiert
+# vorhanden. template legt fehlende Elternverzeichnisse nicht an, deshalb der
+# eigene Schritt davor.
+- name: Drop-in-Verzeichnis für die k3s-Konfiguration sicherstellen
+  ansible.builtin.file:
+    path: /etc/rancher/k3s/config.yaml.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: OIDC-Drop-in für den kube-apiserver ablegen
+  ansible.builtin.template:
+    src: k3s-oidc-config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml.d/oidc.yaml
+    # k3s liest die Datei als root beim Start; 0600, weil kein anderer Nutzer
+    # sie braucht.
+    owner: root
+    group: root
+    mode: "0600"
+  register: oidc_dropin
+
+- name: Auf den geänderten OIDC-Drop-in hin k3s neu starten
+  # Nur wenn sich die Datei geändert hat: ein unveränderter Lauf soll den
+  # apiserver nicht ohne Grund für die Neustart-Sekunden aus dem Takt bringen.
+  when: oidc_dropin is changed
+  block:
+    - name: k3s neu starten
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+
+    # Nach dem Neustart antwortet der apiserver erst nach ein paar Sekunden
+    # wieder. Die folgenden Auth-Tasks (Keycloak, Binding) reden über die API,
+    # deshalb hier warten, bis sie wieder Knoten liefert.
+    - name: Auf den kube-apiserver warten
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml
+          get --raw=/readyz
+      register: apiserver_readyz
+      until: apiserver_readyz.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false

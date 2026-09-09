@@ -1,0 +1,13 @@
+---
+# Cluster-RBAC für die Viewer-Kennung (W6). Das Keycloak-Konto und die Gruppe
+# cluster-viewer kommen aus dem Realm-Import (tasks/keycloak.yaml), die
+# Token-Prüfung des kube-apiservers aus den oidc-Flags (deploy.yaml, Play k3s).
+# Hier bleibt das Bindeglied: das ClusterRoleBinding, das die Gruppe an die
+# ClusterRole view hängt. Erst damit darf ein eingeloggter Viewer im Cluster
+# lesen.
+
+- name: Viewer ClusterRoleBinding anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition: "{{ lookup('template', 'files/viewer-clusterrolebinding.yaml') | from_yaml }}"

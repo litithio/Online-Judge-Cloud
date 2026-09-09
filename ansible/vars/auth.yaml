@@ -50,3 +50,61 @@ keycloak_db_size: 2Gi
 # einen eigenen oauth2-proxy-Pod. Traefik lädt das Plugin beim Start aus dem
 # Plugin-Katalog; die Version wird in tasks/traefik-plugin.yaml eingetragen.
 traefik_oidc_plugin_version: "v0.21.0"
+# Nicht-geheime Konfiguration der Auth-Kette und die Hostnamen der von außen
+# erreichbaren Dienste. Die Secrets liegen daneben in
+# auth-credentials.yaml (siehe .example), beide werden von den Auth-Plays über
+# vars_files geladen.
+#
+# Versionen sind gepinnt wie in requirements.yml: einmal grün gelaufen, dann
+# eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht.
+
+---
+# Namespace der Auth-Dienste, derselbe wie app_namespace (#62). Die Trennung
+# der Login-Sitzung läuft über den eigenen Host (#92), nicht über den Namespace.
+auth_namespace: judge
+
+# Die Hostnamen hängen unter der eigenen DNS-Zone (rfc2136_zone aus
+# dns-credentials.yaml). external-dns legt die Records für jede Ingress mit
+# einem Host unter der Zone selbst an, cert-manager liefert das Wildcard-Zert.
+# auth statt keycloak: der Name benennt die Funktion statt des Produkts, und
+# der eigene Host hält die Login-Sitzung per Same-Origin-Policy von Skript-Code
+# der Oberfläche fern (Vorschlag in #92).
+keycloak_host: "auth.{{ rfc2136_zone }}"
+app_host: "app.{{ rfc2136_zone }}"
+# Grafana gehört nicht zur Auth-Kette, der Name steht hier trotzdem. Die
+# Entscheidung aus #92 behandelt die Hosts als eine Sache, jeder von außen
+# erreichbare Dienst bekommt einen Namen auf dieser einen Ebene, weil das
+# Wildcard der Rolle genau sie abdeckt. Verteilt auf mehrere Dateien ginge
+# beim nächsten Namen verloren, wieviele davon die Ebene schon belegen.
+grafana_host: "grafana.{{ rfc2136_zone }}"
+
+# Realm und Client kommen als Code (templates/keycloak-realm.json.j2). Die
+# client-id ist frei gewählt; sie identifiziert das Gateway (Traefik-Plugin)
+# gegenüber Keycloak.
+keycloak_realm: judge
+oidc_client_id: judge-gateway
+
+# Zweiter Client für den kubectl-Zugriff auf den Cluster (Viewer-Kennung).
+# Public Client (kein Secret), weil kubelogin ein CLI-Werkzeug ist und keinen
+# geheimen Wert sicher halten kann; der Schutz läuft über PKCE. Die Gruppe
+# landet über einen Mapper im groups-Claim, das ClusterRoleBinding
+# (files/viewer-clusterrolebinding.yaml) bindet sie an die ClusterRole view.
+# Der kube-apiserver setzt oidc-groups-prefix oidc:, das Binding adressiert die
+# Gruppe deshalb als oidc:{{ kube_viewer_group }}.
+kube_oidc_client_id: kubernetes
+kube_viewer_group: cluster-viewer
+# Issuer, gegen den der kube-apiserver die Token prüft. Kein interner
+# Service-Name, sondern der öffentliche Host: dieselbe URL steht in den
+# Token, die Keycloak über den Browser-Login ausstellt.
+kube_oidc_issuer_url: "https://{{ keycloak_host }}/realms/{{ keycloak_realm }}"
+
+# Keycloak: keycloakx-Chart (codecentric), einzelner Pod, H2 auf einem PVC.
+keycloak_chart_repo: https://codecentric.github.io/helm-charts
+keycloak_chart_version: "7.2.2"
+keycloak_image_tag: "26.6.4"
+keycloak_pvc_size: 1Gi
+
+# OIDC am Gateway läuft über das Traefik-Plugin traefik-oidc-auth, nicht über
+# einen eigenen oauth2-proxy-Pod. Traefik lädt das Plugin beim Start aus dem
+# Plugin-Katalog; die Version wird in tasks/traefik-plugin.yaml eingetragen.
+traefik_oidc_plugin_version: "v0.21.0"

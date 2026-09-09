@@ -465,3 +465,466 @@
       ansible.builtin.import_tasks: tasks/keycloak.yaml
     - name: Traefik-Anbindung
       ansible.builtin.import_tasks: tasks/traefik-auth.yaml
+# Bringt den k3s-Cluster auf die Nodes aus dem Terraform-Inventory. Aufruf:
+#
+#   ansible-galaxy install -r requirements.yml --force
+#   ansible-playbook -i inventory/generated-inventory.yml -i dns-credentials.yaml deploy.yaml
+#
+# --force, weil ansible-galaxy eine bereits installierte Rolle sonst stehen
+# lässt, auch wenn in requirements.yml eine andere Version steht. Ohne das
+# Flag läuft das Playbook gegen den alten Stand und meldet trotzdem Erfolg.
+#
+# VPN dabei aus: die Nodes sind über ihr öffentliches IPv6 erreichbar, der
+# Full-Tunnel würde genau das kappen.
+---
+- name: Auf SSH und cloud-init warten
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Warten, bis die Nodes bereit sind
+      ansible.builtin.import_tasks: tasks/wait.yaml
+
+# Die Rolle erkennt Server und Agents an k3s_role aus dem Inventory und
+# richtet DNS und TLS über die Zone aus dns-credentials.yaml ein.
+- name: K3s-Cluster ausrollen
+  hosts: all
+  tags: [k3s]
+  become: true
+  vars:
+    # Die einzige Helm-Version im Repo. Der Server rollt die Charts damit aus,
+    # und scripts/chart-check.sh liest den Wert aus dieser Zeile, damit die
+    # Prüfung dieselbe Version nimmt. Eigener Name statt helm_version, weil die
+    # Rolle einen gleichnamigen Default trägt und das Skript sonst zwei Zeilen
+    # fände.
+    judge_helm_version: "v3.21.4"
+  # Vor der Rolle, nicht danach. Die Rolle rollt cert-manager und Longhorn
+  # selbst über helm aus, ein Nachzug in tasks käme dafür zu spät. Die Tasks
+  # tragen always, sonst liefe ein Aufruf mit --tags app am k3s-Play vorbei und
+  # das App-Play nutzte weiter das alte Binary. Der Nachzug greift nur auf dem
+  # Server, die Agents rollen keine Charts aus.
+  pre_tasks:
+    - name: Helm-Version auf dem Server lesen
+      ansible.builtin.command: helm version --short
+      register: helm_vorhanden
+      changed_when: false
+      failed_when: false
+      # Liest auch bei --check, sonst bliebe stdout leer und der Lauf meldete
+      # eine Installation, die gar nicht ansteht.
+      check_mode: false
+      when: k3s_role == 'server'
+      tags: always
+
+    # Die Rolle installiert curl selbst, aber erst in ihrem Bootstrap und damit
+    # nach diesen Tasks. get-helm-3 unten braucht es, auf einem Node ohne curl
+    # risse der Aufruf den ganzen Lauf mit.
+    - name: Curl für das Installationsskript sicherstellen
+      ansible.builtin.apt:
+        name: curl
+        state: present
+        update_cache: true
+        cache_valid_time: 86400
+      when:
+        - k3s_role == 'server'
+        - (helm_vorhanden.stdout | default('')).split('+')[0] != judge_helm_version
+      tags: always
+
+    # Greift auch, wenn helm ganz fehlt. Der Task davor liefert dann einen
+    # leeren stdout, und ein Lauf mit --tags app käme sonst ohne helm zum
+    # App-Play, das ein Chart ausrollt. Der Task der Rolle überspringt danach
+    # wegen creates, installiert wird also einmal und mit demselben Skript.
+    - name: Helm auf den gepinnten Stand bringen
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+          | DESIRED_VERSION={{ judge_helm_version }} bash
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when:
+        - k3s_role == 'server'
+        # helm version --short liefert "v3.21.4+g813176c", der Teil vor dem
+        # Pluszeichen ist die Version. Fehlt helm, ist stdout leer und der
+        # Vergleich schlägt ebenfalls an.
+        - (helm_vorhanden.stdout | default('')).split('+')[0] != judge_helm_version
+      tags: always
+  roles:
+    # Der Server trägt nur die Steuerung, k3s setzt anders als kubeadm von sich
+    # aus kein Taint. Die Rolle hängt k3s_extra_exec_args allein an die
+    # Server-Argumente an, die Agents sehen den Wert nicht. Auf
+    # CriticalAddonsOnly sind coredns, metrics-server und der svclb von Traefik
+    # ausgelegt, Longhorn läuft damit nicht mehr auf dem Server. NoSchedule
+    # reicht, das Taint steht ab dem Start des Servers und es kommt nie ein Pod
+    # ohne Toleration dorthin.
+    - role: k3s-dhbw-cloud-role
+      k3s_extra_exec_args: "--node-taint CriticalAddonsOnly=true:NoSchedule"
+      helm_version: "{{ judge_helm_version }}"
+      longhorn_node_selector:
+        online-judge/rolle: dienste
+  tasks:
+    # always, damit der Fact auch bei einem Lauf mit --tags entsteht. Ohne das
+    # Tag erbt die Aufgabe k3s vom Play, und ein Aufruf mit --tags mongodb
+    # überspringt sie. tasks/mongodb.yaml bricht dann mit
+    # "'kubeconfig_root' is undefined" ab.
+    - name: Kubeconfig_root für spätere Plays merken
+      ansible.builtin.set_fact:
+        kubeconfig_root: "{{ kubeconfig_root }}"
+      when: k3s_role == 'server'
+      tags: always
+
+    # Das Argument oben wirkt nur bei der Installation, und die Rolle
+    # überspringt sie, sobald /usr/local/bin/k3s liegt. Auf einem Server, der
+    # schon läuft, kommt der Taint deshalb über die API dazu. Vorhandene Taints
+    # bleiben stehen, weil ein Patch die Liste sonst ersetzt.
+    - name: Taints des Servers lesen
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_root }}"
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+      register: server_node
+      when: k3s_role == 'server'
+
+    - name: Server für Workloads sperren
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: "{{ kubeconfig_root }}"
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+        definition:
+          spec:
+            # rejectattr wirft einen Taint mit demselben Schlüssel und anderem
+            # Effekt weg. Kubernetes ließe beide nebeneinander stehen.
+            taints: >-
+              {{ (server_node.resources[0].spec.taints | default([])
+                  | rejectattr('key', 'equalto', server_taint.key) | list)
+                 + [server_taint] }}
+      vars:
+        server_taint:
+          key: CriticalAddonsOnly
+          value: "true"
+          effect: NoSchedule
+      when:
+        - k3s_role == 'server'
+        - server_node.resources[0].spec.taints | default([])
+          | selectattr('key', 'equalto', server_taint.key)
+          | selectattr('effect', 'equalto', server_taint.effect)
+          | selectattr('value', 'defined')
+          | selectattr('value', 'equalto', server_taint.value)
+          | list | length == 0
+
+# Nur auf den Agents, der Server führt keine Einreichungen aus.
+- name: Sandbox-Laufzeit gVisor auf den Judge-Nodes einrichten
+  hosts: judge_k3s_agent
+  tags: [gvisor]
+  become: true
+  vars:
+    # Gepinnt wie die Rolle in requirements.yml: einmal grün gelaufen, dann
+    # eingefroren, damit ein Neuaufbau in Monaten denselben Stand zieht. Die
+    # Prüfsummen liegen unter derselben URL mit der Endung .sha512 und gelten
+    # für genau diese Release-Nummer.
+    gvisor_version: "20260721.0"
+    gvisor_binaries:
+      - name: runsc
+        sha512: "5de08aa2c048f85289084a6c65648a49dea510da54677a196f223fbf08499c36741da79976b51e0e2b61063bde01ef2a709c7ced95b6d829d9a3c0f3c68b78ab"
+      - name: containerd-shim-runsc-v1
+        sha512: "a6562b8c5557ef56a6dac35bd957a8682b513d649f35c6c0d37974165f2a9b989a032225c4b829cafa852fc6ce75094446a45add3505e31eb291a3ce4c51bff3"
+  tasks:
+    - name: Laufzeit runsc einrichten
+      ansible.builtin.import_tasks: tasks/gvisor.yaml
+  handlers:
+    # k3s rendert die containerd-Konfiguration beim Start aus der Vorlage neu.
+    # Ohne Neustart bleibt der Eintrag für runsc wirkungslos.
+    - name: K3s-Agent neu starten
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: restarted
+
+# Die RuntimeClass ist ein Objekt im Cluster, angelegt wird sie deshalb über
+# den Server. Der Handler muss so heißen wie die Laufzeit im containerd-Block.
+- name: RuntimeClass für gVisor anlegen
+  hosts: judge_k3s_server
+  tags: [gvisor]
+  become: true
+  tasks:
+    # scheduling.nodeSelector bindet jeden Pod mit dieser RuntimeClass an die
+    # gekennzeichneten Nodes. Der Weg über die RuntimeClass statt über jedes
+    # Deployment hält die Bindung an einer Stelle. Wer runsc anfordert, kann
+    # damit gar nicht erst auf einem Node landen, auf dem runsc fehlt. Ohne sie
+    # nimmt der k3s-Server den Pod an, dort liegt runsc aber nicht, weil das
+    # gvisor-Play nur auf den Agents läuft.
+    - name: RuntimeClass gvisor
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        definition:
+          apiVersion: node.k8s.io/v1
+          kind: RuntimeClass
+          metadata:
+            name: gvisor
+          handler: runsc
+          scheduling:
+            nodeSelector:
+              online-judge/sandbox: runsc
+            # Die Judge-Nodes tragen ein Taint mit demselben Schlüssel, gesetzt
+            # über --node-taint in terraform/outputs.tf. Damit landet dort nur,
+            # was den Taint toleriert, und das ist über diese RuntimeClass genau
+            # der eingereichte Code. Vorher lief dort auch, was niemand bestellt
+            # hatte, Traefik, cert-manager, external-dns und die KEDA-Pods.
+            # Die Toleration steht hier und nicht am Deployment, dann gilt sie
+            # für jeden Pod mit dieser RuntimeClass.
+            tolerations:
+              - key: online-judge/sandbox
+                operator: Equal
+                value: runsc
+                effect: NoSchedule
+
+# Der system-upgrade-controller bindet seinen Job an den Node, den er
+# aktualisiert, und die Plans der Rolle tragen keine tolerations. Ohne diesen
+# Patch bliebe der Job auf jedem getainteten Node Pending, und die Nodes
+# bekämen keine k3s-Upgrades mehr. Betrifft auch den Server, dessen Taint schon
+# länger steht. Die Rolle schreibt die Plans bei jedem Lauf neu, dieses Play
+# setzt die tolerations direkt danach wieder.
+#
+# Damit läuft der Upgrade-Job auch auf den Judge-Nodes, privilegiert und neben
+# dem eingereichten Code. Das ist der Preis für automatische Upgrades, siehe
+# README ## Grenzen.
+- name: Upgrade-Plans die Taints tolerieren lassen
+  hosts: judge_k3s_server
+  # Auch unter k3s und upgrade, sonst legt die Rolle bei einem Lauf mit diesen
+  # Tags die Plans neu an und dieses Play liefe nicht mit.
+  tags: [gvisor, k3s, upgrade]
+  become: true
+  tasks:
+    - name: Toleration am Plan setzen
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        api_version: upgrade.cattle.io/v1
+        kind: Plan
+        namespace: system-upgrade
+        name: "{{ item.plan }}"
+        definition:
+          spec:
+            tolerations:
+              - key: "{{ item.key }}"
+                operator: Equal
+                value: "{{ item.value }}"
+                effect: "{{ item.effect }}"
+      loop:
+        - plan: server-plan
+          key: CriticalAddonsOnly
+          value: "true"
+          effect: NoSchedule
+        - plan: agent-plan
+          key: online-judge/sandbox
+          value: runsc
+          effect: NoSchedule
+      loop_control:
+        label: "{{ item.plan }}"
+
+# helm --wait in der Rolle wartet auf die Ressourcen des Charts, nicht auf die
+# instance-manager, die Longhorn danach selbst anlegt. Ein Volume, das in dieser
+# Luecke entsteht, findet keinen laufenden Prozess und wird faulted. Am 25.08.
+# Das Taint aus terraform/outputs.tf setzt k3s beim Start des Agents. Auf einem
+# Node, der schon läuft, überspringt die Rolle die Installation und der Wert
+# käme nie an. Deshalb hier derselbe Weg wie beim Server, über die API.
+- name: Judge-Nodes für fremde Workloads sperren
+  hosts: judge_k3s_agent_judge
+  tags: [gvisor]
+  become: true
+  tasks:
+    - name: Taints des Judge-Nodes lesen
+      kubernetes.core.k8s_info:
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+      register: judge_node
+      delegate_to: "{{ groups['judge_k3s_server'][0] }}"
+
+    - name: Taint setzen
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kind: Node
+        name: "{{ ansible_facts['hostname'] }}"
+        definition:
+          spec:
+            # Ein Taint mit demselben Schlüssel und anderem Effekt fliegt raus,
+            # Kubernetes ließe sonst beide nebeneinander stehen.
+            taints: >-
+              {{ (judge_node.resources[0].spec.taints | default([])
+                  | rejectattr('key', 'equalto', judge_taint.key) | list)
+                 + [judge_taint] }}
+      delegate_to: "{{ groups['judge_k3s_server'][0] }}"
+      vars:
+        judge_taint:
+          key: online-judge/sandbox
+          value: runsc
+          effect: NoSchedule
+      when: judge_node.resources[0].spec.taints | default([])
+            | selectattr('key', 'equalto', judge_taint.key)
+            | selectattr('effect', 'equalto', judge_taint.effect)
+            | selectattr('value', 'defined')
+            | selectattr('value', 'equalto', judge_taint.value)
+            | list | length == 0
+
+# lagen zwischen dem Ende des Helm-Laufs und den ersten PVCs neun Sekunden.
+- name: Auf Longhorn warten
+  hosts: judge_k3s_server
+  tags: [longhorn]
+  become: true
+  tasks:
+    - name: Warten, bis jeder Dienste-Node einen laufenden instance-manager hat
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_root }}"
+        api_version: longhorn.io/v1beta2
+        kind: InstanceManager
+        namespace: longhorn-system
+      register: longhorn_managers
+      until: longhorn_managers.resources
+             | selectattr('status.currentState', 'equalto', 'running')
+             | map(attribute='spec.nodeID') | list | sort
+             == dienste_hostnames | sort
+      retries: 30
+      delay: 10
+      vars:
+        dienste_hostnames: "{{ groups['judge_k3s_agent_dienste']
+                               | map('extract', hostvars, ['ansible_facts', 'hostname']) | list }}"
+
+# Der Namespace für die Anwendung, vor den Datendiensten, der App und
+# Keycloak, weil sie alle hineingehören. Dazu das default-deny für beide
+# Richtungen (#62), die Ausnahmen legen die Plays der Dienste und das Chart an.
+- name: Namespace anlegen
+  hosts: judge_k3s_server
+  tags: [namespace]
+  become: true
+  vars_files:
+    - vars/app.yaml
+  tasks:
+    - name: Namespace der Anwendung
+      ansible.builtin.import_tasks: tasks/namespace.yaml
+
+# Die Datendienste zuerst: die App verbindet sich beim Start mit MongoDB und
+# der Queue, und das Chart liest die Mongo-URI aus dem Secret, das der Operator
+# erst nach dem Anlegen der Instanz schreibt. Beim ersten Vollauf auf leerem
+# Cluster müssen die Plays deshalb vor der Anwendung liegen.
+- name: MongoDB ausrollen
+  hosts: judge_k3s_server
+  tags: [mongodb]
+  become: true
+  vars_files:
+    - vars/app.yaml
+  tasks:
+    - name: MongoDB Operator und Instanz einrichten
+      ansible.builtin.import_tasks: tasks/mongodb.yaml
+
+- name: Valkey ausrollen
+  hosts: judge_k3s_server
+  tags: [valkey]
+  become: true
+  vars_files:
+    - vars/app.yaml
+  tasks:
+    - name: Valkey Deployment und Service einrichten
+      ansible.builtin.import_tasks: tasks/valkey.yaml
+
+# Prometheus und Grafana für den Nachweis aus #11, dass Last sichtbar
+# zusätzliche Worker erzeugt. Steht vor KEDA, damit der ServiceMonitor aus
+# diesem Play den Metrikport des Operators von Anfang an findet.
+#
+# Den Port öffnen erst die Werte in tasks/keda.yaml. Auf einem Cluster, dessen
+# KEDA-Release davor liegt, trägt der Service nur metricsservice=9666, der
+# ServiceMonitor findet kein Ziel und das Panel zur Warteschlange bleibt leer.
+# Deshalb beide Tags zusammen fahren, also --tags observability,keda.
+- name: Prometheus und Grafana ausrollen
+  hosts: judge_k3s_server
+  tags: [observability]
+  become: true
+  # Aus vars/auth.yaml kommt grafana_host, aus auth-credentials.yaml das
+  # Passwort des Grafana-Admins. Beide Dateien tragen auch die Auth-Kette, die
+  # Hostnamen stehen dort nach der Entscheidung aus #92 an einer Stelle.
+  vars_files:
+    - vars/auth.yaml
+    - auth-credentials.yaml
+  tasks:
+    - name: Prometheus, Grafana und das Dashboard einrichten
+      ansible.builtin.import_tasks: tasks/observability.yaml
+
+- name: KEDA ausrollen
+  hosts: judge_k3s_server
+  tags: [keda]
+  become: true
+  tasks:
+    - name: KEDA Operator einrichten
+      ansible.builtin.import_tasks: tasks/keda.yaml
+
+# Der Seed der Aufgaben. Nach den Datendiensten, weil er nach MongoDB
+# schreibt. Worker, Rückhol-CronJob und ScaledObject kommen aus dem Chart und
+# damit aus dem Play darunter.
+- name: Aufgaben laden
+  hosts: judge_k3s_server
+  tags: [seed]
+  become: true
+  vars_files:
+    - vars/app.yaml
+  tasks:
+    - name: Seed der Aufgaben
+      ansible.builtin.import_tasks: tasks/seed.yaml
+
+# Die eigenen Dienste als Helm-Release (Issue #15/#17), also die API und die
+# Judge-Kette. MongoDB, Valkey und der Seed sind Infrastruktur und kommen aus
+# den Plays davor, ebenso die KEDA-CRD, die das ScaledObject braucht. Läuft auf dem Server (dort liegt die kubeconfig)
+# und vor der Auth-Kette, damit der backend-Service steht, wenn die geschützte
+# Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml. Aus
+# auth-credentials.yaml kommt der Herkunftswert des Gateways, den das Play als
+# Secret anlegt und die API beim Start liest (#79).
+- name: Anwendung ausrollen
+  hosts: judge_k3s_server
+  tags: [app]
+  become: true
+  vars_files:
+    - vars/app.yaml
+    - auth-credentials.yaml
+  tasks:
+    # Prüft gateway_secret (und die übrigen Auth-Secrets), bevor die API es als
+    # Secret gesetzt bekommt. Fängt den Fehler ab, auch wenn nur --tags app läuft.
+    - name: Auth-Secrets prüfen
+      ansible.builtin.import_tasks: tasks/auth-preflight.yaml
+    - name: Anwendung
+      ansible.builtin.import_tasks: tasks/app.yaml
+
+# Authentifizierung am Gateway (Issue #20): Keycloak und das Traefik-OIDC-Plugin
+# (traefik-oidc-auth) samt Middleware. Läuft auf dem Server, weil dort die
+# kubeconfig liegt und rfc2136_zone (aus dns-credentials.yaml) für die
+# Hostnamen gesetzt ist. Die nicht-geheime Konfiguration kommt aus
+# vars/auth.yaml, die Secrets aus auth-credentials.yaml (Vorlage: .example).
+- name: Auth-Kette ausrollen
+  hosts: judge_k3s_server
+  tags: [auth]
+  become: true
+  vars_files:
+    - vars/app.yaml
+    - vars/auth.yaml
+    - auth-credentials.yaml
+  tasks:
+    # Erst die Secrets prüfen: ein ungültiger oder unveränderter Wert soll den
+    # Deploy sofort stoppen, nicht später als 404 oder als abweisende API enden.
+    - name: Auth-Secrets prüfen
+      ansible.builtin.import_tasks: tasks/auth-preflight.yaml
+    # Rüstet den kube-apiserver zum OIDC-Prüfer nach (Viewer-Kennung, W6). Vor
+    # Keycloak, damit ein durch den Neustart kurz abwesender apiserver die
+    # folgenden Tasks nicht mitten in einem Rollout trifft. Kein Cluster-Zugriff
+    # nötig, der Schritt legt nur eine Datei ab und startet den Dienst neu.
+    - name: OIDC am kube-apiserver
+      ansible.builtin.import_tasks: tasks/k3s-oidc.yaml
+    # Zuerst das Plugin aktivieren: Traefik startet dabei neu, was Zeit
+    # braucht, und die Middleware unten setzt es voraus.
+    - name: Traefik-Plugin
+      ansible.builtin.import_tasks: tasks/traefik-plugin.yaml
+    - name: Keycloak
+      ansible.builtin.import_tasks: tasks/keycloak.yaml
+    - name: Traefik-Anbindung
+      ansible.builtin.import_tasks: tasks/traefik-auth.yaml
+    # Cluster-RBAC der Viewer-Kennung. Nach Keycloak, denn Gruppe und Konto
+    # kommen von dort; das Binding hängt sie an die ClusterRole view.
+    - name: Viewer-RBAC
+      ansible.builtin.import_tasks: tasks/viewer-rbac.yaml

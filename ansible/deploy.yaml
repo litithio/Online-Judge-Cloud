@@ -451,4 +451,3 @@
       ansible.builtin.import_tasks: tasks/keycloak.yaml
     - name: Traefik-Anbindung
       ansible.builtin.import_tasks: tasks/traefik-auth.yaml
-      

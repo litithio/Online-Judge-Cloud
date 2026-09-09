@@ -55,3 +55,4 @@
       auth-credentials.yaml.example. Einen eigenen Wert eintragen
       (openssl rand -base64 32).
     success_msg: gateway_secret wurde gegenüber dem Platzhalter geändert.
+    

@@ -418,6 +418,10 @@
     - vars/app.yaml
     - auth-credentials.yaml
   tasks:
+    # Prüft gateway_secret (und die übrigen Auth-Secrets), bevor die API es als
+    # Secret gesetzt bekommt. Fängt den Fehler ab, auch wenn nur --tags app läuft.
+    - name: Auth-Secrets prüfen
+      ansible.builtin.import_tasks: tasks/auth-preflight.yaml
     - name: Anwendung
       ansible.builtin.import_tasks: tasks/app.yaml
 
@@ -435,6 +439,10 @@
     - vars/auth.yaml
     - auth-credentials.yaml
   tasks:
+    # Erst die Secrets prüfen: ein ungültiger oder unveränderter Wert soll den
+    # Deploy sofort stoppen, nicht später als 404 oder als abweisende API enden.
+    - name: Auth-Secrets prüfen
+      ansible.builtin.import_tasks: tasks/auth-preflight.yaml
     # Zuerst das Plugin aktivieren: Traefik startet dabei neu, was Zeit
     # braucht, und die Middleware unten setzt es voraus.
     - name: Traefik-Plugin

@@ -4,8 +4,9 @@
 # Secrets -- least privilege für einen reinen Einblick in den Cluster.
 #
 # Der Name trägt den Präfix oidc:, weil der kube-apiserver mit
-# oidc-groups-prefix oidc: konfiguriert ist (deploy.yaml). Der groups-Claim aus
-# Keycloak heißt cluster-viewer, im Cluster wird daraus oidc:cluster-viewer.
+# oidc-groups-prefix oidc: konfiguriert ist (templates/k3s-oidc-config.yaml.j2).
+# Der groups-Claim aus Keycloak heißt cluster-viewer, im Cluster wird daraus
+# oidc:cluster-viewer.
 # So lassen sich OIDC-Gruppen nie mit internen Gruppen verwechseln.
 #
 # Dasselbe Binding auf jedem der vier Cluster genügt: das Keycloak-Konto

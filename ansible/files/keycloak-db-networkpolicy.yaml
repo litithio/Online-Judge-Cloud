@@ -1,0 +1,73 @@
+# Ingress und Egress der Postgres-Instanzen für Keycloak (#163). Ausnahme zum
+# default-deny in judge-networkpolicy.yaml. Die Adresse des API-Servers liest
+# der Task am Anfang von tasks/postgres.yaml aus dem Cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-db
+  namespace: "{{ auth_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: "{{ keycloak_db_name }}"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloakx
+        - podSelector:
+            matchLabels:
+              app: keycloak-realm-import
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Der Operator muss jede Instanz auf 8000 (Status) und 5432 erreichen,
+    # und die Instanzen einander auf beiden Ports, so die CloudNativePG-Doku
+    # (docs/src/networking.md, 1.30). 8000 zwischen den Instanzen dient der
+    # Absicherung des Primary beim Failover.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: "{{ keycloak_db_name }}"
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: "{{ keycloak_db_name }}"
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+    # Der Instanz-Manager im Pod beobachtet die Cluster-Ressource über die
+    # K8s-API, wie der MongoDB-Agent. Gleiche Herleitung der Adresse wie in
+    # mongodb-networkpolicy.yaml.
+    - to:
+        - ipBlock:
+            cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"
+      ports:
+        - protocol: TCP
+          port: 6443

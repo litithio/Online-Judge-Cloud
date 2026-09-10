@@ -425,6 +425,20 @@
     - name: Anwendung
       ansible.builtin.import_tasks: tasks/app.yaml
 
+# PostgreSQL für Keycloak (#163). Vor der Auth-Kette, weil der Realm-Import
+# und der Keycloak-Start die Datenbank brauchen. Eigener Tag, damit der
+# Operator nicht bei jedem --tags auth mitläuft.
+- name: PostgreSQL für Keycloak ausrollen
+  hosts: judge_k3s_server
+  tags: [postgres]
+  become: true
+  vars_files:
+    - vars/app.yaml
+    - vars/auth.yaml
+  tasks:
+    - name: CloudNativePG-Operator und Cluster
+      ansible.builtin.import_tasks: tasks/postgres.yaml
+
 # Authentifizierung am Gateway (Issue #20): Keycloak und das Traefik-OIDC-Plugin
 # (traefik-oidc-auth) samt Middleware. Läuft auf dem Server, weil dort die
 # kubeconfig liegt und rfc2136_zone (aus dns-credentials.yaml) für die

@@ -1,14 +1,14 @@
 ---
-# Keycloak als einzelner Pod mit persistentem H2-Datenspeicher. Der Realm samt
-# Gateway-Client, Rolle dozent und die beiden Konten kommt als Code aus
-# templates/keycloak-realm.json.j2. Ein Init-Container spielt die Vorlage mit
-# kc.sh import --override true in die H2-Datei, sobald sie sich von der
-# zuletzt importierten unterscheidet, siehe extraInitContainers unten (#146).
+# Keycloak mit zwei Replicas gegen PostgreSQL aus CloudNativePG (#163). Der
+# Realm samt Gateway-Client, Rolle dozent und die beiden Konten kommt als Code
+# aus templates/keycloak-realm.json.j2. Ein Job vor dem Helm-Task spielt die
+# Vorlage mit kc.sh import --override true in die Datenbank, sobald sie sich
+# von der zuletzt importierten unterscheidet, siehe den Job-Task unten (#146,
+# #163).
 #
-# H2 (database.vendor dev-file) statt einer externen Datenbank: ein zweiter Pod
-# ist nicht vorgesehen, und die H2-Datei liegt auf einem PVC unter
-# /opt/keycloak/data, überlebt den Pod-Neustart also (Abnahmepunkt 6). Eine
-# externe Datenbank wäre erst ab dem zweiten Keycloak-Pod nötig.
+# PostgreSQL statt H2: Die H2-Datei verträgt keinen zweiten Prozess, und erst
+# ein zweiter Pod trägt ein Rolling Update ohne Ausfall (P5). Der Cluster
+# keycloak-db kommt aus tasks/postgres.yaml.
 
 - name: Namespace für die Auth-Dienste
   kubernetes.core.k8s:
@@ -38,30 +38,8 @@
         KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ keycloak_admin_password }}"
   no_log: true
 
-# H2 liegt hier. Ohne PVC legt Keycloak die Datei ins Container-Dateisystem und
-# verliert Master-Realm, Admin-Konto und die Signaturschlüssel des Realms beim
-# Ersetzen des Pods, der Realm selbst käme aus der Vorlage zurück, siehe den
-# Init-Container unten. StorageClass bleibt offen:
-# die Rolle setzt auf dem Mehr-Node-Cluster Longhorn als Standard.
-- name: PVC für den Keycloak-Datenspeicher
-  kubernetes.core.k8s:
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-    definition:
-      apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: keycloak-data
-        namespace: "{{ auth_namespace }}"
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: "{{ keycloak_pvc_size }}"
-
-# Der gerenderte Realm. Der Init-Container liest ihn aus data/import, das
-# Secret wird unten in genau dieses Verzeichnis gemountet. Ein Secret statt
+# Der gerenderte Realm. Der Import-Job liest ihn aus data/import, das Secret
+# wird dort in genau dieses Verzeichnis gemountet. Ein Secret statt
 # einer ConfigMap, weil die Vorlage das Client-Secret und
 # die Passwörter beider Konten trägt. Eine ConfigMap liest jeder mit der
 # Rolle view im Namespace, ein Secret nicht.
@@ -78,6 +56,193 @@
       stringData:
         realm.json: "{{ lookup('template', 'templates/keycloak-realm.json.j2') }}"
   no_log: true
+
+# Der Import läuft nur bei geänderter Vorlage. Ein Override nimmt den ganzen
+# Realm mit, auch seine Signaturschlüssel, und das Traefik-Plugin lädt neue
+# Schlüssel höchstens alle fünf Minuten nach (siehe #146). Der Merker mit der
+# Prüfsumme lag bisher auf dem PVC, ohne PVC liegt er in einer ConfigMap.
+- name: Merker des letzten Realm-Imports lesen
+  kubernetes.core.k8s_info:
+    kind: ConfigMap
+    name: keycloak-realm-import-merker
+    namespace: "{{ auth_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: realm_merker
+
+# Der Merker trägt neben der Prüfsumme die UID des Postgres-Clusters. Ein neu
+# angelegter Cluster hat eine leere Datenbank und eine neue UID, der Import
+# läuft dann auch bei unveränderter Vorlage. Zwei Tasks, weil ein set_fact
+# seine eigenen neuen Werte im selben Task noch nicht kennt.
+# failed_when false, weil das Modul ohne die CRD des Operators mit einem
+# API-Fehler abbräche, statt eine leere Liste zu liefern. Die Prüfung darunter
+# fängt beide Fälle mit einer lesbaren Meldung.
+- name: Postgres-Cluster lesen
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: "{{ keycloak_db_name }}"
+    namespace: "{{ auth_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: keycloak_db
+  failed_when: false
+
+# Ein Lauf mit --tags auth ohne postgres fände auf einem neuen Cluster keine
+# Datenbank. Die Meldung nennt den Weg, statt dass der nächste Task mit einem
+# Index-Fehler abbricht.
+- name: Postgres-Cluster muss vorhanden sein
+  ansible.builtin.assert:
+    that: keycloak_db.resources | default([]) | length > 0
+    fail_msg: "Kein Cluster {{ keycloak_db_name }} in {{ auth_namespace }}, zuerst --tags postgres fahren"
+
+- name: Prüfsumme der gerenderten Vorlage merken
+  ansible.builtin.set_fact:
+    realm_summe: "{{ lookup('template', 'templates/keycloak-realm.json.j2') | hash('sha256') }}"
+    realm_db_uid: "{{ keycloak_db.resources[0].metadata.uid }}"
+
+- name: Entscheiden, ob der Import läuft
+  ansible.builtin.set_fact:
+    realm_import_noetig: >-
+      {{ realm_merker.resources | length == 0
+         or realm_merker.resources[0].data.sha256 != realm_summe
+         or realm_merker.resources[0].data.cluster_uid | default('') != realm_db_uid }}
+
+- name: NetworkPolicy für den Import-Job anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition: "{{ lookup('template', 'files/keycloak-realm-import-networkpolicy.yaml') | from_yaml }}"
+
+# Beim Import mit Override müssen alle Keycloak-Nodes stehen (Keycloak-Doku,
+# Importing and exporting realms), sonst halten die laufenden Pods veraltete
+# Caches. Auf einem frischen Cluster gibt es das StatefulSet noch nicht, dann
+# entfällt das Anhalten.
+- name: StatefulSet von Keycloak lesen
+  kubernetes.core.k8s_info:
+    kind: StatefulSet
+    name: keycloak-keycloakx
+    namespace: "{{ auth_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: keycloak_sts
+  when: realm_import_noetig
+
+# k8s_scale kennt kein StatefulSet, deshalb Patches auf spec.replicas. Nach
+# einem gelungenen Import bleibt Keycloak auf 0, bis der Helm-Task die neue
+# Vorlage gesetzt hat, der Task hinter dem Helm-Task hebt dann auf 2. Sonst
+# starteten die Pods erst mit der alten Vorlage, beim Wechsel von H2 also
+# noch einmal mit H2, und der Helm-Task ersetzte sie gleich wieder. Nur ein
+# gescheiterter Import bringt über rescue die alten Pods zurück, damit der
+# Lauf nicht mit 0 Replicas endet.
+- name: Realm bei angehaltenem Keycloak importieren
+  when: realm_import_noetig
+  block:
+    - name: Keycloak für den Import anhalten
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kind: StatefulSet
+        name: keycloak-keycloakx
+        namespace: "{{ auth_namespace }}"
+        definition:
+          spec:
+            replicas: 0
+      when: keycloak_sts.resources | length > 0
+
+    - name: Warten, bis kein Keycloak-Pod mehr läuft
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ auth_namespace }}"
+        label_selectors:
+          - app.kubernetes.io/name=keycloakx
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: keycloak_pods
+      until: keycloak_pods.resources | length == 0
+      retries: 24
+      delay: 5
+      when: keycloak_sts.resources | length > 0
+
+    # Ein Job ist unveränderlich, ein alter Lauf muss deshalb weg, bevor der
+    # neue entsteht. Fehlt er, ist absent ohne Wirkung.
+    - name: Alten Import-Job entfernen
+      kubernetes.core.k8s:
+        state: absent
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        api_version: batch/v1
+        kind: Job
+        name: keycloak-realm-import
+        namespace: "{{ auth_namespace }}"
+        wait: true
+
+    - name: Import-Job anlegen
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        definition: "{{ lookup('template', 'files/keycloak-realm-import-job.yaml') | from_yaml }}"
+
+    # Eigenes Warten statt wait_condition am Job, denn das Modul wartet nur
+    # auf Complete und ließe einen gescheiterten Job bis zum Timeout stehen.
+    # Hier endet das Warten mit Complete oder Failed, und Failed bricht den
+    # Lauf ab. 72 mal 5 Sekunden liegen über activeDeadlineSeconds des Jobs,
+    # ein hängender Import ist also beendet, bevor rescue Keycloak wieder
+    # startet, sonst liefe der Import neben laufenden Keycloak-Pods.
+    - name: Auf das Ende des Import-Jobs warten
+      kubernetes.core.k8s_info:
+        api_version: batch/v1
+        kind: Job
+        name: keycloak-realm-import
+        namespace: "{{ auth_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: realm_job
+      until: >-
+        realm_job.resources | length > 0
+        and (realm_job.resources[0].status.conditions | default([]))
+            | selectattr('status', 'equalto', 'True')
+            | selectattr('type', 'in', ['Complete', 'Failed'])
+            | list | length > 0
+      retries: 72
+      delay: 5
+
+    - name: Import-Job auf Erfolg prüfen
+      ansible.builtin.assert:
+        that:
+          - >-
+            realm_job.resources[0].status.conditions
+            | selectattr('status', 'equalto', 'True')
+            | selectattr('type', 'equalto', 'Complete')
+            | list | length > 0
+        fail_msg: "Der Realm-Import ist gescheitert, siehe kubectl -n {{ auth_namespace }} logs job/keycloak-realm-import"
+
+    # Erst nach dem Import geschrieben, ein abgebrochener Import läuft beim
+    # nächsten Lauf erneut.
+    - name: Merker des Realm-Imports schreiben
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: keycloak-realm-import-merker
+            namespace: "{{ auth_namespace }}"
+          data:
+            sha256: "{{ realm_summe }}"
+            cluster_uid: "{{ realm_db_uid }}"
+
+  rescue:
+    - name: Keycloak nach dem gescheiterten Import wieder starten
+      kubernetes.core.k8s:
+        state: patched
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kind: StatefulSet
+        name: keycloak-keycloakx
+        namespace: "{{ auth_namespace }}"
+        definition:
+          spec:
+            replicas: "{{ keycloak_sts.resources[0].spec.replicas }}"
+      when: keycloak_sts.resources | length > 0
+
+    - name: Lauf nach dem gescheiterten Import abbrechen
+      ansible.builtin.fail:
+        msg: "Der Realm-Import ist gescheitert, Keycloak läuft mit dem alten Realm weiter. Log: kubectl -n {{ auth_namespace }} logs job/keycloak-realm-import"
 
 # Das Login-Theme im DHBW-Layout (#122). Fünf Dateien, gemountet als Ordner
 # /opt/keycloak/themes/dhbw, siehe extraVolumes unten. theme.properties und
@@ -142,16 +307,23 @@
     # fallen damit bei jedem Lauf auch aus dem Release, statt dort liegenzubleiben.
     reset_values: true
     values:
-      replicas: 1
+      # Zwei Replicas für das Rolling Update (P5). Der Chart trägt eine harte
+      # Anti-Affinity über kubernetes.io/hostname, die Pods liegen auf zwei
+      # Dienste-Nodes. Der Sitzungs-Cluster läuft über KC_CACHE_STACK
+      # jdbc-ping, der Chart setzt die Variable bei cache.stack default
+      # (templates/statefulset.yaml), die Mitglieder finden sich über eine
+      # Tabelle in Postgres.
+      replicas: 2
+      podDisruptionBudget:
+        minAvailable: 1
       # Wie bei MongoDB, siehe ansible/files/mongodb-instance.yaml.
       nodeSelector:
         online-judge/rolle: dienste
       image:
         tag: "{{ keycloak_image_tag }}"
-      # Produktivmodus. dev-file als DB genügt für den einzelnen Pod. Kein
-      # --import-realm mehr, den Import erledigt der Init-Container unten,
-      # denn start --import-realm überspringt einen vorhandenen Realm
-      # (Strategie IGNORE_EXISTING) und kennt kein --override.
+      # Produktivmodus. Kein --import-realm, den Import erledigt der Job vor
+      # diesem Task, denn start --import-realm überspringt einen vorhandenen
+      # Realm (Strategie IGNORE_EXISTING) und kennt kein --override.
       # Die Health-Endpunkte schaltet der Chart selbst über KC_HEALTH_ENABLED
       # ein, ein eigenes Flag im command braucht es dafür nicht. Die Probes
       # kommen unverändert aus dem Chart, startup auf /health, liveness auf
@@ -160,96 +332,29 @@
         - "/opt/keycloak/bin/kc.sh"
         - "start"
         - "--http-port=8080"
-      # Der Realm-Import als eigener Lauf vor dem Server (#146). kc.sh import
-      # ersetzt einen vorhandenen Realm, die Doku verlangt dafür, dass kein
-      # Keycloak läuft, und genau das stellt ein Init-Container sicher. --file
-      # statt --dir, weil --dir nur Dateien nach dem Muster <realm>-realm.json
-      # liest und das Secret die Datei als realm.json ausliefert.
-      #
-      # Importiert wird nur, wenn sich die Vorlage geändert hat. Der Container
-      # merkt sich die Prüfsumme der importierten Datei auf dem PVC und
-      # überspringt den Import, solange sie gleich bleibt. Ein Override nimmt
-      # nämlich den ganzen Realm mit, auch seine Signaturschlüssel, und das
-      # Traefik-Plugin lädt neue Schlüssel bei unbekannter kid höchstens alle
-      # fünf Minuten nach (src/oidc/jwks.go in traefik-oidc-auth v0.21.0).
-      # Bei jedem Start importiert, könnte sich nach jedem Neustart des Pods
-      # bis zu fünf Minuten niemand anmelden. So trifft das nur eine
-      # Änderung an der Vorlage, und die ist ein bewusstes Ausrollen. Nach
-      # so einer Änderung ist die Vorlage der Stand des Realms, was in der
-      # Admin-Konsole geändert oder angelegt wurde, ist dann weg. Die
-      # Benutzer in der Vorlage tragen deshalb ein festes id-Feld aus
-      # to_uuid, ohne das vergibt jeder Import neue IDs, und die API führt
-      # Einreichungen unter dieser ID als sub aus dem Token. Die Prüfsumme
-      # wird erst nach dem Import geschrieben, ein abgebrochener Import
-      # läuft beim nächsten Start erneut. pipefail, damit ein Fehler von
-      # sha256sum das Skript beendet, statt mit leerer Summe zu importieren.
-      # Ohne Merker, also auf einem Cluster von vor diesem Stand, importiert
-      # der erste Lauf einmal auch bei unveränderter Vorlage. Der Import baut wie der Server die
-      # Quarkus-Konfiguration neu, das Ergebnis bleibt im Dateisystem des
-      # Init-Containers und verkürzt den Serverstart nicht.
-      #
-      # Das Image steht hier ausgeschrieben, weil der Chart den Block durch
-      # tpl schickt und ein Helm-Ausdruck an dieser Stelle schon von Ansible
-      # als Jinja gelesen würde. Ressourcen wie beim Hauptcontainer, ein
-      # Init-Container zählt für den Scheduler nur mit seinem Höchstwert
-      # gegen die Container des Pods, der Pod braucht also nicht mehr Platz
-      # als vorher. Gemessen lag der Import lokal bei 593Mi Spitzenwert.
-      extraInitContainers: |
-        - name: realm-import
-          image: "quay.io/keycloak/keycloak:{{ keycloak_image_tag }}"
-          command:
-            - "/bin/bash"
-            - "-ec"
-            - |
-              set -o pipefail
-              datei=/opt/keycloak/data/import/realm.json
-              merker=/opt/keycloak/data/import.sha256
-              summe=$(sha256sum "$datei" | cut -d' ' -f1)
-              if [ -f "$merker" ] && [ "$(cat "$merker")" = "$summe" ]; then
-                echo "Realm-Vorlage unverändert, Import übersprungen"
-                exit 0
-              fi
-              /opt/keycloak/bin/kc.sh import --file "$datei" --override true
-              echo "$summe" > "$merker"
-          env:
-            - name: KC_DB
-              value: "dev-file"
-            - name: JAVA_OPTS_KC_HEAP
-              value: "-Xms256m -Xmx512m"
-          # Auf einem leeren PVC legt schon der Import den Master-Realm an,
-          # und den Bootstrap-Admin legt Keycloak nur zusammen mit dem
-          # Master-Realm an. Ohne die Variablen hier fände der Server den
-          # Master-Realm vor und die Admin-Konsole bliebe ohne Konto,
-          # lokal geprüft gegen ein leeres Volume.
-          envFrom:
-            - secretRef:
-                name: keycloak-admin
-          securityContext:
-            runAsUser: 1000
-            runAsNonRoot: true
-          resources:
-            requests:
-              cpu: "250m"
-              memory: "832Mi"
-            limits:
-              cpu: "1000m"
-              memory: "1152Mi"
-          volumeMounts:
-            - name: data
-              mountPath: /opt/keycloak/data
-            - name: realm-import
-              mountPath: /opt/keycloak/data/import
-              readOnly: true
       # Die Prüfsumme der gerenderten Vorlage an der Pod-Vorlage. Ein
-      # geändertes Secret allein startet den Pod nicht neu, erst die geänderte
-      # Annotation lässt das StatefulSet den Pod ersetzen, und der neue Pod
-      # importiert die neue Vorlage. Damit landet eine Änderung an der Vorlage
-      # mit --tags auth im laufenden Realm. Der Init-Container vergleicht
-      # unabhängig davon die Datei selbst mit seinem Merker auf dem PVC.
+      # geändertes Secret allein startet die Pods nicht neu, erst die
+      # geänderte Annotation lässt das StatefulSet sie ersetzen, und die neuen
+      # Pods lesen den frisch importierten Realm ein. Der Import selbst läuft
+      # im Job davor, mit derselben Prüfsumme als Merker.
       podAnnotations:
-        checksum/realm: "{{ lookup('template', 'templates/keycloak-realm.json.j2') | hash('sha256') }}"
+        checksum/realm: "{{ realm_summe }}"
+      # Verbindung zum Cluster aus tasks/postgres.yaml. Der Operator schreibt
+      # das Passwort des Besitzers in keycloak-db-app, der Chart liest es von
+      # dort als KC_DB_PASSWORD.
       database:
-        vendor: dev-file
+        vendor: postgres
+        hostname: "{{ keycloak_db_name }}-rw"
+        port: 5432
+        database: keycloak
+        username: keycloak
+        existingSecret: "{{ keycloak_db_name }}-app"
+        existingSecretKey: password
+      # Wartet vor dem Start, bis Postgres auf 5432 antwortet. Ohne ihn
+      # scheitert der erste Start auf einem frischen Cluster an der Datenbank
+      # und läuft in die startupProbe.
+      dbchecker:
+        enabled: true
       # Setzt KC_PROXY_HEADERS=forwarded und KC_HTTP_ENABLED=true, damit Keycloak
       # hinter Traefik die richtigen URLs bildet und intern über HTTP spricht.
       proxy:
@@ -277,25 +382,21 @@
         # Durchsatz, gemessen in einem Gegenlauf zu #165.
         - name: JAVA_OPTS_KC_HEAP
           value: "-Xms256m -Xmx512m"
+        # Keycloak öffnet ohne diese Grenze bis zu 100 Verbindungen je Pod,
+        # zwei Pods lägen damit über max_connections von Postgres. 20 je Pod
+        # decken die gemessenen 18 Anmeldungen je Sekunde, jede hält eine
+        # Verbindung nur für Millisekunden. Zwei Pods und der Import-Job
+        # kommen so auf höchstens 60 von 100.
+        - name: KC_DB_POOL_MAX_SIZE
+          value: "20"
       extraEnvFrom: |
         - secretRef:
             name: keycloak-admin
-      # PVC auf data, das Realm-Secret überlagert nur das Unterverzeichnis
-      # import. Kubernetes erlaubt den verschachtelten Mount. Der Server
-      # bekommt das Secret weiter gemountet, obwohl nur der Init-Container es
-      # liest, so bleibt die Struktur unter data für beide dieselbe.
-      #
       # Das Theme liegt flach in der ConfigMap, die Pfade in items bauen den
       # Ordnerbaum, den Keycloak für ein Login-Theme erwartet. Keycloak liest
       # den Ordner beim Start, eine geänderte ConfigMap greift erst nach
       # einem Neustart des Pods.
       extraVolumes: |
-        - name: data
-          persistentVolumeClaim:
-            claimName: keycloak-data
-        - name: realm-import
-          secret:
-            secretName: keycloak-realm-import
         - name: theme-dhbw
           configMap:
             name: keycloak-theme-dhbw
@@ -311,11 +412,6 @@
               - key: logo.jpg
                 path: login/resources/logo.jpg
       extraVolumeMounts: |
-        - name: data
-          mountPath: /opt/keycloak/data
-        - name: realm-import
-          mountPath: /opt/keycloak/data/import
-          readOnly: true
         - name: theme-dhbw
           mountPath: /opt/keycloak/themes/dhbw
           readOnly: true
@@ -363,6 +459,25 @@
           - hosts:
               - "{{ keycloak_host }}"
 
+# Nach dem Import steht das StatefulSet auf 0, siehe den Block oben. Helm hebt
+# es nur, wenn sich replicas im Manifest geändert hat, also beim Wechsel von
+# 1 auf 2. Bei 2 auf 2 patcht Helm nichts, und ohne diesen Task bliebe
+# Keycloak aus. Ohne Bedingung, denn bricht der Helm-Task nach einem
+# gelungenen Import ab, hält der nächste Lauf den Import nicht mehr für nötig
+# und müsste die 2 trotzdem setzen. Auf einem laufenden Stand ist der Patch
+# ohne Wirkung, und ein kubectl scale von Hand wird bei jedem Lauf auf den
+# Wert des Plays zurückgesetzt.
+- name: Keycloak auf zwei Replicas setzen
+  kubernetes.core.k8s:
+    state: patched
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kind: StatefulSet
+    name: keycloak-keycloakx
+    namespace: "{{ auth_namespace }}"
+    definition:
+      spec:
+        replicas: 2
+
 # Ingress nur von Traefik (#62). Steht nach dem Helm-Task, weil die Policy den
 # Pod über app.kubernetes.io/name=keycloakx trifft und dieses Label erst mit
 # dem StatefulSet entsteht. Und vor dem Wartetask darunter, damit der schon
@@ -384,6 +499,18 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   changed_when: false
+
+# Das PVC der H2-Datei aus dem Stand vor #163. Nach dem Helm-Lauf, weil bis
+# dahin die alte Pod-Vorlage noch darauf zeigt. Auf einem neuen Cluster fehlt
+# es und absent ist ohne Wirkung.
+- name: Altes PVC der H2-Datei entfernen
+  kubernetes.core.k8s:
+    state: absent
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: keycloak-data
+    namespace: "{{ auth_namespace }}"
 
 # Die ConfigMap gleichen Namens aus dem Stand vor dem Secret. Auf einem
 # Cluster von davor bliebe sie sonst mit demselben Inhalt lesbar liegen. Erst

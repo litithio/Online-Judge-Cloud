@@ -643,8 +643,14 @@ dauerte 19 Sekunden und kostete 2 von 1644 Anmeldungen. Der Preis sind ein
 weiterer Operator, zwei Postgres-Pods mit zusammen 512Mi Request und ein
 zweiter Keycloak-Pod mit 832Mi auf den Dienste-Nodes. Postgres bekommt je
 Instanz 100m und 256Mi als Request, gemessen lag eine Instanz bei höchstens
-119Mi, im Betrieb unter 50m CPU und bei der Beförderung zum Primary bei 450m,
-das Limit liegt darum bei 1000m. Der zweite Keycloak-Pod verbraucht nicht
+119Mi mit den 40 Verbindungen beider Keycloak-Pods und im Betrieb unter 50m
+CPU. Das Speicher-Limit von 512Mi folgt der Rechnung aus `shared_buffers`
+64MB und 100 Verbindungen zu je 4MB `work_mem`, eine Obergrenze ist das
+nicht, Postgres kann `work_mem` je Abfrage mehrfach belegen, der Beleg ist
+der Messwert unter einem Viertel des Limits. Der Request ist die Hälfte des
+Limits. Bei der Beförderung zum Primary lag die CPU bei 450m, das
+Limit liegt darum bei 1000m. Der Operator bekommt 50m und 64Mi wie der von
+MongoDB, gemessen höchstens 26m und 47Mi. Der zweite Keycloak-Pod verbraucht nicht
 weniger als der erste, in einem Lauf mit 22 Anmeldungen je Sekunde lagen
 beide Pods bei 667Mi und 644Mi, der Höchstwert von 726Mi fiel während des
 Failover, die 832Mi Request bleiben.

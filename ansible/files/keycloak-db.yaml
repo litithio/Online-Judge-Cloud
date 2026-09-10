@@ -43,9 +43,24 @@ spec:
   # Update, Pod-Verlust und zwei Failover bei rund 10 Anmeldungen je Sekunde
   # sowie einen Lastlauf mit 22 je Sekunde. Speicher je Instanz höchstens
   # 119Mi, CPU im Betrieb unter 50m, bei der Beförderung zum Primary 450m im
-  # Mittel eines Messintervalls. Das liegt nahe am alten Limit von 500m, ob
-  # es gedrosselt hätte, ist nicht gemessen, das Limit von 1000m lässt Luft.
-  # Der Request bleibt beim Betrieb.
+  # Mittel eines Messintervalls.
+  #
+  # Speicher-Limit 512Mi als Rechengröße, nicht als Obergrenze: shared_buffers
+  # 64MB, dazu max_connections 100 mal work_mem 4MB in der Vorgabe von
+  # Postgres, das sind 464MB. Postgres kennt keine harte Grenze je
+  # Verbindung, work_mem gilt je Sortierung und eine Abfrage kann es mehrfach
+  # belegen. Der Beleg für das Limit ist deshalb der Messwert, 119Mi liegen
+  # unter einem Viertel davon, und Keycloak stellt je Anmeldung nur kurze
+  # Abfragen ohne große Sortierungen. Ein OOM-Kill ist in keiner Messung
+  # aufgetreten.
+  # Speicher-Request 256Mi, die Hälfte des Limits: Gemessen sind 119Mi mit
+  # den 40 Verbindungen zweier Keycloak-Pods, die andere Hälfte bleibt für
+  # den Import-Job und den Wechsel des Primary, bei dem die Replica die
+  # WAL-Dateien nachholt.
+  # CPU-Request 100m, das Doppelte des Betriebs unter Anmeldelast. Die 450m
+  # der Beförderung sind ein Ausschlag von wenigen Sekunden und gehören ins
+  # Limit. Das liegt bei 1000m, weil 450m nahe am vorherigen Limit von 500m
+  # lag, ob es gedrosselt hätte, ist nicht gemessen.
   resources:
     requests:
       cpu: "100m"

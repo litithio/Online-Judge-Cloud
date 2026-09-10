@@ -81,14 +81,19 @@
       # Wie MongoDB-Operator und Keycloak auf den Dienste-Nodes.
       nodeSelector:
         online-judge/rolle: dienste
-      # Startwerte, gemessen wird in der Abnahme zu #163 mit kubectl top.
+      # Wie beim MongoDB-Operator in tasks/mongodb.yaml. Gemessen am 10.09.
+      # mit kubectl top alle 10 Sekunden über Rolling Update, Pod-Verlust und
+      # zwei Failover: höchstens 26m und 47Mi, die Spitze beim Failover, im
+      # Leerlauf 3m und 34Mi. 50m und 64Mi liegen darüber. Das Limit lässt
+      # Luft für einen Abgleich, der länger braucht, ohne dass ein hängender
+      # Operator einen Node leerräumt.
       resources:
         requests:
           cpu: "50m"
-          memory: "128Mi"
+          memory: "64Mi"
         limits:
           cpu: "500m"
-          memory: "512Mi"
+          memory: "256Mi"
 
 # Die Policy vor dem Cluster, aus demselben Grund wie bei MongoDB: Die
 # Instanzen laufen von Anfang an unter den Regeln des Betriebs. api_endpunkt

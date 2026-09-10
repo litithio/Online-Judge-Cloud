@@ -108,10 +108,22 @@ fi
 echo
 echo "== Keycloak =="
 KC0=keycloak-keycloakx-0
+# JGroups bindet 7800 an die IPv4-Adresse des Pods, im Startlog steht
+# "physical addresses are [10.42.x.y:7800]", FD_SOCK2 lauscht auf *:57800.
+# Der Headless-Service ist SingleStack IPv6 und liefert keine IPv4-Adresse,
+# deshalb kommt sie aus dem Pod-Objekt, gewählt am Format und nicht an der
+# Position in podIPs. 57800 bleibt über den Namen und damit über IPv6.
 KC1=keycloak-keycloakx-1.keycloak-keycloakx-headless."$NS".svc.cluster.local
+KC1_IPV4=$(kubectl get pod -n "$NS" keycloak-keycloakx-1 -o jsonpath='{.status.podIPs[*].ip}' 2>/dev/null | tr ' ' '\n' | grep -v ':' | head -1)
 aus_keycloak "keycloak -> DNS 53"             "$KC0" "$DNS" 53 offen
 aus_keycloak "keycloak -> keycloak-db 5432"   "$KC0" keycloak-db-rw."$NS".svc.cluster.local 5432 offen
-aus_keycloak "keycloak-0 -> keycloak-1 7800"  "$KC0" "$KC1" 7800 offen
+# Ohne IPv4-Adresse zählt die Prüfung als Fehler, sonst meldete der Lauf
+# Erfolg, obwohl der JGroups-Port gar nicht geprüft wurde.
+if [ -n "$KC1_IPV4" ]; then
+  aus_keycloak "keycloak-0 -> keycloak-1 7800 (IPv4)" "$KC0" "$KC1_IPV4" 7800 offen
+else
+  werte "keycloak-1 IPv4-Adresse aus podIPs" offen 1
+fi
 aus_keycloak "keycloak-0 -> keycloak-1 57800" "$KC0" "$KC1" 57800 offen
 aus_keycloak "keycloak -> backend 8000"       "$KC0" backend."$NS".svc.cluster.local 8000 zu
 aus_keycloak "keycloak -> mongodb 27017"      "$KC0" mongodb-svc."$NS".svc.cluster.local 27017 zu

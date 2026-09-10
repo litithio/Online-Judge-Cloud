@@ -931,4 +931,7 @@ Postgres repliziert asynchron, beim abrupten Verlust des Primary können die
 letzten Schreibvorgänge fehlen, das trifft Sitzungen und Änderungen aus der
 Admin-Konsole, der Realm selbst kommt aus der Vorlage zurück. Dazu hält
 Longhorn die Volumes beider Instanzen noch einmal repliziert, die Daten liegen
-damit doppelt vor.
+damit doppelt vor. Der Sitzungs-Cluster der beiden Keycloak-Pods läuft über
+IPv4, JGroups bindet 7800 an die IPv4-Adresse des Pods, während der Cluster
+sonst IPv6 zuerst spricht, die Pods sind dual-stack und die Policy gilt für
+beide Familien.

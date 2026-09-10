@@ -24,8 +24,10 @@ output "judge_ips" {
 }
 
 # Inventory im Gruppenformat der k3s-Rolle. Persönliche Werte (E-Mail, Zone,
-# TSIG) gehören nicht hierher, sondern in eine group_vars-Datei bei #8. Der
-# Pfad steht im .gitignore, weil er die IPs eines konkreten Deployments enthält.
+# TSIG) gehören nicht hierher, sondern in eine group_vars-Datei bei #8. Die
+# Datei liegt im Repo, sie trägt nur Adressen, Rollen und Node-Einstellungen
+# des gemeinsamen Clusters. Nach jedem apply mit neuen Nodes wird sie
+# committet, sonst fährt der nächste Ansible-Lauf gegen alte Adressen.
 resource "local_file" "ansible_inventory" {
   filename = "${path.module}/../ansible/inventory/generated-inventory.yml"
   content = yamlencode({

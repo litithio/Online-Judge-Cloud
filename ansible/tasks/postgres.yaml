@@ -28,11 +28,42 @@
     kubeconfig: "{{ kubeconfig_root }}"
   register: api_endpunkt
 
+# Die Bridge-Adressen der Dienste-Nodes für den Webhook-Ingress, siehe den
+# Kommentar in der Policy. Der Operator läuft nur dort. Jeder Node bekommt
+# von k3s ein /64 aus dem Pod-Netz, IPv6 zuerst, und flannel gibt der Bridge
+# die erste Adresse darin, geprüft an dienste-2 mit fd00:42:0:6::1 als
+# Gateway im Pod. Aus dem Cluster statt aus einer Variable, aus demselben
+# Grund wie die Adresse des API-Servers.
+- name: Dienste-Nodes lesen
+  kubernetes.core.k8s_info:
+    kind: Node
+    label_selectors:
+      - online-judge/rolle=dienste
+    kubeconfig: "{{ kubeconfig_root }}"
+  register: dienste_nodes
+
+- name: Bridge-Adressen der Dienste-Nodes merken
+  ansible.builtin.set_fact:
+    bridge_adressen: >-
+      {{ dienste_nodes.resources | map(attribute='spec.podCIDRs')
+         | map('select', 'search', ':') | map('first')
+         | map('regex_replace', '::/64$', '::1/128') | list }}
+
+# Ein leeres from in einer Ingress-Regel heißt in Kubernetes alle Quellen.
+# Ohne Dienste-Node bliebe der Port sonst offen statt zu.
+- name: Mindestens ein Dienste-Node muss da sein
+  ansible.builtin.assert:
+    that: bridge_adressen | length > 0
+    fail_msg: "Kein Node mit online-judge/rolle=dienste, die Webhook-Regel bliebe ohne Quelle"
+
+# Unter templates mit .j2 statt unter files, weil die Vorlage eine Schleife
+# über die Bridge-Adressen trägt und vor dem Rendern kein gültiges YAML ist.
+# ansible-lint liest files als YAML, .j2 nicht.
 - name: NetworkPolicy für den CloudNativePG-Operator anwenden
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
-    definition: "{{ lookup('template', 'files/cnpg-operator-networkpolicy.yaml') | from_yaml }}"
+    definition: "{{ lookup('template', 'templates/cnpg-operator-networkpolicy.yaml.j2') | from_yaml }}"
 
 - name: CloudNativePG-Helm-Repository hinzufügen
   kubernetes.core.helm_repository:

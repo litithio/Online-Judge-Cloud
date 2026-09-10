@@ -1,11 +1,24 @@
 # Ingress und Egress für den CloudNativePG-Operator (#163, #62), Ausnahme zum
-# default-deny in judge-networkpolicy.yaml. Er reconciled über die K8s-API und
+# default-deny in files/judge-networkpolicy.yaml. Als .j2 unter templates,
+# weil die Schleife unten vor dem Rendern kein gültiges YAML ist. Er reconciled über die K8s-API und
 # erreicht die Instanzen auf 8000 (Status) und 5432, so die Doku unter
 # docs/src/networking.md. Anders als der MongoDB-Operator nimmt er
 # Verbindungen an, der API-Server ruft seine Webhooks auf 9443 auf.
 #
-# Die Adresse des API-Servers kommt aus dem Task davor, nicht aus dem
-# Manifest, Herleitung wie in mongodb-operator-networkpolicy.yaml.
+# Der Webhook-Aufruf kommt nicht von der Adresse des API-Servers. k3s leitet
+# ihn durch seinen Tunnel zum Agent des Nodes, auf dem der Pod läuft, und
+# erst der Agent öffnet die Verbindung zum Pod. Am 10.09. schlug das Anlegen
+# des Clusters mit einer Regel für die Adresse des API-Servers fehl, "proxy
+# error from [::1]:6443 while dialing [<pod>]:9443, code 502". Der Pod sieht
+# als Quelle die Adresse des Nodes auf der Pod-Bridge, im Pod steht sie als
+# Gateway (fd00:42:0:6::1 auf dienste-2). Deshalb je Dienste-Node die
+# Bridge-Adresse als Quelle, der Operator läuft nur dort. Ein podSelector
+# greift nicht, die Bridge ist kein Pod, und das ganze Pod-Netz ließe jeden
+# Pod im Cluster an den Port. Die Adressen liest der Task davor aus den
+# Node-Objekten, wie die Adresse des API-Servers.
+#
+# Die Adresse des API-Servers für den Egress kommt ebenfalls aus dem Task
+# davor, Herleitung wie in mongodb-operator-networkpolicy.yaml.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -20,8 +33,10 @@ spec:
     - Egress
   ingress:
     - from:
+{% for adresse in bridge_adressen %}
         - ipBlock:
-            cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"
+            cidr: "{{ adresse }}"
+{% endfor %}
       ports:
         - protocol: TCP
           port: 9443

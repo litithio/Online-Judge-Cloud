@@ -32,6 +32,20 @@ grafana_host: "grafana.{{ rfc2136_zone }}"
 keycloak_realm: judge
 oidc_client_id: judge-gateway
 
+# Zweiter Client für den kubectl-Zugriff auf den Cluster (Viewer-Kennung).
+# Public Client (kein Secret), weil kubelogin ein CLI-Werkzeug ist und keinen
+# geheimen Wert sicher halten kann; der Schutz läuft über PKCE. Die Gruppe
+# landet über einen Mapper im groups-Claim, das ClusterRoleBinding
+# (files/viewer-clusterrolebinding.yaml) bindet sie an die ClusterRole view.
+# Der kube-apiserver setzt oidc-groups-prefix oidc:, das Binding adressiert die
+# Gruppe deshalb als oidc:{{ kube_viewer_group }}.
+kube_oidc_client_id: kubernetes
+kube_viewer_group: cluster-viewer
+# Issuer, gegen den der kube-apiserver die Token prüft. Kein interner
+# Service-Name, sondern der öffentliche Host: dieselbe URL steht in den
+# Token, die Keycloak über den Browser-Login ausstellt.
+kube_oidc_issuer_url: "https://{{ keycloak_host }}/realms/{{ keycloak_realm }}"
+
 # Keycloak: keycloakx-Chart (codecentric), zwei Replicas gegen PostgreSQL.
 keycloak_chart_repo: https://codecentric.github.io/helm-charts
 keycloak_chart_version: "7.2.2"

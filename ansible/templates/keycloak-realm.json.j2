@@ -63,6 +63,42 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "{{ kube_oidc_client_id }}",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8000",
+        "http://localhost:18000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups-{{ kube_oidc_client_id }}",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "{{ kube_viewer_group }}"
     }
   ],
   "users": [
@@ -95,6 +131,23 @@
         {
           "type": "password",
           "value": "{{ dozent_user_password }}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "{{ viewer_user_username | to_uuid }}",
+      "username": "{{ viewer_user_username }}",
+      "enabled": true,
+      "email": "{{ viewer_user_email }}",
+      "emailVerified": true,
+      "firstName": "Cluster",
+      "lastName": "Viewer",
+      "groups": ["{{ kube_viewer_group }}"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "{{ viewer_user_password }}",
           "temporary": false
         }
       ]

@@ -457,6 +457,12 @@
     # Deploy sofort stoppen, nicht später als 404 oder als abweisende API enden.
     - name: Auth-Secrets prüfen
       ansible.builtin.import_tasks: tasks/auth-preflight.yaml
+    # Rüstet den kube-apiserver zum OIDC-Prüfer nach (Viewer-Kennung, W6). Vor
+    # Keycloak, damit ein durch den Neustart kurz abwesender apiserver die
+    # folgenden Tasks nicht mitten in einem Rollout trifft. Kein Cluster-Zugriff
+    # nötig, der Schritt legt nur eine Datei ab und startet den Dienst neu.
+    - name: OIDC am kube-apiserver
+      ansible.builtin.import_tasks: tasks/k3s-oidc.yaml
     # Zuerst das Plugin aktivieren: Traefik startet dabei neu, was Zeit
     # braucht, und die Middleware unten setzt es voraus.
     - name: Traefik-Plugin
@@ -465,3 +471,7 @@
       ansible.builtin.import_tasks: tasks/keycloak.yaml
     - name: Traefik-Anbindung
       ansible.builtin.import_tasks: tasks/traefik-auth.yaml
+    # Cluster-RBAC der Viewer-Kennung. Nach Keycloak, denn Gruppe und Konto
+    # kommen von dort; das Binding hängt sie an die ClusterRole view.
+    - name: Viewer-RBAC
+      ansible.builtin.import_tasks: tasks/viewer-rbac.yaml

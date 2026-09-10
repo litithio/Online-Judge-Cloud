@@ -346,6 +346,100 @@ erreichbar. Das Dozentenkonto aus derselben Datei trägt die Realm-Rolle
 `dozent` und sieht zusätzlich `/verwaltung`. Ein direkter Aufruf des
 `backend`-Service im Cluster (ohne Gateway-Header) endet mit 401.
 
+
+### Cluster-Zugriff per OIDC (Viewer-Kennung)
+
+Dieselbe Keycloak-Kennung öffnet auch einen lesenden `kubectl`-Zugriff auf den
+Cluster (W6, RBAC im Cluster statt in der Anwendung). Der Weg trennt die
+Person, die den Cluster ansieht, von der Admin-kubeconfig: statt das
+ServiceAccount-Token weiterzugeben, meldet sie sich am Browser bei Keycloak an,
+und der `kube-apiserver` erkennt sie an den Claims ihres Tokens.
+
+Drei Teile greifen dafür ineinander, alle rollt der Tag `auth` aus:
+
+- Ein zweiter, öffentlicher Client `kubernetes` im Realm (kein Secret, Schutz
+  über PKCE), samt Gruppe `cluster-viewer`, einem Mapper, der die Gruppe in den
+  `groups`-Claim schreibt, und dem Konto `viewer` in dieser Gruppe -- alles aus
+  `templates/keycloak-realm.json.j2`.
+- Die OIDC-Flags am `kube-apiserver` (`tasks/k3s-oidc.yaml`): ein Config-Drop-in
+  unter `/etc/rancher/k3s/config.yaml.d/oidc.yaml` und ein Neustart von k3s,
+  wenn sich die Datei ändert. Über den Drop-in, weil das Exec-Argument der Rolle
+  nur bei der Erstinstallation wirkt. Der apiserver setzt `oidc-username-prefix`
+  und `oidc-groups-prefix` auf `oidc:`, damit sich OIDC-Namen nie mit internen
+  Konten überschneiden.
+- Ein `ClusterRoleBinding` (`files/viewer-clusterrolebinding.yaml`), das die
+  Gruppe `oidc:cluster-viewer` an die eingebaute ClusterRole `view` hängt:
+  lesen (get, list, watch), kein Schreiben, kein Zugriff auf Secrets.
+
+Auf dem eigenen Rechner braucht es einmal das kubelogin-Plugin
+([`kubectl oidc-login`](https://github.com/int128/kubelogin)) und einen
+kubeconfig-Eintrag, der auf Keycloak statt auf ein Token zeigt:
+
+```bash
+# kubelogin über krew installieren (einmalig). krew ist der Plugin-Manager für
+# kubectl und selbst kein eingebauter Befehl, also erst krew, dann das Plugin.
+# krew installieren (Linux/macOS):
+(
+  set -x; cd "$(mktemp -d)" &&
+  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+  KREW="krew-${OS}_${ARCH}" &&
+  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+  tar zxvf "${KREW}.tar.gz" &&
+  ./"${KREW}" install krew
+)
+# krew-bin dauerhaft in den PATH (in ~/.bashrc oder ~/.zshrc eintragen):
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+
+# Jetzt das oidc-login-Plugin ziehen; es meldet sich danach als
+# kubectl oidc-login:
+kubectl krew install oidc-login
+
+# Login einmal isoliert testen (öffnet den Browser, zeigt die Token-Claims).
+# Kein --oidc-extra-scope: der groups-Mapper hängt am Client, nicht an einem
+# Scope, der Claim kommt also ohne zusätzlichen Scope. Ein Scope groups gäbe es
+# im Realm nicht und Keycloak wiese den Login mit "Invalid scopes" ab.
+kubectl oidc-login setup \
+  --oidc-issuer-url=https://auth.<zone>/realms/judge \
+  --oidc-client-id=kubernetes
+
+# OIDC-Benutzer, der den Browser-Login auslöst
+kubectl config set-credentials viewer \
+  --exec-api-version=client.authentication.k8s.io/v1beta1 \
+  --exec-command=kubectl \
+  --exec-arg=oidc-login \
+  --exec-arg=get-token \
+  --exec-arg=--oidc-issuer-url=https://auth.<zone>/realms/judge \
+  --exec-arg=--oidc-client-id=kubernetes
+
+# Kontext anlegen
+kubectl config set-context judge-viewer \
+    --cluster=default \
+    --user=viewer
+
+
+kubectl config use-context judge-viewer
+```
+
+Der `setup`-Lauf zeigt nach der Anmeldung die Claims des Tokens; darin muss
+`groups` mit `cluster-viewer` stehen, sonst greift das Binding nicht. Der erste
+`kubectl`-Aufruf gegen den Cluster öffnet denselben Browser-Login (Konto
+`viewer` aus `auth-credentials.yaml`); danach cacht kubelogin das Token bis zum
+Ablauf. Prüfen:
+
+```bash
+kubectl get pods -A          # geht: view darf lesen
+kubectl get secrets -n judge # verweigert: view schließt Secrets aus
+kubectl delete pod -n judge <pod> # verweigert: view darf nicht schreiben
+```
+
+Die Admin-kubeconfig bleibt neben der OIDC-Prüfung gültig, ein Fehllogin sperrt
+den Cluster also nicht aus. Als Nachweis (Screencast) genügt eine Aufnahme, die
+den Browser-Login und danach ein erlaubtes `get` neben einem verweigerten
+`get secrets`/`delete` zeigt.
+
+`kubectl config use-context default`um den default Kontext wieder zu verwenden
+
 ### Dashboard
 
 Prometheus und Grafana laufen im Namespace `monitoring`, ausgerollt mit
@@ -705,6 +799,27 @@ ausgebrochener Worker hält weder ein Token noch das Secret. Den Ausschlag gibt
 W6, das die Token-Prüfung am Gateway verlangt und nicht in der Anwendung. Der
 feste Wert läuft nie ab und steht im Secret wie im Middleware-Objekt, wer eines
 davon lesen darf, kommt an der Prüfung vorbei.
+
+### RBAC im Cluster über dieselbe Keycloak-Kennung
+
+Der lesende `kubectl`-Zugriff läuft über OIDC am `kube-apiserver`, nicht über
+verteilte Admin-kubeconfigs (W6, RBAC im Cluster). Eine Person meldet sich per
+kubelogin am Browser bei Keycloak an, der apiserver liest Name und Gruppen aus
+dem Token, und ein `ClusterRoleBinding` auf die eingebaute ClusterRole `view`
+gibt der Gruppe `cluster-viewer` genau Leserechte. Die Alternative war, jedem
+Betrachter die Admin-kubeconfig zu geben oder je Person einen ServiceAccount
+mit eigenem Token anzulegen. Beide streuen langlebige Token, deren Entzug ein
+Eingriff am Cluster ist; die OIDC-Kennung liegt zentral in Keycloak, eine
+Sperrung dort greift beim nächsten Login auf allen Clustern. Den Ausschlag gibt,
+dass Konto und Rechte so an einer Stelle stehen und `view` von Haus aus Secrets
+und jedes Schreiben ausschließt. Der Preis: die OIDC-Flags gehören zu den
+Serverargumenten, die die Rolle nur bei der Erstinstallation setzt, ein
+laufender Cluster bekommt sie deshalb über einen Config-Drop-in und einen
+Neustart von k3s (`tasks/k3s-oidc.yaml`), der den apiserver für ein paar
+Sekunden unterbricht. Der `oidc:`-Präfix an Name und Gruppe hält OIDC-Konten
+von internen getrennt, und ein schon ausgestelltes Token gilt bis zu seinem
+Ablauf weiter. Die Admin-kubeconfig bleibt als Rückfall gültig, ein Fehllogin
+sperrt niemanden aus.
 
 ### Unit-Tests in den Dienst-Images
 

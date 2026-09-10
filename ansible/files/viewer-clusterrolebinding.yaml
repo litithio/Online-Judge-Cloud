@@ -1,0 +1,25 @@
+# Bindet die Keycloak-Gruppe cluster-viewer an die eingebaute ClusterRole view
+# (Viewer-Kennung, W6/RBAC im Cluster). view erlaubt lesen (get, list, watch)
+# über die meisten Ressourcen, aber kein Schreiben und keinen Zugriff auf
+# Secrets -- least privilege für einen reinen Einblick in den Cluster.
+#
+# Der Name trägt den Präfix oidc:, weil der kube-apiserver mit
+# oidc-groups-prefix oidc: konfiguriert ist (deploy.yaml). Der groups-Claim aus
+# Keycloak heißt cluster-viewer, im Cluster wird daraus oidc:cluster-viewer.
+# So lassen sich OIDC-Gruppen nie mit internen Gruppen verwechseln.
+#
+# Dasselbe Binding auf jedem der vier Cluster genügt: das Keycloak-Konto
+# funktioniert überall, sobald der Cluster die oidc-Flags und dieses Binding
+# trägt.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keycloak-cluster-viewer
+subjects:
+  - kind: Group
+    name: "oidc:{{ kube_viewer_group }}"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io

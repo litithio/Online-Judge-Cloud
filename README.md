@@ -438,7 +438,7 @@ den Cluster also nicht aus. Als Nachweis (Screencast) genügt eine Aufnahme, die
 den Browser-Login und danach ein erlaubtes `get` neben einem verweigerten
 `get secrets`/`delete` zeigt.
 
-`kubectl config use-context default`um den default Kontext wieder zu verwenden
+`kubectl config use-context default` wechselt zurück auf den Kontext default.
 
 ### Dashboard
 

@@ -636,9 +636,18 @@ eingebettete H2-Datei auf einem PVC. Sie verträgt keinen zweiten Prozess, und
 mit einem Replica fehlte die Anmeldung bei jedem Pod-Wechsel, gemessen am
 21.08. für 55 Sekunden. Mit zwei Replicas ersetzt das StatefulSet einen Pod
 nach dem anderen, und zwei Postgres-Instanzen tragen den täglichen Neustart
-eines Dienste-Nodes. Der Preis sind ein weiterer Operator, zwei Postgres-Pods
-mit zusammen 512Mi Request und ein zweiter Keycloak-Pod mit 832Mi auf den
-Dienste-Nodes.
+eines Dienste-Nodes. Gemessen am 10.09. unter rund zehn Anmeldungen je
+Sekunde: Rolling Update und Pod-Verlust ohne eine fehlgeschlagene Anmeldung,
+die Discovery antwortete durchgehend 200, der Wechsel des Postgres-Primary
+dauerte 19 Sekunden und kostete 2 von 1644 Anmeldungen. Der Preis sind ein
+weiterer Operator, zwei Postgres-Pods mit zusammen 512Mi Request und ein
+zweiter Keycloak-Pod mit 832Mi auf den Dienste-Nodes. Postgres bekommt je
+Instanz 100m und 256Mi als Request, gemessen lag eine Instanz bei höchstens
+119Mi, im Betrieb unter 50m CPU und bei der Beförderung zum Primary bei 450m,
+das Limit liegt darum bei 1000m. Der zweite Keycloak-Pod verbraucht nicht
+weniger als der erste, in einem Lauf mit 22 Anmeldungen je Sekunde lagen
+beide Pods bei 667Mi und 644Mi, der Höchstwert von 726Mi fiel während des
+Failover, die 832Mi Request bleiben.
 
 ### Liveness-Probe am Judge-Worker
 
@@ -929,7 +938,12 @@ Keycloak für den Import an, die Doku verlangt gestoppte Nodes beim Import mit
 Override, die Anmeldung fehlt dann für die Dauer von Import und Neustart.
 Postgres repliziert asynchron, beim abrupten Verlust des Primary können die
 letzten Schreibvorgänge fehlen, das trifft Sitzungen und Änderungen aus der
-Admin-Konsole, der Realm selbst kommt aus der Vorlage zurück. Dazu hält
+Admin-Konsole, der Realm selbst kommt aus der Vorlage zurück. Beim Wechsel des
+Primary wartet Postgres bis zu 15 Sekunden auf offene Verbindungen, mit der
+Vorgabe von 180 Sekunden wartete der Operator die volle Frist, weil Keycloak
+seine Pool-Verbindungen nie schließt. Gemessen ist der Wechsel nach dem
+Löschen des Primary, der geplante Wechsel durch den Operator trägt denselben
+Wert und ist nicht gemessen. Dazu hält
 Longhorn die Volumes beider Instanzen noch einmal repliziert, die Daten liegen
 damit doppelt vor. Der Sitzungs-Cluster der beiden Keycloak-Pods läuft über
 IPv4, JGroups bindet 7800 an die IPv4-Adresse des Pods, während der Cluster

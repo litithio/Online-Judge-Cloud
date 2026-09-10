@@ -37,7 +37,7 @@
   # apiserver nicht ohne Grund für die Neustart-Sekunden aus dem Takt bringen.
   when: oidc_dropin is changed
   block:
-    - name: k3s neu starten
+    - name: K3s neu starten
       ansible.builtin.systemd:
         name: k3s
         state: restarted

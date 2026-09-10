@@ -1,21 +1,18 @@
 # Ingress und Egress für den CloudNativePG-Operator (#163, #62), Ausnahme zum
-# default-deny in files/judge-networkpolicy.yaml. Als .j2 unter templates,
-# weil die Schleife unten vor dem Rendern kein gültiges YAML ist. Er reconciled über die K8s-API und
+# default-deny in files/judge-networkpolicy.yaml. Er reconciled über die K8s-API und
 # erreicht die Instanzen auf 8000 (Status) und 5432, so die Doku unter
 # docs/src/networking.md. Anders als der MongoDB-Operator nimmt er
 # Verbindungen an, der API-Server ruft seine Webhooks auf 9443 auf.
 #
-# Der Webhook-Aufruf kommt nicht von der Adresse des API-Servers. k3s leitet
-# ihn durch seinen Tunnel zum Agent des Nodes, auf dem der Pod läuft, und
-# erst der Agent öffnet die Verbindung zum Pod. Am 10.09. schlug das Anlegen
-# des Clusters mit einer Regel für die Adresse des API-Servers fehl, "proxy
-# error from [::1]:6443 while dialing [<pod>]:9443, code 502". Der Pod sieht
-# als Quelle die Adresse des Nodes auf der Pod-Bridge, im Pod steht sie als
-# Gateway (fd00:42:0:6::1 auf dienste-2). Deshalb je Dienste-Node die
-# Bridge-Adresse als Quelle, der Operator läuft nur dort. Ein podSelector
-# greift nicht, die Bridge ist kein Pod, und das ganze Pod-Netz ließe jeden
-# Pod im Cluster an den Port. Die Adressen liest der Task davor aus den
-# Node-Objekten, wie die Adresse des API-Servers.
+# Der Webhook-Aufruf kommt nicht von der Adresse des API-Servers, mit der
+# scheiterte das Anlegen des Clusters am 10.09. mit "proxy error from
+# [::1]:6443 while dialing [<pod>]:9443, code 502". Der API-Server ruft den
+# Pod direkt über Flannel auf, und als Quelle steht die Adresse seiner
+# Flannel-Schnittstelle, das ist die Netzadresse des Pod-Netzes vom Server,
+# abgelesen mit ss auf dem Server. Ein podSelector greift nicht, die
+# Schnittstelle ist kein Pod. Die Adresse liest der Task davor aus dem
+# Node-Objekt des Servers, wie die Adresse des API-Servers. Ein zweiter
+# Server bräuchte eine zweite Regel.
 #
 # Die Adresse des API-Servers für den Egress kommt ebenfalls aus dem Task
 # davor, Herleitung wie in mongodb-operator-networkpolicy.yaml.
@@ -33,10 +30,8 @@ spec:
     - Egress
   ingress:
     - from:
-{% for adresse in bridge_adressen %}
         - ipBlock:
-            cidr: "{{ adresse }}"
-{% endfor %}
+            cidr: "{{ webhook_quelle }}"
       ports:
         - protocol: TCP
           port: 9443

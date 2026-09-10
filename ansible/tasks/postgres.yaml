@@ -28,42 +28,35 @@
     kubeconfig: "{{ kubeconfig_root }}"
   register: api_endpunkt
 
-# Die Bridge-Adressen der Dienste-Nodes für den Webhook-Ingress, siehe den
-# Kommentar in der Policy. Der Operator läuft nur dort. Jeder Node bekommt
-# von k3s ein /64 aus dem Pod-Netz, IPv6 zuerst, und flannel gibt der Bridge
-# die erste Adresse darin, geprüft an dienste-2 mit fd00:42:0:6::1 als
-# Gateway im Pod. Aus dem Cluster statt aus einer Variable, aus demselben
-# Grund wie die Adresse des API-Servers.
-- name: Dienste-Nodes lesen
+# Die Quelle des Webhook-Aufrufs für den Ingress, siehe den Kommentar in der
+# Policy. Der API-Server ruft den Pod direkt über Flannel auf, als Quelle
+# steht die Adresse der Flannel-Schnittstelle des Servers, und das ist die
+# Netzadresse seines eigenen Pod-Netzes. Abgelesen am 10.09. mit ss auf dem
+# Server, ESTAB von [fd00:42::] nach [<pod>]:9443, auf dem Node des Pods war
+# keine Verbindung zu sehen. Das Pod-Netz kommt aus dem Node-Objekt des
+# Servers, aus demselben Grund wie die Adresse des API-Servers.
+- name: Node-Objekt des Servers lesen
   kubernetes.core.k8s_info:
     kind: Node
-    label_selectors:
-      - online-judge/rolle=dienste
+    name: "{{ ansible_facts['hostname'] }}"
     kubeconfig: "{{ kubeconfig_root }}"
-  register: dienste_nodes
+  register: server_node_objekt
 
-- name: Bridge-Adressen der Dienste-Nodes merken
+# Das IPv6-Netz steht zuerst, siehe --cluster-cidr in der Rolle. Aus dem
+# Präfix wird die Netzadresse als einzelne Adresse, fd00:42::/64 wird zu
+# fd00:42::/128.
+- name: Quelladresse des Webhook-Aufrufs merken
   ansible.builtin.set_fact:
-    bridge_adressen: >-
-      {{ dienste_nodes.resources | map(attribute='spec.podCIDRs')
-         | map('select', 'search', ':') | map('first')
-         | map('regex_replace', '::/64$', '::1/128') | list }}
+    webhook_quelle: >-
+      {{ server_node_objekt.resources[0].spec.podCIDRs
+         | select('search', ':') | first
+         | regex_replace('/64$', '/128') }}
 
-# Ein leeres from in einer Ingress-Regel heißt in Kubernetes alle Quellen.
-# Ohne Dienste-Node bliebe der Port sonst offen statt zu.
-- name: Mindestens ein Dienste-Node muss da sein
-  ansible.builtin.assert:
-    that: bridge_adressen | length > 0
-    fail_msg: "Kein Node mit online-judge/rolle=dienste, die Webhook-Regel bliebe ohne Quelle"
-
-# Unter templates mit .j2 statt unter files, weil die Vorlage eine Schleife
-# über die Bridge-Adressen trägt und vor dem Rendern kein gültiges YAML ist.
-# ansible-lint liest files als YAML, .j2 nicht.
 - name: NetworkPolicy für den CloudNativePG-Operator anwenden
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
-    definition: "{{ lookup('template', 'templates/cnpg-operator-networkpolicy.yaml.j2') | from_yaml }}"
+    definition: "{{ lookup('template', 'files/cnpg-operator-networkpolicy.yaml') | from_yaml }}"
 
 - name: CloudNativePG-Helm-Repository hinzufügen
   kubernetes.core.helm_repository:

@@ -4,6 +4,10 @@
 # Ansible brauchen es aus, und umschalten kann es nur der Mensch davor.
 # Gewartet wird deshalb nicht auf einen VPN-Zustand, sondern auf die
 # Gegenstelle, die der nächste Abschnitt braucht.
+#
+# Der Weg der betreibenden Person, weil Terraform am Anfang ihren State und
+# ihr Application Credential braucht. Alle anderen fahren die Einzelschritte
+# ab dem Ansible-Block aus dem README, Abschnitt Betrieb.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

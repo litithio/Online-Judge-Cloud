@@ -87,7 +87,16 @@ Terraform-Version steht in
 `.github/workflows/infra.yml`, die Python-Version in beiden Workflows. venv
 erzwingt sie nicht, es übernimmt das `python3` aus der PATH.
 
-Einmal je Person einrichten:
+Der Cluster ist seit dem 10.09.2026 einer für die ganze Gruppe (#299), die
+Nodes heißen fest `judge-k3s-server`, `judge-k3s-dienste-<n>` und
+`judge-k3s-judge-<n>`. Terraform-State, Application Credential und DNS-Zone
+liegen bei der betreibenden Person, heute Johannes. Nur sie fährt Terraform
+und damit `scripts/deploy.sh`, alle anderen fahren Ansible und kubectl gegen
+den bestehenden Cluster. Ein Neuaufbau von Null aus ihrem State ersetzt den
+Cluster und ist eine Downtime für alle, er wird vorher in #299 oder im
+Gruppenchat angesagt.
+
+Einmal für die betreibende Person einrichten:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -112,7 +121,30 @@ OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer und Dozentenkonto).
 Ohne direnv stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die
 Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
 
-Cluster hochbringen:
+Einmal für alle anderen einrichten:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp ~/.ssh/id_ed25519.pub ansible/ssh-keys/<vorname>.pub
+direnv allow
+```
+
+Der Schlüssel kommt per PR ins Repo. Das Play `SSH-Schlüssel der Gruppe
+eintragen` in `ansible/deploy.yaml` trägt beim nächsten Lauf genau die
+Dateien aus `ansible/ssh-keys/` für `ubuntu` auf allen Nodes ein, auf dem
+laufenden Cluster reicht `--tags ssh`, und den Lauf fährt, wer schon auf die
+Nodes kommt. Eine gelöschte Datei nimmt den Zugang beim nächsten Lauf
+wieder weg, deshalb liegt auch der Schlüssel aus `terraform.tfvars` dort. Die
+kubeconfig kommt von der betreibenden Person außerhalb des Repos und liegt als
+`ansible/kubeconfig-generated.yaml`, dorthin zeigt `KUBECONFIG` aus `.envrc`.
+Wer Ansible fährt, bekommt auf demselben Weg `dns-credentials.yaml`,
+`auth-credentials.yaml` und die beiden Passwortdateien. #77 legt die
+Geheimnisse verschlüsselt ins Repo. Das Inventory
+`ansible/inventory/generated-inventory.yml` liegt im Repo, es trägt nur
+Adressen und Rollen der Nodes.
+
+Cluster hochbringen, nur die betreibende Person:
 
 ```bash
 scripts/deploy.sh
@@ -126,7 +158,8 @@ wartet, bis der Server über IPv6 auf Port 22 antwortet. Danach laufen
 zeigt `kubectl get nodes` den Stand.
 
 Nicht jeder Lauf braucht den ganzen Stack. Die Schritte einzeln, jeweils
-aus dem Wurzelverzeichnis:
+aus dem Wurzelverzeichnis. Terraform fährt nur die betreibende Person, alle
+anderen beginnen beim Ansible-Block:
 
 ```bash
 # VPN an
@@ -141,8 +174,18 @@ cd ..
 kubectl get nodes
 ```
 
-`terraform apply` schreibt dabei `ansible/inventory/generated-inventory.yml`,
-das Playbook legt die kubeconfig daneben. Wird das Ubuntu-Image auf newstack
+`terraform apply` schreibt dabei `ansible/inventory/generated-inventory.yml`.
+Ändern sich Nodes, gehört die Datei in den nächsten Commit, sonst fahren
+die anderen Ansible gegen alte Adressen. Das Playbook legt die kubeconfig
+daneben, sie bleibt außerhalb des Repos. Terraform legt auch die Security
+Group `judge-k3s-nodes` an und hängt sie statt der offenen default-Gruppe
+an alle Nodes (#213). Zwischen den Nodes ist alles offen, von außen nur
+IPv6 auf 22, 80, 443 und 6443, die private IPv4 liegt hinter NAT. Das
+Kursprojekt erlaubt 10 Gruppen und 100 Regeln (Quota, erhoben am 03.09.2026
+in #213), die Gruppe braucht 8, sechs eigene und die zwei Egress-Regeln von
+Neutron.
+
+Wird das Ubuntu-Image auf newstack
 neu hochgeladen, bekommt es eine neue ID: den Wert aus `openstack image list`
 in die tfvars eintragen.
 

@@ -54,13 +54,17 @@
 
     # Ein Konto ohne Schlüssel liefert eine leere Antwort und damit nichts.
     # Sortiert, damit authorized_keys bei jedem Lauf gleich aussieht und der
-    # Task nicht ohne Änderung changed meldet.
+    # Task nicht ohne Änderung changed meldet. Kein run_once an diesem
+    # set_fact. In ansible-core 2.21.2 bekommen danach alle Hosts des
+    # nächsten Plays die Facts des zuletzt bearbeiteten Hosts, die k3s-Rolle
+    # sah dann auf jedem Node dieselbe Adresse und der Overlay-Preflight
+    # schlug fehl. Das registrierte Ergebnis des uri-Tasks sehen alle Hosts
+    # auch ohne run_once hier.
     - name: Schlüssel zu einer Liste zusammenfassen
       ansible.builtin.set_fact:
         ssh_key_inhalte: >-
           {{ ssh_github.results | map(attribute='content')
              | map('regex_findall', ssh_key_muster) | flatten | unique | sort }}
-      run_once: true
 
     - name: Heutige Schlüssel von ubuntu lesen
       ansible.builtin.slurp:

@@ -19,35 +19,69 @@
 
 # Ein Keypair in OpenStack gehört dem Benutzerkonto, nicht dem Projekt. Das
 # Terraform des Clusters hängt deshalb nur den Schlüssel aus ssh_public_key an,
-# alle weiteren kommen von hier. Eigenes Play vor der Rolle, weil tasks im
-# k3s-Play erst nach der Rolle laufen und --tags ssh sonst die Rolle mitzöge.
+# alle weiteren kommen von hier. Die Schlüssel liegen nicht im Repo, sondern
+# bei GitHub, das Repo nennt nur die Konten. Eigenes Play vor der Rolle, weil
+# tasks im k3s-Play erst nach der Rolle laufen und --tags ssh sonst die Rolle
+# mitzöge.
 - name: SSH-Schlüssel der Gruppe eintragen
   hosts: all
   gather_facts: false
   become: true
   tags: [ssh]
+  # Ein Fehler auf einem Node hält alle an, sonst hätte ein Teil der Nodes
+  # den neuen Schlüsselstand und der Rest den alten.
+  any_errors_fatal: true
+  vars_files:
+    - vars/ssh-konten.yaml
   vars:
+    # Nur Typ und Blob, ohne Kommentar und ohne Optionen davor. sshd vergleicht
+    # auch nur das, und GitHub liefert die Schlüssel ohne Kommentar, während
+    # der Schlüssel aus terraform.tfvars auf der frischen VM einen trägt.
+    ssh_key_muster: '((?:sk-)?(?:ssh-(?:rsa|ed25519)|ecdsa-sha2-nistp\d+)(?:@openssh\.com)? [A-Za-z0-9+/=]+)'
+  tasks:
+    # Einmal je Lauf auf dem ersten Node, das Ergebnis sehen alle Hosts. Ein
+    # unbekanntes Konto liefert 404 und bricht den Lauf ab. check_mode false,
+    # weil uri im Check-Modus sonst übersprungen wird und die Prüfung unten
+    # ohne Inhalt liefe.
+    - name: Schlüssel der Konten von GitHub holen
+      ansible.builtin.uri:
+        url: "https://github.com/{{ item }}.keys"
+        return_content: true
+      loop: "{{ ssh_github_konten }}"
+      register: ssh_github
+      run_once: true
+      check_mode: false
+
+    # Ein Konto ohne Schlüssel liefert eine leere Antwort und damit nichts.
     # Sortiert, damit authorized_keys bei jedem Lauf gleich aussieht und der
     # Task nicht ohne Änderung changed meldet.
-    ssh_key_dateien: "{{ query('ansible.builtin.fileglob', 'ssh-keys/*.pub') | sort }}"
-    ssh_key_inhalte: "{{ query('ansible.builtin.file', *ssh_key_dateien) }}"
-  tasks:
-    # Ohne diese Prüfung träfe exclusive unten auf einen leeren oder kaputten
-    # Wert und nähme allen den Zugang, auch dem Schlüssel aus terraform.tfvars.
-    # Eine leere Datei zählt für fileglob als Datei, deshalb prüft der Task
-    # den Inhalt und nicht die Anzahl.
-    - name: Jede Schlüsseldatei muss einen Schlüssel tragen
+    - name: Schlüssel zu einer Liste zusammenfassen
+      ansible.builtin.set_fact:
+        ssh_key_inhalte: >-
+          {{ ssh_github.results | map(attribute='content')
+             | map('regex_findall', ssh_key_muster) | flatten | unique | sort }}
+      run_once: true
+
+    - name: Heutige Schlüssel von ubuntu lesen
+      ansible.builtin.slurp:
+        src: /home/ubuntu/.ssh/authorized_keys
+      register: ssh_bisher
+      check_mode: false
+
+    # exclusive unten ersetzt die ganze Datei. Bleibt kein heutiger Schlüssel
+    # in der neuen Menge, sperrt der Lauf alle aus. Auf der frischen VM liegt
+    # nur der Schlüssel aus terraform.tfvars, die Prüfung verlangt dort also
+    # genau ihn beim Konto der betreibenden Person. Später liegen nur noch
+    # GitHub-Schlüssel in der Datei, dann fängt die Prüfung allein den Fall,
+    # dass alle verschwinden.
+    - name: Mindestens ein heutiger Schlüssel muss in der Liste bleiben
       ansible.builtin.assert:
         that:
           - ssh_key_inhalte | length > 0
-          - ssh_key_inhalte | select('match', '^(ssh-(rsa|ed25519)|ecdsa-sha2-)') | length == ssh_key_inhalte | length
-        fail_msg: "ansible/ssh-keys/ ist leer oder eine .pub-Datei ist kein Schlüssel"
-      run_once: true
+          - (ssh_bisher.content | b64decode) | regex_findall(ssh_key_muster) | intersect(ssh_key_inhalte) | length > 0
+        fail_msg: "Keiner der heutigen Schlüssel auf {{ inventory_hostname }} liegt bei den Konten aus vars/ssh-konten.yaml"
 
-    # exclusive macht das Verzeichnis zur einzigen Wahrheit. Eine gelöschte
-    # Datei nimmt beim nächsten Lauf den Zugang wieder weg. Der Schlüssel aus
-    # terraform.tfvars muss deshalb ebenfalls im Verzeichnis liegen.
-    - name: Schlüssel aus ansible/ssh-keys/ für ubuntu setzen
+    - name: Schlüssel der Konten aus vars/ssh-konten.yaml für ubuntu setzen
       ansible.posix.authorized_key:
         user: ubuntu
         exclusive: true

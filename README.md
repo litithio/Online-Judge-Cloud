@@ -126,16 +126,22 @@ Einmal für alle anderen einrichten:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp ~/.ssh/id_ed25519.pub ansible/ssh-keys/<vorname>.pub
 direnv allow
 ```
 
-Der Schlüssel kommt per PR ins Repo. Das Play `SSH-Schlüssel der Gruppe
-eintragen` in `ansible/deploy.yaml` trägt beim nächsten Lauf genau die
-Dateien aus `ansible/ssh-keys/` für `ubuntu` auf allen Nodes ein, auf dem
-laufenden Cluster reicht `--tags ssh`, und den Lauf fährt, wer schon auf die
-Nodes kommt. Eine gelöschte Datei nimmt den Zugang beim nächsten Lauf
-wieder weg, deshalb liegt auch der Schlüssel aus `terraform.tfvars` dort. Die
+Dazu das eigene GitHub-Konto per PR in `ansible/vars/ssh-konten.yaml`, der
+öffentliche SSH-Schlüssel liegt bei GitHub, nicht im Repo. Das Play
+`SSH-Schlüssel der Gruppe eintragen` in `ansible/deploy.yaml` holt beim
+nächsten Lauf die Schlüssel aller Konten aus der Liste von
+`https://github.com/<konto>.keys` und trägt genau diese Menge für `ubuntu` auf
+allen Nodes ein, auf dem laufenden Cluster reicht `--tags ssh`, und den Lauf
+fährt, wer schon auf die Nodes kommt. Wer aus der Liste fällt oder seinen
+Schlüssel bei GitHub löscht, verliert den Zugang beim nächsten Lauf. Das
+Konto der betreibenden Person muss deshalb den Schlüssel aus
+`terraform.tfvars` führen, das Play bricht ab, wenn keiner der heutigen
+Schlüssel auf den Nodes in der neuen Menge liegt. Damit entscheidet GitHub,
+wer auf die Nodes kommt. Ein Schlüssel, den jemand seinem Konto hinzufügt,
+gilt beim nächsten Lauf ohne PR, und ohne GitHub läuft das Play nicht. Die
 kubeconfig kommt von der betreibenden Person außerhalb des Repos und liegt als
 `ansible/kubeconfig-generated.yaml`, dorthin zeigt `KUBECONFIG` aus `.envrc`.
 Wer Ansible fährt, bekommt auf demselben Weg `dns-credentials.yaml`,

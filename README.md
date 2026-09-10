@@ -275,25 +275,31 @@ API prüft keine Tokens mehr, sie liest nur diese Header (`app/backend/auth.py`)
 und weist eine Anfrage ohne sie mit 401 ab. Damit bleibt die Anwendung frei von
 Login-Seite und Token-Austausch (zero-code).
 
-Keycloak läuft als einzelner Pod mit einem PVC auf `/opt/keycloak/data`, sodass
-die H2-Datei mit Master-Realm, Admin-Konto und dem importierten Realm einen
-Pod-Neustart überlebt. Realm, OIDC-Client, die Rolle `dozent`, ein
+Keycloak läuft mit zwei Replicas gegen eine PostgreSQL, die CloudNativePG als
+Cluster `keycloak-db` mit zwei Instanzen im selben Namespace führt (#163).
+Master-Realm, Admin-Konto und der importierte Realm liegen in dieser
+Datenbank, das Play `postgres` rollt Operator und Cluster vor der Auth-Kette
+aus. Realm, OIDC-Client, die Rolle `dozent`, ein
 Test-Benutzer und ein Dozentenkonto mit dieser Rolle kommen als Code aus der
 Vorlage `ansible/templates/keycloak-realm.json.j2`, die Namen und Passwörter
 der Konten aus `auth-credentials.yaml`. Ein Mapper am Client schreibt die
 Realm-Rollen ins ID-Token, aus dem das Traefik-Plugin die Header baut, ohne
 ihn käme die Rolle nicht an der API an. Der gerenderte Import liegt als Secret
 im Namespace, nicht als ConfigMap, denn er trägt das Client-Secret und die
-Passwörter beider Konten. Den Import fährt ein Init-Container mit `kc.sh
-import --override true` auf derselben H2-Datei, bevor der Server startet, und
-nur, wenn sich die Vorlage seit dem letzten Import geändert hat. Die Prüfsumme
-der importierten Datei liegt als Merker auf dem PVC (#146). Eine Prüfsumme der
-gerenderten Vorlage steht außerdem als Annotation an der Pod-Vorlage, eine
-Änderung an der Vorlage ersetzt den Pod deshalb mit `--tags auth` und landet
-im laufenden Realm. Nach so einer Änderung ist die Vorlage der Stand des
-Realms, was in der Admin-Konsole geändert oder angelegt wurde, ist dann weg.
-Der Init-Container bekommt auch das Admin-Secret, denn auf einem leeren PVC
-legt schon er den Master-Realm an, und nur dabei entsteht der Bootstrap-Admin.
+Passwörter beider Konten. Den Import fährt ein Job mit `kc.sh import
+--override true` gegen die Datenbank, vor dem Helm-Task und nur, wenn sich
+die Vorlage seit dem letzten Import geändert hat. Die Keycloak-Doku verlangt
+für den Import mit Override, dass kein Keycloak läuft, das Play hält das
+StatefulSet dafür an und startet es erst nach dem Helm-Task wieder.
+Die Prüfsumme der Vorlage und die UID des Postgres-Clusters liegen als Merker
+in der ConfigMap `keycloak-realm-import-merker` (#146, #163), ein neu
+angelegter Cluster importiert deshalb auch bei unveränderter Vorlage.
+Dieselbe Prüfsumme steht als Annotation an der Pod-Vorlage, eine Änderung an
+der Vorlage landet so mit `--tags auth` im laufenden Realm. Nach so einer
+Änderung ist die Vorlage der Stand des Realms, was in der Admin-Konsole
+geändert oder angelegt wurde, ist dann weg. Der Job bekommt auch das
+Admin-Secret, denn auf einer leeren Datenbank legt schon er den Master-Realm
+an, und nur dabei entsteht der Bootstrap-Admin.
 Die beiden Konten tragen in der Vorlage eine feste ID aus dem Benutzernamen
 (`to_uuid`), denn die API führt Einreichungen unter `sub`, und ein Import ohne
 festes `id`-Feld vergibt bei jedem Import neue IDs. Mit dem Realm gehen auch
@@ -314,20 +320,23 @@ keine Freemarker-Vorlage. `ansible/files/keycloak-theme/theme.properties`
 tauscht nur die Klassen des Elterns `keycloak.v2` gegen die aus dem Entwurf,
 `dhbw.css` und `logo.jpg` kommen aus `app/backend/static`, damit Anwendung
 und Anmeldung dieselbe Datei tragen. Der Realm-Import setzt `loginTheme` und
-Deutsch als einzige Sprache, über den Init-Container auch auf einem Cluster
-mit vorhandenem Realm. Eine geänderte ConfigMap liest Keycloak erst nach
+Deutsch als einzige Sprache, über den Import-Job auch auf einem Cluster mit
+vorhandenem Realm. Eine geänderte ConfigMap liest Keycloak erst nach
 einem Neustart des Pods.
 
 Das Plugin wird in der statischen
 Traefik-Konfiguration aktiviert (`tasks/traefik-plugin.yaml`, per
-`HelmChartConfig`), wobei Traefik einmal neu startet. Keycloak und die
-Traefik-Anbindung (Middleware + Ingress) rollt das Play mit dem Tag `auth` aus:
+`HelmChartConfig`), wobei Traefik einmal neu startet. Die Datenbank für
+Keycloak rollt das Play `postgres` aus, Keycloak und die Traefik-Anbindung
+(Middleware + Ingress) das Play mit dem Tag `auth`. Beim ersten Mal beide
+zusammen, `auth` allein setzt die Datenbank voraus und bricht ohne sie mit
+einem Hinweis ab:
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
 cd ansible
 ansible-playbook -i inventory/generated-inventory.yml \
-                 -i dns-credentials.yaml deploy.yaml --tags auth
+                 -i dns-credentials.yaml deploy.yaml --tags postgres,auth
 ```
 
 Prüfen: `https://auth.<zone>` zeigt den Realm `judge`, ein Aufruf von
@@ -593,9 +602,8 @@ hängender Keycloak stehen bleiben.
 Die Übernahme stützt sich auf Messungen, denn eine zu enge Probe hätte den
 einzigen Pod mitten in der Anmeldespitze für den 55-Sekunden-Neustart aus
 #163 aus dem Verkehr genommen. Der Start braucht höchstens 35 Sekunden bis
-zum ersten 200, mit Realm-Import im Server 43. Seit #146 läuft der Import im
-Init-Container vor dem Server, das Fenster der startupProbe zählt erst ab dem
-Server. Unter Anmeldelast mit bis zu 22
+zum ersten 200, mit Realm-Import im Server 43. Seit #146 läuft der Import vor
+dem Server, das Fenster der startupProbe zählt erst ab dem Server. Unter Anmeldelast mit bis zu 22
 Anmeldungen je Sekunde lieferten 1170 Abfragen der beiden Endpunkte
 durchgehend 200 in höchstens 168 Millisekunden. Helm wartet weiter nicht
 (`wait: false`), auf die Bereitschaft wartet ein eigener
@@ -606,18 +614,31 @@ Warte-Timeout wiederholen.
 ### Realm-Import vor dem Serverstart
 
 `start --import-realm` überspringt einen vorhandenen Realm, nur der eigene
-Befehl `kc.sh import` kennt `--override`. Er läuft als Init-Container auf
-derselben H2-Datei, so ist beim Import kein Server aktiv, wie die Keycloak-Doku
-es verlangt (#146). Die Alternative wäre die Admin-API aus Ansible, sie ließe
+Befehl `kc.sh import` kennt `--override`. Er läuft als Job gegen die
+Datenbank, während das Play das StatefulSet angehalten hat, so ist beim Import
+kein Server aktiv, wie die Keycloak-Doku es verlangt (#146, #163). Die
+Alternative wäre die Admin-API aus Ansible, sie ließe
 von Hand angelegte Benutzer stehen und käme ohne Neustart aus. Dafür bräuchte
 sie Token-Handling im Play und einen zweiten Aufruf für die Realm-Einstellungen,
 denn der Teil-Import der API deckt `loginTheme` und die Sprache nicht. Der
 Import kostet die Dauer eines Serverstarts, lokal 10 Sekunden, wechselt die
 Signaturschlüssel des Realms und nimmt jede Änderung aus der Admin-Konsole
 mit. Deshalb läuft er nur, wenn sich die Vorlage geändert hat, ein Merker mit
-der Prüfsumme liegt auf dem PVC. Bei jedem Start importiert, könnte sich nach
-jedem Neustart bis zu fünf Minuten niemand anmelden, so lange hält das Plugin
-an seinen Schlüsseln fest.
+der Prüfsumme liegt in einer ConfigMap. Bei jedem Start importiert, könnte
+sich nach jedem Neustart bis zu fünf Minuten niemand anmelden, so lange hält
+das Plugin an seinen Schlüsseln fest.
+
+### PostgreSQL für Keycloak
+
+Keycloak hält seine Daten in einer PostgreSQL aus CloudNativePG mit zwei
+Instanzen und läuft selbst mit zwei Replicas (#163). Die Alternative war die
+eingebettete H2-Datei auf einem PVC. Sie verträgt keinen zweiten Prozess, und
+mit einem Replica fehlte die Anmeldung bei jedem Pod-Wechsel, gemessen am
+21.08. für 55 Sekunden. Mit zwei Replicas ersetzt das StatefulSet einen Pod
+nach dem anderen, und zwei Postgres-Instanzen tragen den täglichen Neustart
+eines Dienste-Nodes. Der Preis sind ein weiterer Operator, zwei Postgres-Pods
+mit zusammen 512Mi Request und ein zweiter Keycloak-Pod mit 832Mi auf den
+Dienste-Nodes.
 
 ### Liveness-Probe am Judge-Worker
 
@@ -882,9 +903,9 @@ auf die API.
 
 Auf einem Cluster, der schon läuft, sperrt das Play `namespace` jeden Pod in
 `judge` in beide Richtungen, bis die Plays `mongodb`, `valkey`, `seed`, `app`
-und `auth` ihre Ausnahmen anlegen, das Backend und Keycloak kommen als letzte
+und `auth` ihre Ausnahmen anlegen, `postgres` legt seine mit an, das Backend und Keycloak kommen als letzte
 dran. Bricht ein Play dazwischen ab, bleibt die Sperre stehen. Beim ersten
-Lauf mit den Policies deshalb erst `--tags mongodb,valkey,seed,app,auth`, dann
+Lauf mit den Policies deshalb erst `--tags mongodb,valkey,seed,app,postgres,auth`, dann
 `--tags namespace`. Ein späterer voller Lauf findet alle Policies vor und
 ändert nichts an ihnen.
 
@@ -900,3 +921,14 @@ verborgenen Fall fehlen auch die Hinweise des Judge, etwa das Signal oder der
 gescheiterte Start eines Threads, weil sie zum Teil Text der Einreichung
 tragen. Und die Namen verborgener Testfälle bleiben auch für die Rolle
 `dozent` weg, die Ergebnisseite unterscheidet dort nicht nach Rolle.
+
+Keycloak mit zwei Replicas und Postgres mit zwei Instanzen lassen drei Lücken
+(#163). Laufende Anfragen an einen verlorenen Keycloak-Pod scheitern, erst die
+nächste Anfrage trifft den anderen Pod. Eine geänderte Realm-Vorlage hält
+Keycloak für den Import an, die Doku verlangt gestoppte Nodes beim Import mit
+Override, die Anmeldung fehlt dann für die Dauer von Import und Neustart.
+Postgres repliziert asynchron, beim abrupten Verlust des Primary können die
+letzten Schreibvorgänge fehlen, das trifft Sitzungen und Änderungen aus der
+Admin-Konsole, der Realm selbst kommt aus der Vorlage zurück. Dazu hält
+Longhorn die Volumes beider Instanzen noch einmal repliziert, die Daten liegen
+damit doppelt vor.

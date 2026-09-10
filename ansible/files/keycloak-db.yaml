@@ -1,0 +1,46 @@
+# Der Postgres-Cluster für Keycloak (#163). Zwei Instanzen, der Operator hält
+# eine als Primary und schaltet bei Verlust um. Longhorn repliziert das Volume
+# jeder Instanz zusätzlich, das ist doppelt gehalten und als Grenze im README
+# vermerkt.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: "{{ keycloak_db_name }}"
+  namespace: "{{ auth_namespace }}"
+spec:
+  # Die Zahl steht hier und nicht in vars/auth.yaml, weil ein Jinja-Ausdruck
+  # ohne Anführungszeichen kein gültiges YAML für ansible-lint ist und einer
+  # mit Anführungszeichen einen String liefert, den die CRD ablehnt. Der
+  # Wartetask in tasks/postgres.yaml liest die Zahl aus dem Cluster-Objekt.
+  instances: 2
+  # Bootstrap legt Datenbank und Benutzer keycloak an, das Passwort schreibt
+  # der Operator ins Secret keycloak-db-app.
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+  storage:
+    size: "{{ keycloak_db_size }}"
+  # Wie MongoDB auf den Dienste-Nodes. Zwei Instanzen auf demselben Node
+  # brächten beim Neustart des Nodes (#298) nichts, deshalb required.
+  affinity:
+    nodeSelector:
+      online-judge/rolle: dienste
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+  # Startwerte, gemessen in der Abnahme zu #163. Keycloak hält wenige
+  # Verbindungen, ein Realm mit zwei Konten braucht keinen großen Cache.
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  # max_connections ist die Vorgabe des Operators. Die Rechnung dazu steht
+  # am Pool in tasks/keycloak.yaml, zwei Pods zu je 20 und der Import-Job
+  # bleiben mit Reserve darunter.
+  postgresql:
+    parameters:
+      shared_buffers: "64MB"
+      max_connections: "100"

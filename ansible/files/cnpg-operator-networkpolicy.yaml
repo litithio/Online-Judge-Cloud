@@ -1,0 +1,55 @@
+# Ingress und Egress für den CloudNativePG-Operator (#163, #62), Ausnahme zum
+# default-deny in judge-networkpolicy.yaml. Er reconciled über die K8s-API und
+# erreicht die Instanzen auf 8000 (Status) und 5432, so die Doku unter
+# docs/src/networking.md. Anders als der MongoDB-Operator nimmt er
+# Verbindungen an, der API-Server ruft seine Webhooks auf 9443 auf.
+#
+# Die Adresse des API-Servers kommt aus dem Task davor, nicht aus dem
+# Manifest, Herleitung wie in mongodb-operator-networkpolicy.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cnpg-operator
+  namespace: "{{ auth_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"
+      ports:
+        - protocol: TCP
+          port: 9443
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: "{{ keycloak_db_name }}"
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"
+      ports:
+        - protocol: TCP
+          port: 6443

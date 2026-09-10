@@ -32,11 +32,19 @@ grafana_host: "grafana.{{ rfc2136_zone }}"
 keycloak_realm: judge
 oidc_client_id: judge-gateway
 
-# Keycloak: keycloakx-Chart (codecentric), einzelner Pod, H2 auf einem PVC.
+# Keycloak: keycloakx-Chart (codecentric), zwei Replicas gegen PostgreSQL.
 keycloak_chart_repo: https://codecentric.github.io/helm-charts
 keycloak_chart_version: "7.2.2"
 keycloak_image_tag: "26.6.4"
-keycloak_pvc_size: 1Gi
+
+# PostgreSQL für Keycloak über CloudNativePG (#163). Zwei Instanzen, damit der
+# tägliche Neustart eines Dienste-Nodes (#298) die Anmeldung nicht trifft. Der
+# Chart trägt den Operator, der Cluster steht in files/keycloak-db.yaml, die
+# Zahl der Instanzen ebenfalls dort.
+cnpg_chart_repo: https://cloudnative-pg.github.io/charts
+cnpg_chart_version: "0.29.0"
+keycloak_db_name: keycloak-db
+keycloak_db_size: 2Gi
 
 # OIDC am Gateway läuft über das Traefik-Plugin traefik-oidc-auth, nicht über
 # einen eigenen oauth2-proxy-Pod. Traefik lädt das Plugin beim Start aus dem

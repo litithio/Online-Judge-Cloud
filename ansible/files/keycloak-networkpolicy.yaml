@@ -24,13 +24,19 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    # Der Sitzungs-Cluster der beiden Pods untereinander, Ports wie im Egress.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloakx
+      ports:
+        - protocol: TCP
+          port: 7800
+        - protocol: TCP
+          port: 57800
   egress:
-    # Keycloak baut von sich aus nur DNS-Anfragen auf. Die Datenbank ist
-    # dev-file (H2 auf dem PVC), der Realm kommt als ConfigMap, ein externer
-    # Identity Provider oder SMTP ist nicht konfiguriert.
-    #
-    # KC_CACHE_STACK=jdbc-ping bildet bei replicas: 1 keinen Cluster. Ab dem
-    # zweiten Pod braucht es hier eine Regel für Keycloak untereinander.
+    # Keycloak spricht DNS, Postgres und die anderen Keycloak-Pods. Ein
+    # externer Identity Provider oder SMTP ist nicht konfiguriert.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -43,3 +49,24 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: "{{ keycloak_db_name }}"
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Der Sitzungs-Cluster (KC_CACHE_STACK=jdbc-ping). Die Mitglieder finden
+    # sich über Postgres und sprechen dann direkt über JGroups auf 7800.
+    # 57800 ist die Fehlererkennung FD_SOCK2, Offset 50000 auf den Bind-Port,
+    # so die Keycloak-Doku zum Caching. Ohne sie bemerkt der Cluster einen
+    # abrupt verlorenen Pod erst über den Heartbeat.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloakx
+      ports:
+        - protocol: TCP
+          port: 7800
+        - protocol: TCP
+          port: 57800

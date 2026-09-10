@@ -21,6 +21,17 @@ spec:
       owner: keycloak
   storage:
     size: "{{ keycloak_db_size }}"
+  # Beim Stopp des Primary wartet Postgres in der Vorgabe 180 Sekunden, bis
+  # alle Verbindungen enden, und schaltet erst dann hart ab. Keycloak hält
+  # seine Pool-Verbindungen offen, die Frist läuft also immer voll, gemessen
+  # am 10.09. beim Löschen des Primary dauerte der Failover damit 180
+  # Sekunden. Mit 15 Sekunden waren es 19 Sekunden bis zum neuen Primary,
+  # 2 von 1644 Anmeldungen in dieser Zeit schlugen fehl. Für den geplanten
+  # Wechsel, den der Operator selbst auslöst, etwa beim Ersetzen des
+  # Primary-Pods, gilt switchoverDelay mit der Vorgabe 3600, deshalb derselbe
+  # Wert, dieser Weg ist nicht gemessen.
+  smartShutdownTimeout: 15
+  switchoverDelay: 15
   # Wie MongoDB auf den Dienste-Nodes. Zwei Instanzen auf demselben Node
   # brächten beim Neustart des Nodes (#298) nichts, deshalb required.
   affinity:
@@ -28,14 +39,19 @@ spec:
       online-judge/rolle: dienste
     enablePodAntiAffinity: true
     podAntiAffinityType: required
-  # Startwerte, gemessen in der Abnahme zu #163. Keycloak hält wenige
-  # Verbindungen, ein Realm mit zwei Konten braucht keinen großen Cache.
+  # Gemessen am 10.09. mit kubectl top alle 10 Sekunden über Rolling
+  # Update, Pod-Verlust und zwei Failover bei rund 10 Anmeldungen je Sekunde
+  # sowie einen Lastlauf mit 22 je Sekunde. Speicher je Instanz höchstens
+  # 119Mi, CPU im Betrieb unter 50m, bei der Beförderung zum Primary 450m im
+  # Mittel eines Messintervalls. Das liegt nahe am alten Limit von 500m, ob
+  # es gedrosselt hätte, ist nicht gemessen, das Limit von 1000m lässt Luft.
+  # Der Request bleibt beim Betrieb.
   resources:
     requests:
       cpu: "100m"
       memory: "256Mi"
     limits:
-      cpu: "500m"
+      cpu: "1000m"
       memory: "512Mi"
   # max_connections ist die Vorgabe des Operators. Die Rechnung dazu steht
   # am Pool in tasks/keycloak.yaml, zwei Pods zu je 20 und der Import-Job

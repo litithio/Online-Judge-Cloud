@@ -17,6 +17,42 @@
     - name: Warten, bis die Nodes bereit sind
       ansible.builtin.import_tasks: tasks/wait.yaml
 
+# Ein Keypair in OpenStack gehört dem Benutzerkonto, nicht dem Projekt. Das
+# Terraform des Clusters hängt deshalb nur den Schlüssel aus ssh_public_key an,
+# alle weiteren kommen von hier. Eigenes Play vor der Rolle, weil tasks im
+# k3s-Play erst nach der Rolle laufen und --tags ssh sonst die Rolle mitzöge.
+- name: SSH-Schlüssel der Gruppe eintragen
+  hosts: all
+  gather_facts: false
+  become: true
+  tags: [ssh]
+  vars:
+    # Sortiert, damit authorized_keys bei jedem Lauf gleich aussieht und der
+    # Task nicht ohne Änderung changed meldet.
+    ssh_key_dateien: "{{ query('ansible.builtin.fileglob', 'ssh-keys/*.pub') | sort }}"
+    ssh_key_inhalte: "{{ query('ansible.builtin.file', *ssh_key_dateien) }}"
+  tasks:
+    # Ohne diese Prüfung träfe exclusive unten auf einen leeren oder kaputten
+    # Wert und nähme allen den Zugang, auch dem Schlüssel aus terraform.tfvars.
+    # Eine leere Datei zählt für fileglob als Datei, deshalb prüft der Task
+    # den Inhalt und nicht die Anzahl.
+    - name: Jede Schlüsseldatei muss einen Schlüssel tragen
+      ansible.builtin.assert:
+        that:
+          - ssh_key_inhalte | length > 0
+          - ssh_key_inhalte | select('match', '^(ssh-(rsa|ed25519)|ecdsa-sha2-)') | length == ssh_key_inhalte | length
+        fail_msg: "ansible/ssh-keys/ ist leer oder eine .pub-Datei ist kein Schlüssel"
+      run_once: true
+
+    # exclusive macht das Verzeichnis zur einzigen Wahrheit. Eine gelöschte
+    # Datei nimmt beim nächsten Lauf den Zugang wieder weg. Der Schlüssel aus
+    # terraform.tfvars muss deshalb ebenfalls im Verzeichnis liegen.
+    - name: Schlüssel aus ansible/ssh-keys/ für ubuntu setzen
+      ansible.posix.authorized_key:
+        user: ubuntu
+        exclusive: true
+        key: "{{ ssh_key_inhalte | join('\n') }}"
+
 # Die Rolle erkennt Server und Agents an k3s_role aus dem Inventory und
 # richtet DNS und TLS über die Zone aus dns-credentials.yaml ein.
 - name: K3s-Cluster ausrollen

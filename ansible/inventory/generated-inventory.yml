@@ -1,0 +1,38 @@
+"all":
+  "children":
+    "judge":
+      "children":
+        "judge_k3s_agent":
+          "children":
+            "judge_k3s_agent_dienste":
+              "hosts":
+                "2001:7c0:1b20:c913:1::38d":
+                  "ansible_user": "ubuntu"
+                "2001:7c0:1b20:c913:1::407":
+                  "ansible_user": "ubuntu"
+                "2001:7c0:1b20:c913:1::428":
+                  "ansible_user": "ubuntu"
+              "vars":
+                "k3s_node_labels":
+                  "online-judge/rolle": "dienste"
+            "judge_k3s_agent_judge":
+              "hosts":
+                "2001:7c0:1b20:c913:1::309":
+                  "ansible_user": "ubuntu"
+                "2001:7c0:1b20:c913:1::551":
+                  "ansible_user": "ubuntu"
+              "vars":
+                "k3s_extra_agent_exec_args": "--node-taint online-judge/sandbox=runsc:NoSchedule"
+                "k3s_node_labels":
+                  "online-judge/sandbox": "runsc"
+          "vars":
+            "k3s_role": "agent"
+            "k3s_server_host": "2001:7c0:1b20:c913:1::22b"
+        "judge_k3s_server":
+          "hosts":
+            "2001:7c0:1b20:c913:1::22b":
+              "ansible_user": "ubuntu"
+          "vars":
+            "k3s_role": "server"
+      "vars":
+        "ansible_python_interpreter": "/usr/bin/python3"

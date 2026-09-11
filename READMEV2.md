@@ -414,10 +414,12 @@ kubectl create job -n judge --from=cronjob/lastgenerator lastgenerator-1
 kubectl logs -n judge -f job/lastgenerator-1
 ```
 
-Rate und Dauer stehen in `app/chart/values.yaml` unter `lastgenerator`, 2 je
-Sekunde über 90 Sekunden, also 180 Einreichungen. Gemessen am 30.08.2026 mit
-`keda.max` 5 stieg die Warteschlange auf 77 und die Worker von null auf
-fünf. Der Job bleibt mit seinem Log stehen, bis `kubectl delete job` ihn
+Rate und Dauer stehen in `app/chart/values.yaml` unter `lastgenerator`, 6 je
+Sekunde über 60 Sekunden, also 360 Einreichungen. Gemessen am 11.09.2026
+stieg die Warteschlange damit auf 207, KEDA startete die ersten Worker nach
+32 Sekunden und hatte nach 58 Sekunden alle sechs bereit, nach 147 Sekunden
+war die Schlange leer. Mit 2 je Sekunde bleibt die Schlange unter 12 und
+drei Worker reichen. Der Job bleibt mit seinem Log stehen, bis `kubectl delete job` ihn
 entfernt, ein zweiter Lauf braucht einen neuen Namen.
 
 ### Vor dem Push
@@ -733,13 +735,17 @@ brauchen ein Upgrade des Release.
 
 ## Grenzen
 
-Unter echter Last tragen sechs Worker den Judge, eine Bewertung dauert mit
-den Aufgaben im Repo 3 bis 16 Sekunden, rechnerisch sind das 22 bis 120
-Einreichungen je Minute. Gehen E Einreichungen im selben Fenster ein, wartet
-die letzte rund E geteilt durch diesen Durchsatz plus die Anlaufzeit der
-Worker, KEDA weckt sie erst über `activationListLength`. Gemessen am 30.08.
-mit `keda.max` 5 stieg die Warteschlange bei 2 Einreichungen je Sekunde auf
-77 und die Worker von null auf fünf. Rechnerisch tragen die zwei Judge-Nodes
+Unter echter Last tragen sechs Worker den Judge. Gemessen am 11.09.2026 mit
+dem Lastmix des Generators bauen sie eine Warteschlange von 207 in 60
+Sekunden ab, 200 bis 250 Einreichungen je Minute, die meisten Lösungen
+sind in unter einer Sekunde bewertet, das Zeitlimit von bis zu 16 Sekunden
+je Bewertung ist die Obergrenze. Bis dahin wartet eine Einreichung in der
+Schlange, dazu kommt der Anlauf der Worker, gemessen 32 Sekunden bis zur
+ersten und 58 bis zur sechsten Replica, KEDA fragt die Schlange alle 30
+Sekunden ab und weckt erst über `activationListLength`. Ein Kurs von 30
+Personen mit je drei Abgaben in derselben Minute erzeugt 1,5 Einreichungen
+je Sekunde, dafür reichen drei Worker, bei Rate 2 blieb die Schlange unter
+12. Rechnerisch tragen die zwei Judge-Nodes
 acht Worker, `keda.max` steht auf sechs, damit je Node ein Kern für kubelet,
 containerd und runsc frei bleibt. Mehr Durchsatz heißt entweder `keda.max`
 auf acht ohne diese Reserve oder mehr Judge-Nodes über `judge_count` in
@@ -903,8 +909,8 @@ Worker ausgelastet ist, und weil ein Worker mit Request gleich Limit die CPU
 nie über sein Limit hebt. Last erzeugt der Lastgenerator aus
 `app/chart/templates/lastgenerator.yaml`, die Wirkung zeigt das Dashboard
 `Judge unter Last` aus `ansible/files/dashboard-judge.json`. Gemessen am
-30.08.2026, Warteschlange 77, Worker von null auf fünf, siehe Betrieb unter
-Dashboard.
+11.09.2026 aus null Workern, Warteschlange 207, Worker von null auf sechs in
+58 Sekunden, siehe Betrieb unter Dashboard.
 
 **B3 Weiteres Wahlthema, W6 Authentifizierung.** OIDC-Login und
 Token-Prüfung am Gateway über traefik-oidc-auth (`ansible/tasks/traefik-plugin.yaml`,

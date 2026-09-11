@@ -96,6 +96,35 @@ else
   done
 fi
 
+# ---------- sops ----------
+# Die Geheimnisse liegen verschlüsselt im Repo (#77). Der Check fängt einen
+# versehentlich im Klartext committeten Stand ab, ohne dass die CI sops oder
+# einen Schlüssel braucht: jeder Skalar außer dem sops-Block muss ENC[ tragen,
+# als Wert eines Schlüssels wie auch als Listeneintrag. Schlüssel ohne Wert,
+# etwa clusters: in der kubeconfig, sind keine Skalare, leere Mappings und
+# Listen ({} und []) lässt sops unverschlüsselt. Gegen Absicht schützt der
+# Check nicht.
+step "sops-Dateien sind verschlüsselt"
+sops_rc=0
+for f in ansible/app-credentials.sops.yaml ansible/kubeconfig.sops.yaml; do
+  if [ ! -f "$f" ]; then
+    echo "    $f fehlt" >&2
+    sops_rc=1
+    continue
+  fi
+  if ! awk '
+      /^sops:/ { exit }
+      /ENC\[/ { next }
+      /: *(\{\}|\[\])[ \t]*$/ { next }
+      /^[ \t]*-?[ \t]*[^ \t#:][^:]*:[ \t]+[^ \t]/ { bad = 1 }
+      /^[ \t]*-[ \t]+[^ \t]/ && !/:([ \t]|$)/ { bad = 1 }
+      END { exit bad }' "$f"; then
+    echo "    $f trägt Klartext" >&2
+    sops_rc=1
+  fi
+done
+result "$sops_rc"
+
 # ---------- Ansible ----------
 if [ ! -d ansible ]; then
   step "Ansible: kein ansible/, übersprungen"

@@ -1,0 +1,16 @@
+# Empfänger für die verschlüsselten Dateien unter ansible/*.sops.yaml (#77).
+# Je Person ein age-Schlüsselpaar, hier stehen nur die öffentlichen Schlüssel.
+# Der private liegt außerhalb des Repos in ~/.config/sops/age/keys.txt, dorthin
+# zeigt SOPS_AGE_KEY_FILE aus .envrc.
+#
+# Neues Mitglied: eigenes Paar mit age-keygen erzeugen, den öffentlichen
+# Schlüssel per PR hier eintragen. Jemand mit Schlüssel fährt danach
+#   sops updatekeys ansible/app-credentials.sops.yaml
+#   sops updatekeys ansible/kubeconfig.sops.yaml
+# Das entschlüsselt den Dateischlüssel und verschlüsselt ihn für die neue
+# Liste, ohne eigenen Schlüssel geht das nicht. Scheidet jemand aus, reicht
+# das nicht, siehe README ## Grenzen.
+creation_rules:
+  - path_regex: ansible/.*\.sops\.yaml$
+    age: >-
+      age1u8e7jtphkysaqa2r6uvamwrj63dut7kjedxc7xvchjq73pvkfulspsnk7z

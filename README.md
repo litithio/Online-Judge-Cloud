@@ -96,39 +96,48 @@ den bestehenden Cluster. Ein Neuaufbau von Null aus ihrem State ersetzt den
 Cluster und ist eine Downtime für alle, er wird vorher in #299 oder im
 Gruppenchat angesagt.
 
-Einmal für die betreibende Person einrichten:
+Einmal je Person einrichten:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+brew install sops age
+mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt
+direnv allow
+```
+
+Die Geheimnisse liegen verschlüsselt im Repo (#77), in
+`ansible/app-credentials.sops.yaml` die Passwörter der Dienste, der Auth-Kette
+und der TSIG-Key der DNS-Zone, in `ansible/kubeconfig.sops.yaml` die
+kubeconfig mit Admin-Rechten. Verschlüsselt ist mit sops und age, je Person
+ein Schlüsselpaar. `age-keygen` gibt den öffentlichen Schlüssel aus
+(`age1...`), der kommt per PR in `.sops.yaml`, danach fährt jemand mit
+Schlüssel `sops updatekeys` über beide Dateien. Der private Schlüssel bleibt
+in `~/.config/sops/age/keys.txt`, dorthin zeigt `SOPS_AGE_KEY_FILE` aus
+`.envrc`. Ansible entschlüsselt beim Ausrollen selbst, die kubeconfig holt
+man sich einmal:
+
+```bash
+sops -d ansible/kubeconfig.sops.yaml > ansible/kubeconfig-generated.yaml
+chmod 600 ansible/kubeconfig-generated.yaml
+```
+
+Dorthin zeigt `KUBECONFIG` aus `.envrc`. Nach einem Neuaufbau des Clusters
+committet die betreibende Person die neue `kubeconfig.sops.yaml`, dann noch
+einmal `sops -d`. Die Zone und die nicht-geheimen DNS-Werte stehen im
+Klartext in `ansible/vars/dns.yaml`, die Vorlage
+`ansible/app-credentials.yaml.example` erklärt jeden Wert und braucht nur,
+wer die Datei neu anlegt. Ohne direnv stattdessen `source .envrc`, und zwar
+im Wurzelverzeichnis: die Datei setzt KUBECONFIG relativ zum aktuellen
+Verzeichnis.
+
+Nur die betreibende Person dazu:
+
+```bash
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
-cp ansible/dns-credentials.yaml.example ansible/dns-credentials.yaml
-cp ansible/auth-credentials.yaml.example ansible/auth-credentials.yaml
-cp ansible/files/mongodb-password.yaml.example ansible/files/mongodb-password.yaml
-cp ansible/files/valkey-password.yaml.example ansible/files/valkey-password.yaml
-direnv allow
 ```
 
-Alle fünf Kopien ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
-`valkey-password.yaml` trägt das `requirepass` von Valkey (#61), ein einziges
-Passwort für den ganzen Dienst statt eines Benutzers je Dienst wie bei
-MongoDB. Die Datei hält nur das rohe Passwort, `ansible/tasks/valkey.yaml`
-leitet daraus die URI für Backend, Worker und `durchlauf` ab und legt sie als
-`connectionString` in dasselbe Secret. Der KEDA-Trigger liest das rohe
-Passwort über eine TriggerAuthentication.
-`auth-credentials.yaml` trägt die Secrets der Auth-Kette (Keycloak-Admin,
-OIDC-Client-Secret, Plugin-Cookie-Secret, Test-Benutzer und Dozentenkonto).
-Ohne direnv stattdessen `source .envrc`, und zwar im Wurzelverzeichnis: die
-Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
-
-Einmal für alle anderen einrichten:
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-direnv allow
-```
-
+Die Kopie ausfüllen, die Kommentare darin sagen, woher die Werte kommen.
 Dazu das eigene GitHub-Konto per PR in `ansible/vars/ssh-konten.yaml`, der
 öffentliche SSH-Schlüssel liegt bei GitHub, nicht im Repo. Das Play
 `SSH-Schlüssel der Gruppe eintragen` in `ansible/deploy.yaml` holt beim
@@ -141,14 +150,11 @@ Konto der betreibenden Person muss deshalb den Schlüssel aus
 `terraform.tfvars` führen, das Play bricht ab, wenn keiner der heutigen
 Schlüssel auf den Nodes in der neuen Menge liegt. Damit entscheidet GitHub,
 wer auf die Nodes kommt. Ein Schlüssel, den jemand seinem Konto hinzufügt,
-gilt beim nächsten Lauf ohne PR, und ohne GitHub läuft das Play nicht. Die
-kubeconfig kommt von der betreibenden Person außerhalb des Repos und liegt als
-`ansible/kubeconfig-generated.yaml`, dorthin zeigt `KUBECONFIG` aus `.envrc`.
-Wer Ansible fährt, bekommt auf demselben Weg `dns-credentials.yaml`,
-`auth-credentials.yaml` und die beiden Passwortdateien. #77 legt die
-Geheimnisse verschlüsselt ins Repo. Das Inventory
-`ansible/inventory/generated-inventory.yml` liegt im Repo, es trägt nur
-Adressen und Rollen der Nodes.
+gilt beim nächsten Lauf ohne PR, und ohne GitHub läuft das Play nicht. Das
+Inventory `ansible/inventory/generated-inventory.yml` liegt im Repo, es trägt
+nur Adressen und Rollen der Nodes. Wer Ansible fährt, braucht damit `git
+pull` und den eigenen age-Schlüssel, sonst nichts von der betreibenden
+Person.
 
 Cluster hochbringen, nur die betreibende Person:
 
@@ -156,7 +162,7 @@ Cluster hochbringen, nur die betreibende Person:
 scripts/deploy.sh
 ```
 
-Das Skript prüft erst die fünf Kopien und die Werkzeuge, wartet mit VPN an
+Das Skript prüft erst die tfvars, den age-Schlüssel und die Werkzeuge, wartet mit VPN an
 auf die OpenStack-API und lässt `terraform init` und `terraform apply`
 laufen. Dann hält es an der VPN-Grenze, fordert zum Ausschalten auf und
 wartet, bis der Server über IPv6 auf Port 22 antwortet. Danach laufen
@@ -174,8 +180,7 @@ terraform -chdir=terraform init && terraform -chdir=terraform apply
 # VPN aus
 cd ansible
 ansible-galaxy install -r requirements.yml --force
-ansible-playbook -i inventory/generated-inventory.yml \
-                 -i dns-credentials.yaml deploy.yaml
+ansible-playbook -i inventory/generated-inventory.yml deploy.yaml
 cd ..
 kubectl get nodes
 ```
@@ -229,15 +234,14 @@ die Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob. MongoDB, Valkey
 und der Seed der Aufgaben gehören zur Infrastruktur und stehen schon im
 Cluster. Das Chart verbindet sich mit ihnen über `externe` in den values, mit
 MongoDB über das Operator-Secret, das die URI samt Zugangsdaten hält, und mit
-Valkey über das Secret aus `ansible/files/valkey-password.yaml` (#61). Das
+Valkey über das Secret aus `ansible/files/valkey-password.yaml`, den Wert aus `app-credentials.sops.yaml` (#61). Das
 Play mit dem Tag `app` kopiert den Chart auf den Server und ruft
 `helm upgrade --install`.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
 cd ansible
-ansible-playbook -i inventory/generated-inventory.yml \
-                 -i dns-credentials.yaml deploy.yaml --tags app
+ansible-playbook -i inventory/generated-inventory.yml deploy.yaml --tags app
 ```
 
 Einmalig beim Umstieg auf diesen Stand, nur auf einem Cluster, der den alten
@@ -288,8 +292,7 @@ braucht.
 ```bash
 # nach dem Cluster-Deploy, VPN aus
 cd ansible
-ansible-playbook -i inventory/generated-inventory.yml \
-                 -i dns-credentials.yaml deploy.yaml --tags seed
+ansible-playbook -i inventory/generated-inventory.yml deploy.yaml --tags seed
 ```
 
 Prüfen mit `kubectl get jobs`, dort steht `aufgaben-seed` auf Completed.
@@ -331,7 +334,7 @@ Datenbank, das Play `postgres` rollt Operator und Cluster vor der Auth-Kette
 aus. Realm, OIDC-Client, die Rolle `dozent`, ein
 Test-Benutzer und ein Dozentenkonto mit dieser Rolle kommen als Code aus der
 Vorlage `ansible/templates/keycloak-realm.json.j2`, die Namen und Passwörter
-der Konten aus `auth-credentials.yaml`. Ein Mapper am Client schreibt die
+der Konten aus `app-credentials.sops.yaml`. Ein Mapper am Client schreibt die
 Realm-Rollen ins ID-Token, aus dem das Traefik-Plugin die Header baut, ohne
 ihn käme die Rolle nicht an der API an. Der gerenderte Import liegt als Secret
 im Namespace, nicht als ConfigMap, denn er trägt das Client-Secret und die
@@ -384,13 +387,12 @@ einem Hinweis ab:
 ```bash
 # nach dem Cluster-Deploy, VPN aus
 cd ansible
-ansible-playbook -i inventory/generated-inventory.yml \
-                 -i dns-credentials.yaml deploy.yaml --tags postgres,auth
+ansible-playbook -i inventory/generated-inventory.yml deploy.yaml --tags postgres,auth
 ```
 
 Prüfen: `https://auth.<zone>` zeigt den Realm `judge`, ein Aufruf von
 `https://app.<zone>` leitet unangemeldet zur Anmeldung um, und nach der
-Anmeldung mit dem Test-Benutzer aus `auth-credentials.yaml` ist die API
+Anmeldung mit dem Test-Benutzer aus `app-credentials.sops.yaml` ist die API
 erreichbar. Das Dozentenkonto aus derselben Datei trägt die Realm-Rolle
 `dozent` und sieht zusätzlich `/verwaltung`. Ein direkter Aufruf des
 `backend`-Service im Cluster (ohne Gateway-Header) endet mit 401.
@@ -473,7 +475,7 @@ kubectl config use-context judge-viewer
 Der `setup`-Lauf zeigt nach der Anmeldung die Claims des Tokens; darin muss
 `groups` mit `cluster-viewer` stehen, sonst greift das Binding nicht. Der erste
 `kubectl`-Aufruf gegen den Cluster öffnet denselben Browser-Login (Konto
-`viewer` aus `auth-credentials.yaml`); danach cacht kubelogin das Token bis zum
+`viewer` aus `app-credentials.sops.yaml`); danach cacht kubelogin das Token bis zum
 Ablauf. Prüfen:
 
 ```bash
@@ -502,7 +504,7 @@ sichtbar, dass KEDA auf die Warteschlange reagiert.
 Grafana liegt auf einem eigenen Host unter der Zone, wie die Anwendung und
 Keycloak. `https://grafana.<zone>` zeigt nach der Anmeldung direkt das
 Dashboard, es ist als Startseite gesetzt. Der Benutzer heißt `admin`, das
-Passwort setzt `grafana_admin_password` aus `auth-credentials.yaml`. Anders als
+Passwort setzt `grafana_admin_password` aus `app-credentials.sops.yaml`. Anders als
 die Anwendung hängt Grafana nicht hinter der Anmeldung aus #20, es prüft
 selbst.
 
@@ -915,6 +917,23 @@ braucht eine eigene Policy mit mindestens einer Regel auf kube-dns, sonst
 findet sie nichts. Die Herkunftsprüfung der API bleibt der erste Riegel, die
 Policy ist der zweite.
 
+### Geheimnisse verschlüsselt im Repo
+
+Die Passwörter der Dienste und der Auth-Kette, der TSIG-Key der DNS-Zone und
+die kubeconfig liegen mit sops und age verschlüsselt im Repo, in
+`ansible/app-credentials.sops.yaml` und `ansible/kubeconfig.sops.yaml` (#77,
+Secret-Hälfte von W7). Ansible entschlüsselt beim Ausrollen über
+`community.sops.load_vars`, das Repo ist damit vollständig, wer den eigenen
+age-Schlüssel hat, braucht keine Datei von jemand anderem. Je Person ein
+Schlüsselpaar, die öffentlichen Schlüssel stehen in `.sops.yaml`, ein
+Mitglied kommt per PR dazu. Sealed Secrets war die Alternative, der
+Controller erzeugt seinen Schlüssel aber je Cluster, und der Neuaufbau von
+Null für P2 erzeugt ihn jedes Mal neu, die versiegelten Werte im Repo wären
+danach wertlos. Beim Ausrollen erzeugte Passwörter, der Vorschlag vom
+August, hätten kein Geheimnis im Repo gebraucht, dafür stünde der Stand
+nur im Cluster. Im Klartext bleiben Zone und E-Mail in `ansible/vars/dns.yaml`,
+lokal bleibt nur `terraform.tfvars` bei der betreibenden Person.
+
 ## Grenzen
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je Lauf
@@ -1059,7 +1078,8 @@ ein automatisches Rollback gibt es nicht. Mit einem Tag, den die Registry nicht
 kennt, stand prod nach 45 Sekunden bei einer verfügbaren Replica und dev bei
 null. Ohne `maxUnavailable: 1` laufen die alten Pods in diesem Fall weiter.
 
-Ein Wechsel des Valkey-Passworts erreicht laufende Pods nicht. Das Secret
+Ein Wechsel eines Passworts in `app-credentials.sops.yaml` erreicht laufende
+Pods nicht, am Beispiel Valkey. Das Secret
 hängt als Umgebungsvariable an Valkey, Backend, Worker und `durchlauf`, und
 keine Pod-Vorlage ändert sich mit dem Wert. Nach dem Play `valkey` läuft der
 alte Valkey-Pod mit dem alten Passwort weiter, ein neuer Worker und der nächste
@@ -1068,6 +1088,13 @@ alte Valkey-Pod mit dem alten Passwort weiter, ein neuer Worker und der nächste
 `backend` und die Worker. Auf einem Cluster, der noch ohne Passwort läuft, gilt das auch für
 die Umstellung selbst, zwischen dem Play `valkey` und dem Play `app` weist
 Valkey jede Verbindung ab.
+
+Scheidet jemand aus der Gruppe aus, nimmt `sops updatekeys` den Schlüssel
+aus der Empfängerliste, jeder frühere Stand in der Git-Historie bleibt mit
+dem alten Schlüssel aber lesbar. Dann werden die Passwörter getauscht und die
+Dateien mit `sops rotate` neu verschlüsselt. Der Check in
+`scripts/infra-check.sh` fängt nur einen versehentlich im Klartext
+committeten Stand ab, nicht einen mit Absicht.
 
 Die NetworkPolicy greift erst kurz nach dem Start eines Pods. kube-router
 trägt die Adresse eines neuen Pods nach dem Start in die Regeln ein. Gemessen

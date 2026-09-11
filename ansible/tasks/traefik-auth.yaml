@@ -52,7 +52,7 @@
             # raw-Blöcken, damit Ansibles Jinja sie nicht selbst auswertet.
             #
             # X-Gateway-Auth trägt keinen Claim, sondern den festen Wert aus
-            # auth-credentials.yaml, und steht deshalb ohne raw-Block. Die API
+            # app-credentials.sops.yaml, und steht deshalb ohne raw-Block. Die API
             # erkennt daran, dass die Anfrage durch das Gateway kam (#79). Das
             # Plugin setzt jeden Header dieser Liste, ein gleichnamiger aus der
             # eingehenden Anfrage wird dabei überschrieben.

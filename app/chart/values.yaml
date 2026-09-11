@@ -48,7 +48,7 @@ externe:
       name: "mongodb-coding-platform-durchlauf"
       key: "connectionString.standard"
   # Herkunftswert des Gateways (#79). Angelegt wird das Secret von
-  # ansible/tasks/app.yaml aus auth-credentials.yaml, denselben Wert setzt die
+  # ansible/tasks/app.yaml aus app-credentials.sops.yaml, denselben Wert setzt die
   # Middleware als Header X-Gateway-Auth. Ohne den Wert startet die API nicht.
   gatewaySecret:
     name: "gateway-auth"

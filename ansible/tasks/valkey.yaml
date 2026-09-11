@@ -27,6 +27,9 @@
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ valkey_secret | combine({'stringData': {'connectionString': 'redis://:' ~ valkey_passwort_uri ~ '@valkey:6379'}}, recursive=True) }}"
+  # Das Manifest trägt das Passwort im Klartext, bei -vv stünde es sonst
+  # als Modulargument im Protokoll.
+  no_log: true
 
 - name: Valkey Deployment anwenden
   kubernetes.core.k8s:

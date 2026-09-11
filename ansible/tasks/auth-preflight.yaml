@@ -1,12 +1,12 @@
 ---
-# Preflight-Prüfungen der Auth-Secrets aus auth-credentials.yaml. Läuft vor den
+# Preflight-Prüfungen der Auth-Secrets aus app-credentials.sops.yaml. Läuft vor den
 # eigreifenden Tasks, damit ein falscher oder unveränderter Wert den Deploy
 # sofort mit klarer Meldung stoppt, statt später als Laufzeitfehler
 # aufzutauchen (der ungültige oidc_plugin_secret etwa erst als 404 im Traefik).
 #
-# Beide Secrets stehen in auth-credentials.yaml und werden vom Auth- und vom
-# Anwendungs-Play geladen; die Datei wird in beiden importiert, damit der jeweils
-# relevante Wert vor dem Ausrollen geprüft ist.
+# Beide Secrets stehen in app-credentials.sops.yaml und werden vom Auth- und
+# vom Anwendungs-Play entschlüsselt; die Prüfung läuft in beiden, damit der
+# jeweils relevante Wert vor dem Ausrollen geprüft ist.
 
 - name: OIDC_plugin_secret muss genau 32 Zeichen haben
   # Das Traefik-OIDC-Plugin weist die Middleware-Konfiguration sonst ab
@@ -28,7 +28,7 @@
     that: not (oidc_plugin_secret is match('^aendern'))
     fail_msg: >-
       oidc_plugin_secret steht noch auf dem Platzhalter aus
-      auth-credentials.yaml.example. Einen eigenen Wert eintragen
+      app-credentials.yaml.example. Einen eigenen Wert eintragen
       (openssl rand -base64 32 | head -c 32).
     success_msg: oidc_plugin_secret wurde gegenüber dem Platzhalter geändert.
 
@@ -52,6 +52,6 @@
     that: not (gateway_secret is match('^aendern'))
     fail_msg: >-
       gateway_secret steht noch auf dem Platzhalter aus
-      auth-credentials.yaml.example. Einen eigenen Wert eintragen
+      app-credentials.yaml.example. Einen eigenen Wert eintragen
       (openssl rand -base64 32).
     success_msg: gateway_secret wurde gegenüber dem Platzhalter geändert.

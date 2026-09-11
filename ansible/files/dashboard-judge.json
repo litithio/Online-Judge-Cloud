@@ -49,12 +49,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "kube_deployment_spec_replicas{namespace=\"default\", deployment=\"code-worker-python\"}",
+          "expr": "kube_deployment_spec_replicas{namespace=\"judge\", deployment=\"code-worker-python\"}",
           "legendFormat": "angefordert"
         },
         {
           "refId": "B",
-          "expr": "kube_deployment_status_replicas_ready{namespace=\"default\", deployment=\"code-worker-python\"}",
+          "expr": "kube_deployment_status_replicas_ready{namespace=\"judge\", deployment=\"code-worker-python\"}",
           "legendFormat": "bereit"
         }
       ]

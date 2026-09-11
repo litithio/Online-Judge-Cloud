@@ -6,20 +6,20 @@
           "children":
             "judge_k3s_agent_dienste":
               "hosts":
-                "2001:7c0:1b20:c913:1::38d":
+                "2001:7c0:1b20:c913:1::133":
                   "ansible_user": "ubuntu"
-                "2001:7c0:1b20:c913:1::407":
+                "2001:7c0:1b20:c913:1::46e":
                   "ansible_user": "ubuntu"
-                "2001:7c0:1b20:c913:1::428":
+                "2001:7c0:1b20:c913:1::511":
                   "ansible_user": "ubuntu"
               "vars":
                 "k3s_node_labels":
                   "online-judge/rolle": "dienste"
             "judge_k3s_agent_judge":
               "hosts":
-                "2001:7c0:1b20:c913:1::309":
+                "2001:7c0:1b20:c913:1::1ff":
                   "ansible_user": "ubuntu"
-                "2001:7c0:1b20:c913:1::551":
+                "2001:7c0:1b20:c913:1::4dc":
                   "ansible_user": "ubuntu"
               "vars":
                 "k3s_extra_agent_exec_args": "--node-taint online-judge/sandbox=runsc:NoSchedule"
@@ -27,10 +27,10 @@
                   "online-judge/sandbox": "runsc"
           "vars":
             "k3s_role": "agent"
-            "k3s_server_host": "2001:7c0:1b20:c913:1::22b"
+            "k3s_server_host": "2001:7c0:1b20:c913:1::496"
         "judge_k3s_server":
           "hosts":
-            "2001:7c0:1b20:c913:1::22b":
+            "2001:7c0:1b20:c913:1::496":
               "ansible_user": "ubuntu"
           "vars":
             "k3s_role": "server"

@@ -14,3 +14,4 @@ creation_rules:
   - path_regex: ansible/.*\.sops\.yaml$
     age: >-
       age1u8e7jtphkysaqa2r6uvamwrj63dut7kjedxc7xvchjq73pvkfulspsnk7z
+      age17vf2a5d5zzuvqfgtg8vq3rxqvs6cd09fwylftfw02m5ld3t34qws6cs2pp

@@ -110,11 +110,11 @@ Unter Windows läuft das in WSL mit Ubuntu 24.04, dort vor dem Block oben
 statt `brew`:
 
 ```bash
-sudo apt update && sudo apt install python3-venv direnv age
+sudo apt update && sudo apt install python3-venv direnv age curl
 curl -fsSL -o /tmp/sops.deb https://github.com/getsops/sops/releases/download/v3.13.3/sops_3.13.3_amd64.deb && sudo apt install /tmp/sops.deb
 ```
 
-`venv`, `direnv` und `age` kommen aus apt, für sops gibt es dort kein Paket,
+`venv`, `direnv`, `age` und `curl` kommen aus apt, für sops gibt es dort kein Paket,
 deshalb das Release von GitHub, geprüft mit 3.13.3, auf einem ARM-Gerät die
 Datei mit `arm64` im Namen.
 

@@ -33,13 +33,24 @@ API durch.
 
 ![Aufbau von der VM bis zum Pod](docs/diagramme/aufbau.svg)
 
-Die dicken Pfeile sind der Weg einer Einreichung, die gestrichelten sind
-alles darum herum, Provisionierung, Anmeldung, Skalierung und Rückholung.
-Terraform und Ansible laufen von außen und sind zur Laufzeit nicht beteiligt.
+Terraform und Ansible laufen von außen und sind zur Laufzeit nicht
+beteiligt. Die Anwendung im Kasten der Dienste-VMs zeigt das zweite Bild
+im Einzelnen, die dicken Pfeile sind der Weg einer Einreichung, die
+gestrichelten sind Anmeldung, Skalierung, Rückholung und Monitoring.
+
+![Anwendung im Cluster](docs/diagramme/anwendung.svg)
 
 ### Datenfluss einer Einreichung
 
-![Datenfluss einer Einreichung](docs/diagramme/datenfluss.svg)
+Die Annahme läuft über Gateway und API, die Studierenden fragen danach
+alle zwei Sekunden nach dem Stand.
+
+![Annahme einer Einreichung](docs/diagramme/datenfluss-annahme.svg)
+
+Die Bewertung läuft parallel dazu im Worker, der Durchlauf holt zurück, was
+liegen bleibt.
+
+![Bewertung einer Einreichung](docs/diagramme/datenfluss-bewertung.svg)
 
 Bei der Übergabe an den Worker entscheidet sich, ob eine Einreichung verloren
 gehen kann. Der Worker übernimmt sie mit einem bedingten Update, das Token und

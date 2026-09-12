@@ -1,0 +1,32 @@
+---
+# Feste Schrift: mermaid bemisst die Kästen mit der Schrift, die beim
+# Rendern verfügbar ist. Weicht die Anzeigeschrift ab, laufen Texte über
+# die Ränder.
+config:
+  fontFamily: Arial, Helvetica, sans-serif
+  themeCSS: ".noteText { font-size: 14px !important; }"
+  # Enger als der Default: Das Diagramm wird im README auf Spaltenbreite
+  # skaliert, jeder gesparte Querpixel macht die Schrift dort größer.
+  sequence:
+    actorMargin: 15
+    messageMargin: 20
+    width: 110
+---
+sequenceDiagram
+    autonumber
+    participant V as 📨 Valkey
+    participant W as ⚖️ Judge-Worker
+    participant M as 🗄️ MongoDB
+    participant D as 🔁 Durchlauf
+
+    W->>V: BLPOP judge:python
+    W->>M: PENDING auf RUNNING,<br/>mit Token und Frist
+    M-->>W: Einreichung mit Code
+    W->>M: Aufgabe mit<br/>Testfällen lesen
+    W->>W: Testfälle nacheinander in der<br/>Sandbox, Zeit- und Speicherlimit
+    W->>M: Urteil schreiben,<br/>nur mit gültigem Token
+    D->>M: PENDING älter als<br/>REENQUEUE_AFTER_SECONDS lesen
+    D->>M: RUNNING mit<br/>abgelaufener Frist suchen
+    D->>V: erneut einreihen
+    D->>V: LPOS je Kandidat,<br/>fehlt die ID, RPUSH
+    Note over V,D: Stirbt ein Worker nach der Übernahme, bleibt die Einreichung auf<br/>RUNNING stehen, bis die Frist abläuft. Stirbt er zwischen BLPOP und<br/>Übernahme, bleibt sie ohne Queue-Eintrag auf PENDING liegen, das<br/>prüft LPOS gegen Valkey. Der Durchlauf reiht beide erneut ein, nach MAX_VERSUCHE Versuchen setzt<br/>er einen Endzustand.

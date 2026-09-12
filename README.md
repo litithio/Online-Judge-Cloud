@@ -40,6 +40,8 @@ nach geprüfter Anmeldung zur API durch.
 
 ![Aufbau von der VM bis zum Pod](docs/diagramme/aufbau.svg)
 
+![Anwendung im Cluster](docs/diagramme/anwendung.svg)
+
 Die dicken Pfeile sind der Weg einer Einreichung, die gestrichelten
 sind alles darum herum: Provisionierung, Anmeldung, Skalierung und
 Rückholung. Terraform und Ansible laufen von außen und sind zur
@@ -47,7 +49,9 @@ Laufzeit nicht beteiligt.
 
 ### Datenfluss einer Einreichung
 
-![Datenfluss einer Einreichung](docs/diagramme/datenfluss.svg)
+![Annahme einer Einreichung](docs/diagramme/datenfluss-annahme.svg)
+
+![Bewertung einer Einreichung](docs/diagramme/datenfluss-bewertung.svg)
 
 Bei der Übergabe an den Worker entscheidet sich, ob eine Einreichung
 verloren gehen kann. Der Worker übernimmt sie mit einem bedingten

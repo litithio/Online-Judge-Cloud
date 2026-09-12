@@ -1,0 +1,65 @@
+# Ingress und Egress für den CloudNativePG-Operator (#163, #62), Ausnahme zum
+# default-deny in files/judge-networkpolicy.yaml. Er reconciled über die K8s-API und
+# erreicht die Instanzen auf 8000 (Status) und 5432, so die Doku unter
+# docs/src/networking.md. Anders als der MongoDB-Operator nimmt er
+# Verbindungen an, der API-Server ruft seine Webhooks auf 9443 auf.
+#
+# Der Webhook-Aufruf kommt nicht von der Adresse des API-Servers, mit der
+# scheiterte das Anlegen des Clusters am 10.09. mit "proxy error from
+# [::1]:6443 while dialing [<pod>]:9443, code 502". Der API-Server ruft den
+# Pod direkt über Flannel auf, und als Quelle steht die Adresse seiner
+# Flannel-Schnittstelle, das ist die Netzadresse des Pod-Netzes vom Server,
+# abgelesen mit ss auf dem Server. Ein podSelector greift nicht, die
+# Schnittstelle ist kein Pod. Die Adresse liest der Task davor aus dem
+# Node-Objekt des Servers, wie die Adresse des API-Servers. Ein zweiter
+# Server bräuchte eine zweite Regel.
+#
+# Die Adresse des API-Servers für den Egress kommt ebenfalls aus dem Task
+# davor, Herleitung wie in mongodb-operator-networkpolicy.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cnpg-operator
+  namespace: "{{ auth_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: "{{ webhook_quelle }}"
+      ports:
+        - protocol: TCP
+          port: 9443
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: "{{ keycloak_db_name }}"
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: "{{ api_endpunkt.resources[0].subsets[0].addresses[0].ip }}/128"
+      ports:
+        - protocol: TCP
+          port: 6443

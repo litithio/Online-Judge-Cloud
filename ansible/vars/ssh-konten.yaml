@@ -1,0 +1,14 @@
+# GitHub-Konten, deren öffentliche SSH-Schlüssel auf die Nodes kommen. Das
+# Play in deploy.yaml holt sie bei jedem Lauf von https://github.com/<konto>.keys
+# und trägt genau diese Menge für ubuntu ein. Wer in die Liste kommt, hat mit
+# dem nächsten Lauf Zugang, wer herausfällt oder seinen Schlüssel bei GitHub
+# löscht, verliert ihn. Ein neues Mitglied kommt per PR dazu.
+#
+# Das Konto der betreibenden Person muss den Schlüssel aus ssh_public_key in
+# terraform.tfvars führen, sonst nimmt der erste Lauf ihn von den Nodes.
+---
+ssh_github_konten:
+  - litithio
+  - TDages
+  - Feniyuli
+  - viereckl

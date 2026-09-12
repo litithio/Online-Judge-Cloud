@@ -1,7 +1,13 @@
 # Bringt den k3s-Cluster auf die Nodes aus dem Terraform-Inventory. Aufruf:
 #
 #   ansible-galaxy install -r requirements.yml --force
-#   ansible-playbook -i inventory/generated-inventory.yml -i dns-credentials.yaml deploy.yaml
+#   ansible-playbook -i inventory/generated-inventory.yml deploy.yaml
+#
+# Die Geheimnisse kommen aus app-credentials.sops.yaml, verschlüsselt im Repo
+# (#77). Jedes Play, das sie braucht, entschlüsselt sie als ersten Task über
+# community.sops.load_vars auf dem Steuerrechner, dafür müssen sops und der
+# eigene age-Schlüssel dort liegen (SOPS_AGE_KEY_FILE aus .envrc). Die
+# nicht-geheimen DNS-Werte liegen in vars/dns.yaml.
 #
 # --force, weil ansible-galaxy eine bereits installierte Rolle sonst stehen
 # lässt, auch wenn in requirements.yml eine andere Version steht. Ohne das
@@ -17,8 +23,83 @@
     - name: Warten, bis die Nodes bereit sind
       ansible.builtin.import_tasks: tasks/wait.yaml
 
+# Ein Keypair in OpenStack gehört dem Benutzerkonto, nicht dem Projekt. Das
+# Terraform des Clusters hängt deshalb nur den Schlüssel aus ssh_public_key an,
+# alle weiteren kommen von hier. Die Schlüssel liegen nicht im Repo, sondern
+# bei GitHub, das Repo nennt nur die Konten. Eigenes Play vor der Rolle, weil
+# tasks im k3s-Play erst nach der Rolle laufen und --tags ssh sonst die Rolle
+# mitzöge.
+- name: SSH-Schlüssel der Gruppe eintragen
+  hosts: all
+  gather_facts: false
+  become: true
+  tags: [ssh]
+  # Ein Fehler auf einem Node hält alle an, sonst hätte ein Teil der Nodes
+  # den neuen Schlüsselstand und der Rest den alten.
+  any_errors_fatal: true
+  vars_files:
+    - vars/ssh-konten.yaml
+  vars:
+    # Nur Typ und Blob, ohne Kommentar und ohne Optionen davor. sshd vergleicht
+    # auch nur das, und GitHub liefert die Schlüssel ohne Kommentar, während
+    # der Schlüssel aus terraform.tfvars auf der frischen VM einen trägt.
+    ssh_key_muster: '((?:sk-)?(?:ssh-(?:rsa|ed25519)|ecdsa-sha2-nistp\d+)(?:@openssh\.com)? [A-Za-z0-9+/=]+)'
+  tasks:
+    # Einmal je Lauf auf dem ersten Node, das Ergebnis sehen alle Hosts. Ein
+    # unbekanntes Konto liefert 404 und bricht den Lauf ab. check_mode false,
+    # weil uri im Check-Modus sonst übersprungen wird und die Prüfung unten
+    # ohne Inhalt liefe.
+    - name: Schlüssel der Konten von GitHub holen
+      ansible.builtin.uri:
+        url: "https://github.com/{{ item }}.keys"
+        return_content: true
+      loop: "{{ ssh_github_konten }}"
+      register: ssh_github
+      run_once: true
+      check_mode: false
+
+    # Ein Konto ohne Schlüssel liefert eine leere Antwort und damit nichts.
+    # Sortiert, damit authorized_keys bei jedem Lauf gleich aussieht und der
+    # Task nicht ohne Änderung changed meldet. Kein run_once an diesem
+    # set_fact. In ansible-core 2.21.2 bekommen danach alle Hosts des
+    # nächsten Plays die Facts des zuletzt bearbeiteten Hosts, die k3s-Rolle
+    # sah dann auf jedem Node dieselbe Adresse und der Overlay-Preflight
+    # schlug fehl. Das registrierte Ergebnis des uri-Tasks sehen alle Hosts
+    # auch ohne run_once hier.
+    - name: Schlüssel zu einer Liste zusammenfassen
+      ansible.builtin.set_fact:
+        ssh_key_inhalte: >-
+          {{ ssh_github.results | map(attribute='content')
+             | map('regex_findall', ssh_key_muster) | flatten | unique | sort }}
+
+    - name: Heutige Schlüssel von ubuntu lesen
+      ansible.builtin.slurp:
+        src: /home/ubuntu/.ssh/authorized_keys
+      register: ssh_bisher
+      check_mode: false
+
+    # exclusive unten ersetzt die ganze Datei. Bleibt kein heutiger Schlüssel
+    # in der neuen Menge, sperrt der Lauf alle aus. Auf der frischen VM liegt
+    # nur der Schlüssel aus terraform.tfvars, die Prüfung verlangt dort also
+    # genau ihn beim Konto der betreibenden Person. Später liegen nur noch
+    # GitHub-Schlüssel in der Datei, dann fängt die Prüfung allein den Fall,
+    # dass alle verschwinden.
+    - name: Mindestens ein heutiger Schlüssel muss in der Liste bleiben
+      ansible.builtin.assert:
+        that:
+          - ssh_key_inhalte | length > 0
+          - (ssh_bisher.content | b64decode) | regex_findall(ssh_key_muster) | intersect(ssh_key_inhalte) | length > 0
+        fail_msg: "Keiner der heutigen Schlüssel auf {{ inventory_hostname }} liegt bei den Konten aus vars/ssh-konten.yaml"
+
+    - name: Schlüssel der Konten aus vars/ssh-konten.yaml für ubuntu setzen
+      ansible.posix.authorized_key:
+        user: ubuntu
+        exclusive: true
+        key: "{{ ssh_key_inhalte | join('\n') }}"
+
 # Die Rolle erkennt Server und Agents an k3s_role aus dem Inventory und
-# richtet DNS und TLS über die Zone aus dns-credentials.yaml ein.
+# richtet DNS und TLS über die Zone aus vars/dns.yaml ein, das TSIG-Secret
+# dazu kommt aus app-credentials.sops.yaml.
 - name: K3s-Cluster ausrollen
   hosts: all
   tags: [k3s]
@@ -30,12 +111,45 @@
     # Rolle einen gleichnamigen Default trägt und das Skript sonst zwei Zeilen
     # fände.
     judge_helm_version: "v3.21.4"
+  vars_files:
+    - vars/dns.yaml
   # Vor der Rolle, nicht danach. Die Rolle rollt cert-manager und Longhorn
   # selbst über helm aus, ein Nachzug in tasks käme dafür zu spät. Die Tasks
   # tragen always, sonst liefe ein Aufruf mit --tags app am k3s-Play vorbei und
   # das App-Play nutzte weiter das alte Binary. Der Nachzug greift nur auf dem
   # Server, die Agents rollen keine Charts aus.
   pre_tasks:
+    # Vor dem ersten load_vars, denn dessen Fehler steht wegen no_log nicht
+    # im Protokoll. Ohne Schlüssel bricht der Lauf hier mit klarer Meldung
+    # ab, bevor er einen Node anfasst. Einmal, auf dem Server, die Variable
+    # gilt für den ganzen Lauf.
+    - name: Age-Schlüssel für sops vorhanden
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') | length > 0
+          - lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') is file
+        fail_msg: >-
+          SOPS_AGE_KEY_FILE zeigt auf keine Datei. direnv allow oder source
+          .envrc im Wurzelverzeichnis, den Schlüssel erzeugt
+          age-keygen -o ~/.config/sops/age/keys.txt, siehe README Betrieb.
+        quiet: true
+      when: k3s_role == 'server'
+      tags: always
+
+    # Das TSIG-Secret der Zone, die Rolle legt daraus das Secret für
+    # cert-manager an. load_vars entschlüsselt auf dem Steuerrechner und setzt
+    # die Werte als Variablen des Hosts, sie bleiben im Speicher von Ansible
+    # und gehen nicht auf die Nodes. Nur der Server, die Addons laufen nur
+    # dort, die Agents brauchen keinen der Werte. no_log, sonst stünden die
+    # Passwörter bei -vvv im Protokoll. always aus demselben Grund wie bei den
+    # Helm-Tasks darunter.
+    - name: TSIG-Secret und Passwörter entschlüsseln
+      community.sops.load_vars:
+        file: app-credentials.sops.yaml
+      no_log: true
+      when: k3s_role == 'server'
+      tags: always
+
     - name: Helm-Version auf dem Server lesen
       ansible.builtin.command: helm version --short
       register: helm_vorhanden
@@ -103,6 +217,26 @@
         kubeconfig_root: "{{ kubeconfig_root }}"
       when: k3s_role == 'server'
       tags: always
+
+    # Die Rolle hat die kubeconfig eben nach kubeconfig_path auf den
+    # Steuerrechner geholt. Von dort verschlüsselt ins Repo, damit jede
+    # Person sie mit dem eigenen age-Schlüssel bekommt, ohne dass Johannes
+    # eine Datei verschickt (#77). Auf dem Steuerrechner, weil sops nur dort
+    # liegt. content_yaml statt content_text, nur so erkennt das Modul einen
+    # unveränderten Inhalt und schreibt die Datei nicht bei jedem Lauf neu.
+    # Geändert wird sie nach einem Neuaufbau, dann committet Johannes sie.
+    - name: Kubeconfig verschlüsselt ins Repo legen
+      community.sops.sops_encrypt:
+        path: "{{ playbook_dir }}/kubeconfig.sops.yaml"
+        content_yaml: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/' ~ kubeconfig_path) | from_yaml }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when:
+        - k3s_role == 'server'
+        # Ohne die Datei, etwa bei --check oder wenn die Rolle sie nicht
+        # geholt hat, schlüge der Lookup fehl statt den Task zu überspringen.
+        - (playbook_dir ~ '/' ~ kubeconfig_path) is file
 
     # Das Argument oben wirkt nur bei der Installation, und die Rolle
     # überspringt sie, sobald /usr/local/bin/k3s liegt. Auf einem Server, der
@@ -347,6 +481,12 @@
   vars_files:
     - vars/app.yaml
   tasks:
+    # Die Passwörter der MongoDB-Benutzer, files/mongodb-password.yaml setzt
+    # sie als Template ein. no_log, sonst stünden sie bei -vvv im Protokoll.
+    - name: Passwörter der Anwendung entschlüsseln
+      community.sops.load_vars:
+        file: app-credentials.sops.yaml
+      no_log: true
     - name: MongoDB Operator und Instanz einrichten
       ansible.builtin.import_tasks: tasks/mongodb.yaml
 
@@ -357,6 +497,10 @@
   vars_files:
     - vars/app.yaml
   tasks:
+    - name: Passwörter der Anwendung entschlüsseln
+      community.sops.load_vars:
+        file: app-credentials.sops.yaml
+      no_log: true
     - name: Valkey Deployment und Service einrichten
       ansible.builtin.import_tasks: tasks/valkey.yaml
 
@@ -372,13 +516,17 @@
   hosts: judge_k3s_server
   tags: [observability]
   become: true
-  # Aus vars/auth.yaml kommt grafana_host, aus auth-credentials.yaml das
+  # Aus vars/auth.yaml kommt grafana_host, aus app-credentials.sops.yaml das
   # Passwort des Grafana-Admins. Beide Dateien tragen auch die Auth-Kette, die
   # Hostnamen stehen dort nach der Entscheidung aus #92 an einer Stelle.
   vars_files:
+    - vars/dns.yaml
     - vars/auth.yaml
-    - auth-credentials.yaml
   tasks:
+    - name: Passwörter der Anwendung entschlüsseln
+      community.sops.load_vars:
+        file: app-credentials.sops.yaml
+      no_log: true
     - name: Prometheus, Grafana und das Dashboard einrichten
       ansible.builtin.import_tasks: tasks/observability.yaml
 
@@ -408,33 +556,69 @@
 # den Plays davor, ebenso die KEDA-CRD, die das ScaledObject braucht. Läuft auf dem Server (dort liegt die kubeconfig)
 # und vor der Auth-Kette, damit der backend-Service steht, wenn die geschützte
 # Ingress ihn referenziert. Die Konfiguration kommt aus vars/app.yaml. Aus
-# auth-credentials.yaml kommt der Herkunftswert des Gateways, den das Play als
-# Secret anlegt und die API beim Start liest (#79).
+# app-credentials.sops.yaml kommt der Herkunftswert des Gateways, den das Play
+# als Secret anlegt und die API beim Start liest (#79).
 - name: Anwendung ausrollen
   hosts: judge_k3s_server
   tags: [app]
   become: true
   vars_files:
     - vars/app.yaml
-    - auth-credentials.yaml
   tasks:
+    - name: Passwörter der Anwendung entschlüsseln
+      community.sops.load_vars:
+        file: app-credentials.sops.yaml
+      no_log: true
+    # Prüft gateway_secret (und die übrigen Auth-Secrets), bevor die API es als
+    # Secret gesetzt bekommt. Fängt den Fehler ab, auch wenn nur --tags app läuft.
+    - name: Auth-Secrets prüfen
+      ansible.builtin.import_tasks: tasks/auth-preflight.yaml
     - name: Anwendung
       ansible.builtin.import_tasks: tasks/app.yaml
 
+# PostgreSQL für Keycloak (#163). Vor der Auth-Kette, weil der Realm-Import
+# und der Keycloak-Start die Datenbank brauchen. Eigener Tag, damit der
+# Operator nicht bei jedem --tags auth mitläuft.
+- name: PostgreSQL für Keycloak ausrollen
+  hosts: judge_k3s_server
+  tags: [postgres]
+  become: true
+  vars_files:
+    - vars/app.yaml
+    - vars/dns.yaml
+    - vars/auth.yaml
+  tasks:
+    - name: CloudNativePG-Operator und Cluster
+      ansible.builtin.import_tasks: tasks/postgres.yaml
+
 # Authentifizierung am Gateway (Issue #20): Keycloak und das Traefik-OIDC-Plugin
 # (traefik-oidc-auth) samt Middleware. Läuft auf dem Server, weil dort die
-# kubeconfig liegt und rfc2136_zone (aus dns-credentials.yaml) für die
-# Hostnamen gesetzt ist. Die nicht-geheime Konfiguration kommt aus
-# vars/auth.yaml, die Secrets aus auth-credentials.yaml (Vorlage: .example).
+# kubeconfig liegt und rfc2136_zone (aus vars/dns.yaml) für die Hostnamen
+# gesetzt ist. Die nicht-geheime Konfiguration kommt aus vars/auth.yaml, die
+# Secrets aus app-credentials.sops.yaml.
 - name: Auth-Kette ausrollen
   hosts: judge_k3s_server
   tags: [auth]
   become: true
   vars_files:
     - vars/app.yaml
+    - vars/dns.yaml
     - vars/auth.yaml
-    - auth-credentials.yaml
   tasks:
+    - name: Passwörter der Anwendung entschlüsseln
+      community.sops.load_vars:
+        file: app-credentials.sops.yaml
+      no_log: true
+    # Erst die Secrets prüfen: ein ungültiger oder unveränderter Wert soll den
+    # Deploy sofort stoppen, nicht später als 404 oder als abweisende API enden.
+    - name: Auth-Secrets prüfen
+      ansible.builtin.import_tasks: tasks/auth-preflight.yaml
+    # Rüstet den kube-apiserver zum OIDC-Prüfer nach (Viewer-Kennung, W6). Vor
+    # Keycloak, damit ein durch den Neustart kurz abwesender apiserver die
+    # folgenden Tasks nicht mitten in einem Rollout trifft. Kein Cluster-Zugriff
+    # nötig, der Schritt legt nur eine Datei ab und startet den Dienst neu.
+    - name: OIDC am kube-apiserver
+      ansible.builtin.import_tasks: tasks/k3s-oidc.yaml
     # Zuerst das Plugin aktivieren: Traefik startet dabei neu, was Zeit
     # braucht, und die Middleware unten setzt es voraus.
     - name: Traefik-Plugin
@@ -443,3 +627,7 @@
       ansible.builtin.import_tasks: tasks/keycloak.yaml
     - name: Traefik-Anbindung
       ansible.builtin.import_tasks: tasks/traefik-auth.yaml
+    # Cluster-RBAC der Viewer-Kennung. Nach Keycloak, denn Gruppe und Konto
+    # kommen von dort; das Binding hängt sie an die ClusterRole view.
+    - name: Viewer-RBAC
+      ansible.builtin.import_tasks: tasks/viewer-rbac.yaml

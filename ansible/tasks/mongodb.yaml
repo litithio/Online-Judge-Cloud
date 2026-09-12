@@ -93,6 +93,9 @@
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/mongodb-password.yaml') | from_yaml }}"
+  # Das Manifest trägt das Passwort im Klartext, bei -vv stünde es sonst
+  # als Modulargument im Protokoll.
+  no_log: true
 
 - name: MongoDB-Instanz anwenden
   kubernetes.core.k8s:

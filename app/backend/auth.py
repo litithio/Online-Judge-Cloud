@@ -34,7 +34,7 @@ GATEWAY_HEADER = "X-Gateway-Auth"
 OFFENE_PFADE = frozenset({"/healthz", "/readyz"})
 
 # Untere Grenze für den Herkunftswert. Der Befehl in
-# ansible/auth-credentials.yaml.example erzeugt 44 Zeichen aus 32 zufälligen
+# ansible/app-credentials.yaml.example erzeugt 44 Zeichen aus 32 zufälligen
 # Bytes. Die Grenze fängt einen versehentlich gekürzten Wert ab, mehr nicht. Ob
 # der Wert zufällig ist, sieht die API nicht, das entscheidet, wer ihn einträgt.
 MINDESTLAENGE = 32
@@ -58,7 +58,7 @@ def _wert_aus_umgebung():
     if wert.startswith("aendern"):
         raise RuntimeError(
             "GATEWAY_SECRET steht auf dem Platzhalter aus "
-            "ansible/auth-credentials.yaml.example."
+            "ansible/app-credentials.yaml.example."
         )
     if len(wert) < MINDESTLAENGE:
         raise RuntimeError(f"GATEWAY_SECRET ist kürzer als {MINDESTLAENGE} Zeichen.")

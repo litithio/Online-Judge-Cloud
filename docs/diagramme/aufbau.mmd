@@ -8,82 +8,57 @@ config:
   # Cluster herum. ELK kann nur der eigene Renderer, nicht GitHub-Mermaid.
   layout: elk
   fontFamily: Arial, Helvetica, sans-serif
+  # Größere Schrift, weil GitHub das Bild auf Spaltenbreite skaliert und
+  # die Kästen mit der Schrift wachsen, die Abstände nicht.
+  themeVariables:
+    fontSize: 22px
 ---
 flowchart TB
-    studierende["🧑‍🎓 Studierende<br/>Browser mit Code-Editor"]
-
     subgraph werkzeuge["🧰 Provisionierung, läuft von außen"]
         tf["🛠️ Terraform"]
-        ansible["🛠️ Ansible mit<br/>k3s-dhbw-cloud-role"]
-        ci["⚙️ GitHub Actions<br/>baut die Images"]
+        ansible["🛠️ Ansible,<br/>k3s-dhbw-cloud-role"]
+        ci["⚙️ GitHub Actions<br/>baut Images"]
     end
 
-    subgraph openstack["☁️ OpenStack Kursprojekt, Netz DHBWV6, öffentliche IPv6"]
-        traefik["🚪 Traefik Ingress<br/>TLS und OIDC-Plugin<br/>Server oder Dienste-Node"]
+    subgraph openstack["☁️ OpenStack, Netz DHBWV6,<br/>Security Group judge-k3s-nodes"]
+        traefik["🚪 Traefik, TLS und OIDC-Plugin<br/>Server oder Dienste-Node"]
         subgraph server["🖥️ Server-VM, 2 vCPU, 4 GB"]
             cp["k3s Control Plane"]
         end
-        subgraph dienste["🖥️ 3 Dienste-VMs, je 4 vCPU, 8 GB"]
-            subgraph rolle["von der k3s-Rolle installiert"]
-                certm["cert-manager"]
-                extdns["ExternalDNS"]
-                longhorn["💾 Longhorn<br/>Node-lokaler Storage"]
-            end
-            subgraph app["Anwendung"]
-                keycloak["🔐 Keycloak<br/>Anmeldung"]
-                api["⚡ API-Service<br/>FastAPI"]
-                valkey["📨 Valkey<br/>eine Warteschlange je Sprache"]
-                keda["📈 KEDA<br/>skaliert nach Länge der Warteschlange"]
-                durchlauf["🔁 Durchlauf<br/>CronJob alle zwei Minuten"]
-                mongo[("🗄️ MongoDB<br/>ReplicaSet mit 3 Members,<br/>Longhorn-PVC")]
-            end
+        subgraph dienste["🖥️ 3 Dienste-VMs, je 4 vCPU, 8 GB<br/>Label online-judge/rolle=dienste"]
+            app["Anwendung, siehe unten<br/>API, Keycloak, PostgreSQL,<br/>MongoDB, Valkey, KEDA"]
+            monitoring["📈 Prometheus und Grafana"]
+            rolle["aus der k3s-Rolle<br/>cert-manager, ExternalDNS,<br/>system-upgrade-controller,<br/>💾 Longhorn"]
         end
-        subgraph judgenodes["🖥️ 2 Judge-VMs, je 4 vCPU, 8 GB"]
-            judge["⚖️ Judge-Worker<br/>Sandbox je Testlauf,<br/>RuntimeClass gvisor"]
+        subgraph judgenodes["🖥️ 2 Judge-VMs, je 4 vCPU, 8 GB<br/>Taint online-judge/sandbox=runsc"]
+            judge["⚖️ Judge-Worker<br/>RuntimeClass gvisor,<br/>Sandbox je Testlauf"]
         end
     end
 
     subgraph umgebung["🌍 Externe Dienste"]
-        dns["🌐 DNS-Zone je Person<br/>self-service.dhbw.cloud"]
+        dns["🌐 DNS-Zone<br/>judge.&lt;kennung&gt;.users.dhbw.site"]
         ca["🔏 ACME-CA der DHBW<br/>certificates.dhbw.cloud"]
         ghcr["📦 ghcr.io<br/>Container-Images"]
     end
 
-    studierende ==>|"HTTPS über IPv6"| traefik
-    traefik -.->|"Anmeldung prüfen"| keycloak
-    traefik ==>|"mit geprüfter Identität"| api
-    api ==>|"RPUSH judge:python,<br/>nur die Einreichungs-ID"| valkey
-    judge ==>|"BLPOP judge:python"| valkey
-    judge ==>|"übernimmt die Einreichung,<br/>liest die Aufgabe, schreibt das Urteil"| mongo
-    api ==>|"legt Einreichung an,<br/>liest Ergebnis"| mongo
-    keda -.->|"liest die Länge"| valkey
-    keda -.->|"setzt die Replicas"| judge
-    durchlauf -.->|"findet abgelaufene Übernahmen und<br/>PENDING ohne neuen Queue-Eintrag"| mongo
-    durchlauf -.->|"reiht sie erneut ein"| valkey
-
-    tf -.->|"provisioniert VMs und Keypair"| openstack
-    ansible -.->|"installiert den Cluster"| cp
+    tf -.->|"legt VMs an"| openstack
+    ansible -.->|"installiert"| cp
     ci -.->|"pusht nach"| ghcr
-    dienste -.->|"Image-Pull beim Pod-Start"| ghcr
-    judgenodes -.->|"Image-Pull beim Pod-Start"| ghcr
-    mongo -.->|"PVC"| longhorn
-    valkey -.->|"PVC"| longhorn
-    extdns -.->|"pflegt die Einträge"| dns
-    certm -.->|"Wildcard-Zertifikat, DNS-01"| ca
+    dienste -.->|"Image-Pull"| ghcr
+    judgenodes -.->|"Image-Pull"| ghcr
+    app -.->|"PVCs"| rolle
+    rolle -.->|"Einträge"| dns
+    rolle -.->|"Zertifikat"| ca
 
     classDef extern fill:#eceff4,stroke:#7b8794,color:#1f2933
     classDef werkzeug fill:#eceff4,stroke:#7b8794,color:#1f2933,stroke-dasharray:4 3
     classDef plattform fill:#ede7f6,stroke:#7e57c2,color:#311b92
     classDef anwendung fill:#e6f4ea,stroke:#34a853,color:#0d652d
-    classDef daten fill:#fef7e0,stroke:#f9ab00,color:#7a4f01
-    classDef auth fill:#fde8ef,stroke:#d81b60,color:#880e4f
 
-    class studierende,dns,ca,ghcr extern
+    class dns,ca,ghcr extern
     class tf,ansible,ci werkzeug
-    class cp,traefik,certm,extdns,longhorn,keda plattform
-    class api,judge,durchlauf anwendung
-    class valkey,mongo daten
-    class keycloak auth
+    class cp,traefik,rolle,monitoring plattform
+    class app,judge anwendung
 
     style werkzeuge fill:#f4f5f7,stroke:#9aa4b2,color:#2f3a48
     style umgebung fill:#f4f5f7,stroke:#9aa4b2,color:#2f3a48
@@ -91,5 +66,3 @@ flowchart TB
     style server fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
     style dienste fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
     style judgenodes fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
-    style rolle fill:#f6f1fc,stroke:#b39ddb,color:#4a3a7a
-    style app fill:#f0faf3,stroke:#81c995,color:#1e5b3a

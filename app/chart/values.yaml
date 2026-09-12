@@ -48,7 +48,7 @@ externe:
       name: "mongodb-coding-platform-durchlauf"
       key: "connectionString.standard"
   # Herkunftswert des Gateways (#79). Angelegt wird das Secret von
-  # ansible/tasks/app.yaml aus auth-credentials.yaml, denselben Wert setzt die
+  # ansible/tasks/app.yaml aus app-credentials.sops.yaml, denselben Wert setzt die
   # Middleware als Header X-Gateway-Auth. Ohne den Wert startet die API nicht.
   gatewaySecret:
     name: "gateway-auth"
@@ -238,11 +238,13 @@ judge:
 # hier sind seine Argumente. Andere Werte brauchen ein Upgrade des Release, ein
 # Job aus der Vorlage lässt sich nicht umparametrieren.
 lastgenerator:
-  # Einreichungen je Sekunde und Sekunden. 2 über 90 sind 180 Einreichungen,
-  # die Werte der Dashboard-Szene im README. Damit steigt die Warteschlange auf
-  # gut 70 und KEDA skaliert die Worker von null auf sechs.
-  rate: 2
-  dauer: 90
+  # Einreichungen je Sekunde und Sekunden. 6 über 60 sind 360 Einreichungen,
+  # die Werte der Dashboard-Szene im README. Gemessen am 11.09.2026 steigt die
+  # Warteschlange damit auf 207 und KEDA skaliert die Worker in 58 Sekunden
+  # von null auf sechs. Mit 2 über 90 blieb die Schlange unter 12, drei Worker
+  # reichten, die sechs aus der Szene kamen nicht.
+  rate: 6
+  dauer: 60
   # Gewichte je Sorte, die Sorten erklärt lastgenerator.py.
   mix: "korrekt=6,langsam=2,falsch=1,kaputt=1"
   # Wie die Test-Jobs, ein kurzes Python-Skript mit Netzaufrufen. Der Pool

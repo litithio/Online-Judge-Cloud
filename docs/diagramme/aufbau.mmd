@@ -14,6 +14,7 @@ config:
     fontSize: 22px
 ---
 flowchart TB
+    studierende["🧑‍🎓 Studierende, Browser"]
     subgraph werkzeuge["🧰 Provisionierung, läuft von außen"]
         tf["🛠️ Terraform"]
         ansible["🛠️ Ansible,<br/>k3s-dhbw-cloud-role"]
@@ -30,8 +31,8 @@ flowchart TB
             monitoring["📈 Prometheus und Grafana"]
             rolle["aus der k3s-Rolle<br/>cert-manager, ExternalDNS,<br/>system-upgrade-controller,<br/>💾 Longhorn"]
         end
-        subgraph judgenodes["🖥️ 2 Judge-VMs, je 4 vCPU, 8 GB<br/>Taint online-judge/sandbox=runsc"]
-            judge["⚖️ Judge-Worker<br/>RuntimeClass gvisor,<br/>Sandbox je Testlauf"]
+        subgraph judgenodes["🖥️ 2 Judge-VMs, je 4 vCPU, 8 GB"]
+            judge["⚖️ Judge-Worker<br/>RuntimeClass gvisor,<br/>Taint online-judge/sandbox=runsc,<br/>Sandbox je Testlauf"]
         end
     end
 
@@ -41,6 +42,11 @@ flowchart TB
         ghcr["📦 ghcr.io<br/>Container-Images"]
     end
 
+    studierende ==>|"HTTPS über IPv6"| traefik
+    traefik ==>|"geprüfte Anfragen"| app
+    traefik -.->|"Grafana"| monitoring
+    monitoring -.->|"Metriken"| app
+    judge ==>|"Warteschlange, Aufgaben, Urteile"| app
     tf -.->|"legt VMs an"| openstack
     ansible -.->|"installiert"| cp
     ci -.->|"pusht nach"| ghcr
@@ -55,7 +61,7 @@ flowchart TB
     classDef plattform fill:#ede7f6,stroke:#7e57c2,color:#311b92
     classDef anwendung fill:#e6f4ea,stroke:#34a853,color:#0d652d
 
-    class dns,ca,ghcr extern
+    class dns,ca,ghcr,studierende extern
     class tf,ansible,ci werkzeug
     class cp,traefik,rolle,monitoring plattform
     class app,judge anwendung

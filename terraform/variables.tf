@@ -10,11 +10,6 @@ variable "application_credential_secret" {
   sensitive   = true
 }
 
-variable "prefix" {
-  description = "Namenspräfix je Person, weil alle im selben Kursprojekt arbeiten"
-  type        = string
-}
-
 variable "ssh_public_key" {
   description = "Öffentlicher SSH-Schlüssel für den Zugang zu allen Nodes"
   type        = string

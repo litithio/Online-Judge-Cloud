@@ -20,10 +20,10 @@ Aufruf aus dem Repo, gegen den Cluster über die Ingress:
 
     python3 app/anmeldelast.py --parallel 5 --dauer 120
 
-Host, Realm und Zugangsdaten kommen aus ansible/dns-credentials.yaml und
-ansible/auth-credentials.yaml, damit sie an einer Stelle gepflegt bleiben. Wie
-lastgenerator.py nur Standardbibliothek, damit der Aufruf keine eigene Umgebung
-braucht.
+Host und Realm kommen aus ansible/vars/dns.yaml, die Zugangsdaten aus
+ansible/app-credentials.sops.yaml über sops -d, damit sie an einer Stelle
+gepflegt bleiben (#77). Wie lastgenerator.py nur Standardbibliothek, damit der
+Aufruf keine eigene Umgebung braucht, sops muss in der PATH liegen.
 
 Beim Messen zwei Fallstricke beachten. Eine Sonde per kubectl exec zählt in
 cpu.stat mit, ein jcmd je Stichprobe waren rund 30m. Und nr_throttled sowie
@@ -38,6 +38,7 @@ import http.cookiejar
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -47,8 +48,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 WURZEL = pathlib.Path(__file__).resolve().parent.parent
-DNS = WURZEL / "ansible" / "dns-credentials.yaml"
-ZUGANG = WURZEL / "ansible" / "auth-credentials.yaml"
+DNS = WURZEL / "ansible" / "vars" / "dns.yaml"
+ZUGANG = WURZEL / "ansible" / "app-credentials.sops.yaml"
 
 # Der Realm heißt judge und der Client judge-gateway, beide aus
 # ansible/vars/auth.yaml. Sie stehen hier fest, weil das Skript ohne
@@ -62,21 +63,43 @@ CLIENT = "judge-gateway"
 FORMULAR = re.compile(r'action="([^"]+)"')
 
 
-def lies_wert(pfad, schluessel):
-    """Holt einen skalaren Wert aus einer Ansible-Vars-Datei ohne PyYAML."""
+# Einmal entschlüsselt je Datei, drei Werte sollen nicht drei sops-Aufrufe sein.
+ENTSCHLUESSELT = {}
+
+
+def lies_wert(pfad, schluessel, verschluesselt=False):
+    """Holt einen skalaren Wert aus einer Ansible-Vars-Datei ohne PyYAML.
+
+    Eine sops-Datei geht vorher durch sops -d, der Aufruf braucht das
+    Binary und den eigenen age-Schlüssel (SOPS_AGE_KEY_FILE aus .envrc).
+    """
     muster = re.compile(r"^\s*" + re.escape(schluessel) + r'\s*:\s*"?(.*?)"?\s*$')
-    try:
-        with open(pfad, encoding="utf-8") as datei:
-            for zeile in datei:
-                treffer = muster.match(zeile)
-                if treffer:
-                    return treffer.group(1)
-    except FileNotFoundError:
-        # Beide Dateien stehen in .gitignore, ein frischer Clone hat sie nicht.
-        raise SystemExit(
-            f"{pfad} fehlt. Die Datei bleibt lokal, daneben liegt eine "
-            f"{pfad.name}.example zum Kopieren."
-        ) from None
+    if verschluesselt and pfad in ENTSCHLUESSELT:
+        zeilen = ENTSCHLUESSELT[pfad]
+    elif verschluesselt:
+        try:
+            lauf = subprocess.run(
+                ["sops", "-d", str(pfad)], capture_output=True, text=True, check=True
+            )
+        except FileNotFoundError:
+            raise SystemExit("sops fehlt in der PATH, siehe README Betrieb.") from None
+        except subprocess.CalledProcessError as fehler:
+            raise SystemExit(
+                f"sops -d {pfad} schlug fehl, liegt der age-Schlüssel unter "
+                f"SOPS_AGE_KEY_FILE?\n{fehler.stderr.strip()}"
+            ) from None
+        zeilen = lauf.stdout.splitlines()
+        ENTSCHLUESSELT[pfad] = zeilen
+    else:
+        try:
+            with open(pfad, encoding="utf-8") as datei:
+                zeilen = datei.read().splitlines()
+        except FileNotFoundError:
+            raise SystemExit(f"{pfad} fehlt.") from None
+    for zeile in zeilen:
+        treffer = muster.match(zeile)
+        if treffer:
+            return treffer.group(1)
     raise SystemExit(f"{schluessel} steht nicht in {pfad}")
 
 
@@ -193,9 +216,9 @@ def main():
     zone = lies_wert(DNS, "rfc2136_zone")
     basis = f"https://auth.{zone}/realms/{REALM}"
     umleitung = f"https://app.{zone}/oidc/callback"
-    geheimnis = lies_wert(ZUGANG, "oidc_client_secret")
-    benutzer = lies_wert(ZUGANG, "test_user_username")
-    passwort = lies_wert(ZUGANG, "test_user_password")
+    geheimnis = lies_wert(ZUGANG, "oidc_client_secret", verschluesselt=True)
+    benutzer = lies_wert(ZUGANG, "test_user_username", verschluesselt=True)
+    passwort = lies_wert(ZUGANG, "test_user_password", verschluesselt=True)
 
     zaehler = {"ok": 0, "fehler": 0}
     gruende = {}

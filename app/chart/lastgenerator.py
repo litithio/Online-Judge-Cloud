@@ -2,26 +2,24 @@
 """Lastgenerator aus #12: schickt Einreichungen mit einstellbarer Rate und
 Dauer gegen /submit.
 
-Läuft lokal aus dem Repo, nicht im Cluster: Die Screencast-Szene verlangt ein
-Live-Terminal, und die Wirkung der Last zeigt das Dashboard aus #11, nicht
-dieses Skript. Es zählt deshalb nur, was die API geantwortet hat.
+Im Cluster läuft das Skript als Pod aus dem Chart, siehe
+templates/lastgenerator.yaml (#275). Die backend-Policy aus #62 lässt Ingress
+nur von benannten Pods zu, ein Aufruf vom Steuerrechner oder vom Server-Node
+fällt unter die Sperre. Der Pod trägt das Label app: lastgenerator, das die
+Policy nennt. Einen Lauf startet ein Job aus dem angehaltenen CronJob, Rate
+und Dauer stehen in values.yaml unter lastgenerator.
 
-Aufruf, lokal gegen den Compose-Stand. Der Wert ist der aus
-app/docker-compose.yml. Ohne ihn nimmt das Skript den des Clusters aus
-ansible/auth-credentials.yaml, und der Compose-Stand antwortet mit 401:
+    kubectl create job -n judge --from=cronjob/lastgenerator lastgenerator-1
+    kubectl logs -n judge -f job/lastgenerator-1
+
+Die Wirkung der Last zeigt das Dashboard aus #11, nicht dieses Skript. Es
+zählt nur, was die API geantwortet hat.
+
+Lokal läuft es aus dem Repo gegen den Compose-Stand. Der Wert ist der aus
+app/docker-compose.yml:
 
     GATEWAY_SECRET=nur-lokal-ohne-gateway-kein-geheimnis \
-        python3 lastgenerator.py --rate 5 --dauer 60
-
-Gegen den Cluster läuft das Skript auf dem Server-Node, kubectl port-forward
-scheitert dort, weil das Backend nur auf :: bindet und der Forward im
-Pod-Netns localhost nicht über IPv6 erreicht:
-
-    tar czf - -C app lastgenerator.py aufgaben chart/loesungen | ssh ubuntu@<server> \
-        'mkdir -p /tmp/last && tar xzf - -C /tmp/last'
-    # Service-IP: kubectl get svc backend -o jsonpath='{.spec.clusterIP}'
-    ssh ubuntu@<server> 'GATEWAY_SECRET=<wert> python3 /tmp/last/lastgenerator.py \
-        --rate 2 --dauer 60 --api "http://[<service-ip>]:8000"'
+        python3 app/chart/lastgenerator.py --rate 5 --dauer 60
 
 Die Identität kommt als X-Auth-Request-Header mit, so wie das Gateway sie
 setzen würde. Der Weg über das Gateway selbst bräuchte eine Browser-Session
@@ -30,10 +28,9 @@ Anmeldung.
 
 Dazu kommt X-Gateway-Auth. Seit #79 lehnt die API einen Aufruf ohne diesen
 Header ab, auch aus dem Cluster heraus. Den Wert nimmt das Skript aus
-GATEWAY_SECRET, sonst aus ansible/auth-credentials.yaml. Auf dem Server-Node
-liegt die Datei nicht, deshalb steht sie im Aufruf oben als Variable. Gegen den
-Compose-Stand gilt der feste Wert aus app/docker-compose.yml. Nur
-Standardbibliothek, damit der Aufruf keine eigene Umgebung braucht.
+GATEWAY_SECRET, im Pod setzt ihn das Chart aus dem Secret gateway-auth. Nur
+Standardbibliothek, damit der Aufruf keine eigene Umgebung braucht und das
+Skript im Backend-Image läuft.
 """
 
 import argparse
@@ -55,11 +52,23 @@ import urllib.request
 # gibt es ebenfalls nur dafür.
 SPRACHE = "python"
 
-AUFGABEN = pathlib.Path(__file__).parent / "aufgaben"
+# Die Aufgaben-JSONs und die Lösungen. Im Repo liegen sie unter app/aufgaben
+# und neben diesem Skript unter loesungen/, der Prüflauf aus #19 nutzt
+# dieselben Dateien. Im Pod kommen beide als ConfigMap unter /aufgaben und
+# /loesungen an, das Chart setzt die beiden Variablen.
+AUFGABEN = pathlib.Path(
+    os.getenv("AUFGABEN_PFAD", pathlib.Path(__file__).resolve().parents[1] / "aufgaben")
+)
+LOESUNGEN = pathlib.Path(
+    os.getenv("LOESUNGEN_PFAD", pathlib.Path(__file__).resolve().parent / "loesungen")
+)
 
-# Die Lösungen liegen im Chart, der Prüflauf aus #19 rollt sie von dort als
-# ConfigMap in den Cluster. Dieses Skript liest dieselben Dateien.
-LOESUNGEN = pathlib.Path(__file__).parent / "chart" / "loesungen"
+# Höchstens so lange wartet der Lauf auf die erste Antwort der API. Unter der
+# default-deny-Policy weist sie die erste Verbindung eines frisch gestarteten
+# Pods ab, kube-router braucht nach dem Start einen Moment, bis dessen Adresse
+# in den Regeln steht. Gemessen am 02.09. in #62 mit acht Sekunden. Dasselbe
+# Fenster wie in tests/api_pruefen.py.
+WARTEFRIST = 60
 
 # Die zwei Sorten, die nicht als Datei unter loesungen/ liegen: eine, die
 # terminiert und falsch rechnet, und eine, die den Interpreter schon beim
@@ -85,19 +94,18 @@ ERGEBNISSE = (
 def _herkunftswert():
     """Der Wert, mit dem das Gateway sich bei der API ausweist (#79).
 
-    Aus der Umgebung, sonst aus ansible/auth-credentials.yaml. Auf dem
-    Server-Node liegt die Datei nicht, dort setzt der Aufruf die Variable. Der
-    Import steht deshalb in der Funktion und nicht oben, sonst scheiterte ein
-    Lauf dort schon am fehlenden anmeldelast.py, das der tar-Aufruf im
-    Docstring nicht mitkopiert.
+    Nur aus der Umgebung. Im Pod setzt ihn das Chart aus dem Secret, lokal der
+    Aufruf, ein Lesen aus ansible/auth-credentials.yaml gibt es nicht mehr,
+    das Skript läuft nicht mehr vom Steuerrechner gegen den Cluster.
     """
     wert = os.getenv("GATEWAY_SECRET")
-    if wert:
-        return wert
-
-    from anmeldelast import ZUGANG, lies_wert
-
-    return lies_wert(ZUGANG, "gateway_secret")
+    if not wert:
+        raise SystemExit(
+            "GATEWAY_SECRET fehlt. Im Cluster setzt es das Chart aus dem Secret "
+            "gateway-auth, lokal der Aufruf, der Wert für den Compose-Stand "
+            "steht in app/docker-compose.yml."
+        )
+    return wert
 
 
 def _kopfzeilen(nutzer):
@@ -117,8 +125,26 @@ def _kopfzeilen(nutzer):
 
 def _aufgaben_holen(api, kopfzeilen):
     anfrage = urllib.request.Request(f"{api}/tasks", headers=kopfzeilen)
-    with urllib.request.urlopen(anfrage) as antwort:
+    with urllib.request.urlopen(anfrage, timeout=10) as antwort:
         return json.load(antwort)
+
+
+def _aufgaben_abwarten(api, kopfzeilen, frist=WARTEFRIST):
+    """Holt die Aufgaben und wartet dabei bis zu frist Sekunden auf die API.
+
+    Nur Verbindungsfehler lösen einen neuen Versuch aus. Eine HTTP-Antwort wie
+    401 ist eine Antwort der API, sie würde sich beim Warten nicht ändern.
+    """
+    ende = time.monotonic() + frist
+    while True:
+        try:
+            return _aufgaben_holen(api, kopfzeilen)
+        except urllib.error.HTTPError:
+            raise
+        except OSError as fehler:
+            if time.monotonic() >= ende:
+                raise SystemExit(f"{api} nicht erreichbar, {fehler}")
+            time.sleep(5)
 
 
 def _loesungen_je_titel():
@@ -207,9 +233,8 @@ def _einreichen(api, kopfzeilen, aufgabe, code):
     except (http.client.HTTPException, OSError):
         # Abbruch mitten in der Antwort, etwa RemoteDisconnected. urllib
         # verpackt nur Fehler beim Verbindungsaufbau als URLError, ein Reset
-        # während der Antwort kommt roh an. kubectl port-forward setzt unter
-        # parallelen Verbindungen gelegentlich einzelne zurück, und ein
-        # einzelner Reset darf nicht den ganzen Lauf abreißen.
+        # während der Antwort kommt roh an, und ein einzelner Reset darf nicht
+        # den ganzen Lauf abreißen.
         return "keine_verbindung"
 
 
@@ -255,12 +280,15 @@ def lauf(argv=None):
     # welcher, ist für die Last gleich. LAST_NUTZER, falls die Einreichungen im
     # Screencast unter dem Test-Benutzer erscheinen sollen.
     kopfzeilen = _kopfzeilen(os.getenv("LAST_NUTZER", "lastgenerator"))
-    aufgaben = _aufgaben_holen(args.api, kopfzeilen)
+    aufgaben = _aufgaben_abwarten(args.api, kopfzeilen)
     if not aufgaben:
         raise SystemExit("Die API kennt keine Aufgaben, erst laden.py ausführen")
 
     anzahl = max(1, round(args.rate * args.dauer))
     plan = _plan_bauen(aufgaben, _mix_lesen(args.mix), anzahl)
+    # Eine Zeile vor dem Lauf, damit kubectl logs -f am Pod etwas zeigt, bevor
+    # nach der Dauer der Bericht kommt.
+    print(f"{len(plan)} Einreichungen mit Soll-Rate {args.rate}/s gegen {args.api}")
     zaehler = collections.Counter()
     start = time.monotonic()
 

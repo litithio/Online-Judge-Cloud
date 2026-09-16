@@ -1,0 +1,72 @@
+# Ingress nur von Traefik (#62). Keycloak liegt trotz eigener Variable im
+# selben Namespace wie die Anwendung (auth_namespace == judge), die Trennung
+# der Login-Sitzung läuft über den eigenen Host.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak
+  namespace: "{{ auth_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloakx
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Der Sitzungs-Cluster der beiden Pods untereinander, Ports wie im Egress.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloakx
+      ports:
+        - protocol: TCP
+          port: 7800
+        - protocol: TCP
+          port: 57800
+  egress:
+    # Keycloak spricht DNS, Postgres und die anderen Keycloak-Pods. Ein
+    # externer Identity Provider oder SMTP ist nicht konfiguriert.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: "{{ keycloak_db_name }}"
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Der Sitzungs-Cluster (KC_CACHE_STACK=jdbc-ping). Die Mitglieder finden
+    # sich über Postgres und sprechen dann direkt über JGroups auf 7800.
+    # 57800 ist die Fehlererkennung FD_SOCK2, Offset 50000 auf den Bind-Port,
+    # so die Keycloak-Doku zum Caching. Ohne sie bemerkt der Cluster einen
+    # abrupt verlorenen Pod erst über den Heartbeat.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloakx
+      ports:
+        - protocol: TCP
+          port: 7800
+        - protocol: TCP
+          port: 57800

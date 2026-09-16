@@ -160,3 +160,80 @@ spec:
   ports:
     - port: 8000
       targetPort: 8000
+
+---
+# Ingress und Egress des Backends (#62), Ausnahme zum default-deny aus
+# ansible/files/judge-networkpolicy.yaml. Von außen kommt nur Traefik, dazu
+# die Absender im Cluster, die http://backend:8000 direkt aufrufen.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend
+  labels:
+    {{- include "online-judge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        # Der Weg von außen: Traefik -> Middleware -> dieser Service.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        # Backend untereinander, für den Node-übergreifenden Test in
+        # scripts/smoke.sh.
+        - podSelector:
+            matchLabels:
+              app: backend
+        # Die beiden Helm-Test-Jobs. Beide rufen http://backend:8000 auf,
+        # siehe app/chart/tests/api_pruefen.py und loesungen_pruefen.py.
+        - podSelector:
+            matchLabels:
+              batch.kubernetes.io/job-name: test-api
+        - podSelector:
+            matchLabels:
+              batch.kubernetes.io/job-name: test-loesungen
+        # Der Lastgenerator aus #275, ein Job aus dem CronJob lastgenerator.
+        # Festes Label, der Job-Name steht bei jedem Lauf anders.
+        - podSelector:
+            matchLabels:
+              app: lastgenerator
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Die Warteschlange für eingereichte Lösungen.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Aufgaben lesen, Einreichungen und Ergebnisse schreiben.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb-svc
+      ports:
+        - protocol: TCP
+          port: 27017

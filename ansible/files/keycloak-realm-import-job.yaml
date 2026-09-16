@@ -1,0 +1,77 @@
+# Realm-Import als Job (#146, #163). Läuft nur, wenn sich die Vorlage seit dem
+# letzten Import geändert hat, der Vergleich steht in tasks/keycloak.yaml.
+# KC_DB und die Verbindung wie am Server, damit der Import in dieselbe
+# Datenbank schreibt. Auf einer leeren Datenbank legt schon der Import den
+# Master-Realm an, und den Bootstrap-Admin legt Keycloak nur dabei an, deshalb
+# das Admin-Secret auch hier.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-realm-import
+  namespace: "{{ auth_namespace }}"
+spec:
+  backoffLimit: 1
+  # Ein hängender Import endet nach fünf Minuten als Failed. Das Play wartet
+  # länger als diese Frist, damit Keycloak erst wieder startet, wenn der
+  # Import sicher beendet ist. Gemessen lag der Import lokal bei 10 Sekunden.
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: keycloak-realm-import
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        online-judge/rolle: dienste
+      containers:
+        - name: realm-import
+          image: "quay.io/keycloak/keycloak:{{ keycloak_image_tag }}"
+          command:
+            - "/opt/keycloak/bin/kc.sh"
+            - "import"
+            - "--file"
+            - "/opt/keycloak/data/import/realm.json"
+            - "--override"
+            - "true"
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL_HOST
+              value: "{{ keycloak_db_name }}-rw"
+            - name: KC_DB_URL_PORT
+              value: "5432"
+            - name: KC_DB_URL_DATABASE
+              value: keycloak
+            - name: KC_DB_USERNAME
+              value: keycloak
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ keycloak_db_name }}-app"
+                  key: password
+            - name: JAVA_OPTS_KC_HEAP
+              value: "-Xms256m -Xmx512m"
+          envFrom:
+            - secretRef:
+                name: keycloak-admin
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+          # Wie der Hauptcontainer, gemessen lag der Import lokal bei 593Mi
+          # Spitzenwert.
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "832Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1152Mi"
+          volumeMounts:
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm-import
+          secret:
+            secretName: keycloak-realm-import

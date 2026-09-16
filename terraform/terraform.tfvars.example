@@ -4,8 +4,5 @@
 application_credential_id     = ""
 application_credential_secret = ""
 
-# Namenspräfix je Person, weil alle im selben Kursprojekt arbeiten.
-prefix = "vorname"
-
 # Inhalt von ~/.ssh/id_ed25519.pub oder einem anderen öffentlichen Schlüssel.
 ssh_public_key = "ssh-ed25519 AAAA... kommentar"

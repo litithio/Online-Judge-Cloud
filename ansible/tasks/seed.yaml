@@ -26,6 +26,15 @@
         namespace: "{{ app_namespace }}"
       data: "{{ seed_daten }}"
 
+# Vor dem Job, damit er nicht ohne Regel startet. Der Job selbst ist
+# unveränderlich, die Policy nicht -- sie kann bei jedem Lauf neu angewendet
+# werden.
+- name: Seed NetworkPolicy anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    definition: "{{ lookup('template', 'files/seed-networkpolicy.yaml') | from_yaml }}"
+
 # Jobs sind nach dem Anlegen unveränderlich, ein geänderter Seed braucht
 # deshalb einen frischen Job. laden.py ist idempotent, der Titel ist der
 # Schlüssel, ein zweiter Lauf aktualisiert statt zu doppeln.

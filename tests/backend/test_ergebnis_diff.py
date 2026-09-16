@@ -120,3 +120,22 @@ def test_zeitlimit_zeigt_weiterhin_nur_zusatz(monkeypatch):
     )
     assert '<div class="diff">' not in seite
     assert "Abgebrochen beim Erreichen des Zeitlimits" in seite
+
+
+def test_verborgener_wa_zeigt_keinen_diff_block(monkeypatch):
+    # Stand seit #208: ein verborgener Testfall trägt bei WA nur detail,
+    # die Seite zeigt den Satz und keinen Diff-Block.
+    seite = _einreichung_seite(
+        monkeypatch,
+        [
+            {
+                "test_id": 1,
+                "verdict": "WA",
+                "detail": "Testfall nicht einsehbar",
+                "zeit_ms": 11,
+                "speicher_kb": 9600,
+            }
+        ],
+    )
+    assert '<div class="diff">' not in seite
+    assert "Testfall nicht einsehbar" in seite

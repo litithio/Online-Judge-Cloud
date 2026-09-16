@@ -1,0 +1,131 @@
+---
+# PostgreSQL für Keycloak über CloudNativePG (#163). Operator und Cluster
+# liegen wie MongoDB in judge, die Policies stehen vor der Installation, damit
+# beide von Anfang an unter den Regeln des Betriebs laufen. Durchgehend
+# auth_namespace wie in tasks/keycloak.yaml, der Wert ist derselbe wie
+# app_namespace (#62), und die Policies wählen Pods ohne namespaceSelector.
+
+# Wie in tasks/keycloak.yaml, damit das Play auch allein auf einem Cluster
+# läuft, auf dem das Play namespace noch nicht war. Das default-deny kommt
+# weiter nur aus dem Play namespace.
+- name: Namespace für die Auth-Dienste
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ auth_namespace }}"
+
+# Die Adresse des API-Servers aus dem Cluster, Herleitung wie in
+# tasks/mongodb.yaml.
+- name: Adresse des API-Servers ermitteln
+  kubernetes.core.k8s_info:
+    kind: Endpoints
+    name: kubernetes
+    namespace: default
+    kubeconfig: "{{ kubeconfig_root }}"
+  register: api_endpunkt
+
+# Die Quelle des Webhook-Aufrufs für den Ingress, siehe den Kommentar in der
+# Policy. Der API-Server ruft den Pod direkt über Flannel auf, als Quelle
+# steht die Adresse der Flannel-Schnittstelle des Servers, und das ist die
+# Netzadresse seines eigenen Pod-Netzes. Abgelesen am 10.09. mit ss auf dem
+# Server, ESTAB von [fd00:42::] nach [<pod>]:9443, auf dem Node des Pods war
+# keine Verbindung zu sehen. Das Pod-Netz kommt aus dem Node-Objekt des
+# Servers, aus demselben Grund wie die Adresse des API-Servers.
+- name: Node-Objekt des Servers lesen
+  kubernetes.core.k8s_info:
+    kind: Node
+    name: "{{ ansible_facts['hostname'] }}"
+    kubeconfig: "{{ kubeconfig_root }}"
+  register: server_node_objekt
+
+# Das IPv6-Netz steht zuerst, siehe --cluster-cidr in der Rolle. Aus dem
+# Präfix wird die Netzadresse als einzelne Adresse, fd00:42::/64 wird zu
+# fd00:42::/128.
+- name: Quelladresse des Webhook-Aufrufs merken
+  ansible.builtin.set_fact:
+    webhook_quelle: >-
+      {{ server_node_objekt.resources[0].spec.podCIDRs
+         | select('search', ':') | first
+         | regex_replace('/64$', '/128') }}
+
+- name: NetworkPolicy für den CloudNativePG-Operator anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/cnpg-operator-networkpolicy.yaml') | from_yaml }}"
+
+- name: CloudNativePG-Helm-Repository hinzufügen
+  kubernetes.core.helm_repository:
+    name: cnpg
+    repo_url: "{{ cnpg_chart_repo }}"
+
+# retries wie beim Keycloak-Chart, GitHub weist in Wellen Verbindungen ab.
+- name: CloudNativePG-Operator über Helm ausrollen
+  register: cnpg_helm
+  retries: 5
+  delay: 30
+  until: cnpg_helm is succeeded
+  kubernetes.core.helm:
+    name: cnpg
+    chart_ref: cnpg/cloudnative-pg
+    chart_version: "{{ cnpg_chart_version }}"
+    release_namespace: "{{ auth_namespace }}"
+    kubeconfig: "{{ kubeconfig_root }}"
+    wait: true
+    reset_values: true
+    values:
+      # Wie MongoDB-Operator und Keycloak auf den Dienste-Nodes.
+      nodeSelector:
+        online-judge/rolle: dienste
+      # Wie beim MongoDB-Operator in tasks/mongodb.yaml. Gemessen am 10.09.
+      # mit kubectl top alle 10 Sekunden über Rolling Update, Pod-Verlust und
+      # zwei Failover: höchstens 26m und 47Mi, die Spitze beim Failover, im
+      # Leerlauf 3m und 34Mi. 50m und 64Mi liegen darüber. Das Limit lässt
+      # Luft für einen Abgleich, der länger braucht, ohne dass ein hängender
+      # Operator einen Node leerräumt.
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+
+# Die Policy vor dem Cluster, aus demselben Grund wie bei MongoDB: Die
+# Instanzen laufen von Anfang an unter den Regeln des Betriebs. api_endpunkt
+# kommt aus dem Task am Anfang der Datei.
+- name: NetworkPolicy für den Postgres-Cluster anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/keycloak-db-networkpolicy.yaml') | from_yaml }}"
+
+- name: Postgres-Cluster für Keycloak anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/keycloak-db.yaml') | from_yaml }}"
+
+# readyInstances zählt die Instanzen, die der Operator als bereit führt. Beim
+# ersten Aufbau kommen initdb, Join der zweiten Instanz und Longhorn-Volumes
+# zusammen, gemessen wird die Dauer in der Abnahme zu #163.
+- name: Auf die Bereitschaft des Postgres-Clusters warten
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: "{{ keycloak_db_name }}"
+    namespace: "{{ auth_namespace }}"
+    kubeconfig: "{{ kubeconfig_root }}"
+  register: keycloak_db
+  # status fehlt am frisch angelegten Objekt noch, bis der Operator es
+  # schreibt, deshalb der Umweg über default.
+  until: >-
+    keycloak_db.resources | length > 0
+    and ((keycloak_db.resources[0].status | default({})).readyInstances | default(0))
+        == keycloak_db.resources[0].spec.instances
+  retries: 60
+  delay: 10

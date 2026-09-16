@@ -173,6 +173,11 @@ CLAIM_FRIST_PUFFER_SEKUNDEN = int(os.getenv("CLAIM_FRIST_PUFFER_SEKUNDEN", "90")
 GRENZE_ZEIT_MAX = 60
 GRENZE_SPEICHER_MAX_MB = 256
 
+# Urteilstext für einen verborgenen Testfall, den die Einreichung nicht
+# bestanden hat. Ein eigener Satz statt None, damit die Ergebnisseite sagt,
+# warum dort kein Diff-Block und kein Traceback steht (#208).
+VERBORGEN = "Testfall nicht einsehbar"
+
 # Bereich der UIDs, unter denen der eingereichte Code läuft. Jeder Lauf bekommt
 # eine eigene, und dieselbe wird als GID verwendet. Eine gemeinsame UID für alle
 # Läufe reichte nicht (#87): Das Arbeitsverzeichnis des nächsten Laufs gehörte
@@ -1169,14 +1174,30 @@ def _urteil(sub_id, token, submission, task):
             submission["code"], case["input"], zeit, speicher
         )
         _heartbeat()
+        # Was die Einreichung geschrieben hat, steht nur bei einem Beispiel
+        # im Urteil. Die Beispiele zeigt die Aufgabenseite ohnehin, jeder
+        # andere Testfall ist verborgen (#208). Stünde sein Sollwert im
+        # Urteil, bekäme eine Einreichung, die ihre Eingabe ausgibt, je
+        # Einreichung einen weiteren Fall frei Haus, und die Zahl der
+        # Einreichungen begrenzt nichts. Die erhaltene Ausgabe ist bei so
+        # einer Einreichung die Eingabe, und bei RE und MLE trägt text stderr
+        # oder stdout der Einreichung, also denselben Weg. Bei TLE und OLE
+        # stammt text vom Judge (run_code_in_sandbox, _urteil_nach_signal)
+        # und bleibt. Der Vergleich mit True wie in laden.py, das jede
+        # andere Belegung ablehnt.
+        beispiel = case.get("sample") is True
         if verdict == "OK":
             erwartet = str(case["expected_output"]).strip()
             if text == erwartet:
                 verdict, detail = "AC", "bestanden"
-            else:
+            elif beispiel:
                 verdict, detail = "WA", f"Erwartet '{erwartet}', bekommen '{text}'"
-        else:
+            else:
+                verdict, detail = "WA", VERBORGEN
+        elif beispiel or verdict in ("TLE", "OLE"):
             detail = text
+        else:
+            detail = VERBORGEN
 
         ergebnis_feld = {
             "test_id": i,
@@ -1185,7 +1206,7 @@ def _urteil(sub_id, token, submission, task):
             "zeit_ms": dauer_ms,
             "speicher_kb": speicher_kb,
         }
-        if verdict == "WA":
+        if verdict == "WA" and beispiel:
             # Nur bei WA: TLE/MLE/RE/OLE haben keine erwartete/erhaltene
             # Ausgabe zum Vergleichen, detail trägt dort schon den ganzen
             # Text. eingabe/erwartet/erhalten getrennt statt in detail

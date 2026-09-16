@@ -1,0 +1,23 @@
+# DNS-Zone und Zertifikatsanmeldung des einen Clusters (#299), Klartext, weil
+# nichts davon geheim ist. Das TSIG-Secret zur Zone liegt verschlüsselt in
+# app-credentials.sops.yaml und kommt im k3s-Play über load_vars dazu.
+#
+# Bis #77 war das ein zweites Inventar (dns-credentials.yaml, je Person), das
+# über -i mitgegeben wurde. Als Variablendatei lädt das Play sie selbst, und
+# .envrc liest die Zone von hier.
+---
+# Empfänger der Let's-Encrypt-Mails, die k3s-Rolle legt damit den
+# ClusterIssuer an. Ohne Wert überspringt sie cert-manager.
+cert_manager_email: cas414596@cas.dhbw.de
+
+# Subzone judge unterhalb der Basiszone aus https://self-service.dhbw.cloud.
+# external-dns legt die Records darunter an, cert-manager holt das
+# Wildcard-Zertifikat per DNS-01 über RFC 2136 mit dem TSIG-Key der Zone.
+rfc2136_zone: judge.cas414596-at-cas-dhbw-de.users.dhbw.site
+rfc2136_tsig_secret_alg: hmac-sha512
+rfc2136_tsig_secret_keyname: user-key-8375641f089f999b794bfff2469e7deae8de3e31
+
+# Wohin die Rolle die kubeconfig des Servers legt, relativ zu ansible/. Die
+# Datei bleibt lokal (.gitignore), verschlüsselt liegt sie als
+# kubeconfig.sops.yaml im Repo.
+kubeconfig_path: kubeconfig-generated.yaml

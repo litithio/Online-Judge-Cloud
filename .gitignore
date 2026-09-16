@@ -15,19 +15,17 @@ clouds.yaml
 
 # Ansible
 *.retry
-# Von Terraform erzeugt, enthält die IPs eines konkreten Deployments.
-ansible/inventory/generated-inventory.yml
-# Enthält den TSIG-Key der eigenen DNS-Zone; Vorlage ist die .example-Datei.
-ansible/dns-credentials.yaml
-# Enthält die Auth-Secrets (Keycloak, OIDC-Plugin, Test-Benutzer); Vorlage ist
-# die .example-Datei.
-ansible/auth-credentials.yaml
-# Von der Rolle geschrieben, enthält die Cluster-Zugangsdaten.
+# Von der Rolle geschrieben, enthält die Cluster-Zugangsdaten im Klartext.
+# Verschlüsselt liegt sie als ansible/kubeconfig.sops.yaml im Repo (#77), die
+# Passwörter und der TSIG-Key ebenso in ansible/app-credentials.sops.yaml.
 ansible/kubeconfig-generated.yaml
-# Enthält das echte MongoDB-Passwort; Vorlage ist die .example-Datei.
-ansible/files/mongodb-password.yaml
-# Enthält das echte Valkey-Passwort; Vorlage ist die .example-Datei.
-ansible/files/valkey-password.yaml
+# Eine Klartextkopie der Vorlage unter diesem Namen bleibt draußen, ins Repo
+# gehört nur die in place verschlüsselte .sops.yaml.
+ansible/app-credentials.yaml
+# Die lokalen Dateien von vor #77 liegen in älteren Arbeitsverzeichnissen noch
+# mit echten Werten, ohne diese Zeilen nähme git add -A sie mit.
+ansible/dns-credentials.yaml
+ansible/auth-credentials.yaml
 
 # Python
 __pycache__/

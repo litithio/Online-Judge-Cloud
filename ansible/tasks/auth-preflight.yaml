@@ -1,0 +1,57 @@
+---
+# Preflight-Prüfungen der Auth-Secrets aus app-credentials.sops.yaml. Läuft vor den
+# eigreifenden Tasks, damit ein falscher oder unveränderter Wert den Deploy
+# sofort mit klarer Meldung stoppt, statt später als Laufzeitfehler
+# aufzutauchen (der ungültige oidc_plugin_secret etwa erst als 404 im Traefik).
+#
+# Beide Secrets stehen in app-credentials.sops.yaml und werden vom Auth- und
+# vom Anwendungs-Play entschlüsselt; die Prüfung läuft in beiden, damit der
+# jeweils relevante Wert vor dem Ausrollen geprüft ist.
+
+- name: OIDC_plugin_secret muss genau 32 Zeichen haben
+  # Das Traefik-OIDC-Plugin weist die Middleware-Konfiguration sonst ab
+  # (invalid secret), Traefik verwirft die Route und app.<zone> liefert einen
+  # nackten 404. Ein mit `openssl rand -base64 32` erzeugter Wert ist 44 Zeichen
+  # lang, deshalb im .example das nachgestellte `| head -c 32`.
+  ansible.builtin.assert:
+    that: oidc_plugin_secret | length == 32
+    fail_msg: >-
+      oidc_plugin_secret ist {{ oidc_plugin_secret | length }} Zeichen lang,
+      das Plugin verlangt genau 32. Neu erzeugen mit
+      'openssl rand -base64 32 | head -c 32'.
+    success_msg: oidc_plugin_secret hat die geforderten 32 Zeichen.
+
+- name: OIDC_plugin_secret darf nicht der Platzhalter sein
+  # Der Platzhalter im .example ist selbst 32 Zeichen lang und käme am
+  # Längen-Check vorbei, deshalb hier eine eigene Prüfung.
+  ansible.builtin.assert:
+    that: not (oidc_plugin_secret is match('^aendern'))
+    fail_msg: >-
+      oidc_plugin_secret steht noch auf dem Platzhalter aus
+      app-credentials.yaml.example. Einen eigenen Wert eintragen
+      (openssl rand -base64 32 | head -c 32).
+    success_msg: oidc_plugin_secret wurde gegenüber dem Platzhalter geändert.
+
+- name: Gateway_secret muss mindestens 32 Zeichen haben
+  # Die API vergleicht diesen Wert mit dem X-Gateway-Auth-Header und lehnt
+  # kürzere Werte beim Start ab (app/backend/auth.py). Hier vorab, damit der
+  # Fehler nicht erst im Backend-Pod auftaucht.
+  ansible.builtin.assert:
+    that: gateway_secret | length >= 32
+    fail_msg: >-
+      gateway_secret ist {{ gateway_secret | length }} Zeichen lang,
+      die API verlangt mindestens 32. Neu erzeugen mit 'openssl rand -base64 32'.
+    success_msg: gateway_secret erfüllt die Mindestlänge von 32 Zeichen.
+
+- name: Gateway_secret darf nicht der Platzhalter sein
+  # Ohne einen eigenen Wert wäre der Herkunftsschutz wirkungslos: wer den
+  # Platzhalter kennt, könnte die Identitäts-Header selbst setzen und den
+  # backend-Service direkt ansprechen. Die API lehnt den Platzhalter zwar beim
+  # Start ab, hier fängt der Deploy ihn schon vorher ab.
+  ansible.builtin.assert:
+    that: not (gateway_secret is match('^aendern'))
+    fail_msg: >-
+      gateway_secret steht noch auf dem Platzhalter aus
+      app-credentials.yaml.example. Einen eigenen Wert eintragen
+      (openssl rand -base64 32).
+    success_msg: gateway_secret wurde gegenüber dem Platzhalter geändert.

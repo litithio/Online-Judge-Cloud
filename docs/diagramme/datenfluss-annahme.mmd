@@ -1,0 +1,36 @@
+---
+# Feste Schrift: mermaid bemisst die Kästen mit der Schrift, die beim
+# Rendern verfügbar ist. Weicht die Anzeigeschrift ab, laufen Texte über
+# die Ränder.
+config:
+  fontFamily: Arial, Helvetica, sans-serif
+  themeCSS: ".noteText { font-size: 14px !important; }"
+  # Enger als der Default: Das Diagramm wird im README auf Spaltenbreite
+  # skaliert, jeder gesparte Querpixel macht die Schrift dort größer.
+  sequence:
+    actorMargin: 15
+    messageMargin: 20
+    width: 110
+---
+sequenceDiagram
+    autonumber
+    actor S as 🧑‍🎓 Studierende
+    participant T as 🚪 Traefik
+    participant K as 🔐 Keycloak
+    participant A as ⚡ API-Service
+    participant M as 🗄️ MongoDB
+    participant V as 📨 Valkey
+
+    S->>T: Einreichung<br/>abgeben (HTTPS)
+    T->>K: OIDC-Anmeldung,<br/>nur ohne gültige Session
+    K-->>T: Token mit Identität
+    T->>A: Anfrage mit<br/>Identitäts-Headern
+    A->>M: Einreichung anlegen,<br/>Status PENDING
+    A->>V: RPUSH judge:python,<br/>nur die Einreichungs-ID
+    A-->>S: angenommen, Einreichungs-ID
+    loop alle zwei Sekunden, bis das Urteil vorliegt
+        S->>T: Stand abfragen
+        T->>A: mit Identitäts-Headern
+        A->>M: Stand lesen
+        A-->>S: Status, am Ende mit Urteil
+    end

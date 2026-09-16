@@ -27,6 +27,9 @@
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ valkey_secret | combine({'stringData': {'connectionString': 'redis://:' ~ valkey_passwort_uri ~ '@valkey:6379'}}, recursive=True) }}"
+  # Das Manifest trägt das Passwort im Klartext, bei -vv stünde es sonst
+  # als Modulargument im Protokoll.
+  no_log: true
 
 - name: Valkey Deployment anwenden
   kubernetes.core.k8s:
@@ -39,6 +42,13 @@
     state: present
     kubeconfig: "{{ kubeconfig_root }}"
     definition: "{{ lookup('template', 'files/valkey-service.yaml') | from_yaml }}"
+
+# Ausnahme zum namespace-weiten default-deny aus tasks/namespace.yaml (#62).
+- name: Valkey NetworkPolicy anwenden
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_root }}"
+    definition: "{{ lookup('template', 'files/valkey-networkpolicy.yaml') | from_yaml }}"
 
 - name: Warten, bis Valkey bereit ist
   ansible.builtin.command:

@@ -115,7 +115,7 @@ spec:
             #
             # Alle Zahlen unten sind am 22.08. mit kubectl top pod
             # --containers gemessen, in drei Zuständen. Unter Last meint zwei
-            # Läufe von app/lastgenerator.py gegen den Service backend, 5
+            # Läufe von app/chart/lastgenerator.py gegen den Service backend, 5
             # Einreichungen je Sekunde über 300 Sekunden und 15 je Sekunde
             # über 180 Sekunden. Beide hielten die Soll-Rate, alle 1500 und
             # 2700 Einreichungen wurden angenommen. Beim Ausrollen meint den

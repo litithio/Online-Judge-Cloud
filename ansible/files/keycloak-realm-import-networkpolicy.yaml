@@ -1,0 +1,34 @@
+# Egress des Import-Jobs (#163): DNS und Postgres, sonst nichts. Ausnahme zum
+# default-deny in judge-networkpolicy.yaml, der Job nimmt keine Verbindungen an.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-realm-import
+  namespace: "{{ auth_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak-realm-import
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: "{{ keycloak_db_name }}"
+      ports:
+        - protocol: TCP
+          port: 5432

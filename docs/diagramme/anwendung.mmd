@@ -1,0 +1,52 @@
+---
+# Feste Schrift wie in aufbau.mmd, ELK aus demselben Grund.
+config:
+  layout: elk
+  fontFamily: Arial, Helvetica, sans-serif
+---
+flowchart TB
+    studierende["🧑‍🎓 Studierende<br/>Browser"]
+    traefik["🚪 Traefik<br/>OIDC-Plugin"]
+
+    subgraph dienste["Dienste-Nodes"]
+        keycloak["🔐 Keycloak<br/>2 Replicas"]
+        pg[("🐘 PostgreSQL<br/>2 Instanzen")]
+        api["⚡ API-Service<br/>FastAPI, 2 Replicas"]
+        valkey["📨 Valkey<br/>Liste judge:python"]
+        mongo[("🗄️ MongoDB<br/>Replica-Set, 3 Members")]
+        keda["📈 KEDA"]
+        durchlauf["🔁 Durchlauf<br/>CronJob alle zwei Minuten"]
+        grafana["📊 Grafana und Prometheus"]
+    end
+    subgraph judgenodes["Judge-Nodes, gVisor"]
+        judge["⚖️ Judge-Worker<br/>0 bis 6 Replicas"]
+    end
+
+    studierende ==>|"HTTPS"| traefik
+    traefik -.->|"Anmeldung"| keycloak
+    keycloak -.->|"Realm, Sessions"| pg
+    traefik ==>|"mit Identität"| api
+    api ==>|"Einreichung, Ergebnis"| mongo
+    api ==>|"RPUSH nur die ID"| valkey
+    judge ==>|"BLPOP"| valkey
+    judge ==>|"Übernahme, Aufgabe, Urteil"| mongo
+    keda -.->|"liest die Länge"| valkey
+    keda -.->|"setzt die Replicas"| judge
+    durchlauf -.->|"Frist abgelaufen"| mongo
+    durchlauf -.->|"erneut einreihen"| valkey
+    grafana -.->|"Länge der Schlange, Replicas<br/>über kube-state-metrics"| keda
+    traefik -.->|"eigene Anmeldung"| grafana
+
+    classDef plattform fill:#ede7f6,stroke:#7e57c2,color:#311b92
+    classDef anwendung fill:#e6f4ea,stroke:#34a853,color:#0d652d
+    classDef daten fill:#fef7e0,stroke:#f9ab00,color:#7a4f01
+    classDef auth fill:#fde8ef,stroke:#d81b60,color:#880e4f
+    classDef extern fill:#eceff4,stroke:#7b8794,color:#1f2933
+
+    class studierende extern
+    class traefik,keda,grafana plattform
+    class api,judge,durchlauf anwendung
+    class valkey,mongo,pg daten
+    class keycloak auth
+    style dienste fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d
+    style judgenodes fill:#fafbfd,stroke:#93a4bd,color:#3a4a5d

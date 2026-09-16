@@ -16,7 +16,7 @@ import urllib.request
 
 API = os.getenv("API_URL", "http://backend:8000")
 
-# Dieselben Header wie in app/lastgenerator.py. Die Identität liest die API
+# Dieselben Header wie in app/chart/lastgenerator.py. Die Identität liest die API
 # aus den Headern, die sonst das Gateway setzt, X-Gateway-Auth weist die
 # Herkunft nach (#79).
 KOPFZEILEN = {

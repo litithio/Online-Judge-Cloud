@@ -1,0 +1,33 @@
+# k3s liest neben /etc/rancher/k3s/config.yaml auch jede Datei unter
+# config.yaml.d/ ein und hängt die Werte an den Serverstart an. Diese Ablage
+# statt INSTALL_K3S_EXEC, weil das Exec-Argument nur bei der Erstinstallation
+# wirkt (die Rolle überspringt sie, sobald /usr/local/bin/k3s liegt). Ein
+# eigener Drop-in fasst nur die OIDC-Flags an und lässt die von der Rolle
+# gesetzten Serverargumente (Flannel, CIDRs, Taint) unberührt.
+#
+# Die Flags rüsten den kube-apiserver zum OIDC-Prüfer nach: er akzeptiert
+# fortan Bearer-Token, die Keycloak für den Realm judge ausstellt, zusätzlich
+# zu den eigenen ServiceAccount-Token. Damit kann sich eine Person per
+# kubelogin (kubectl oidc-login) am Browser einloggen und der Cluster erkennt
+# sie an Name und Gruppen aus dem Token (Viewer-Kennung, W6).
+kube-apiserver-arg:
+  # Aussteller, dem der apiserver vertraut. Muss zeichengenau der iss-Angabe
+  # in den Token entsprechen; deshalb der öffentliche Host, unter dem auch der
+  # Browser-Login läuft, nicht ein clusterinterner Service-Name.
+  - "oidc-issuer-url={{ kube_oidc_issuer_url }}"
+  # Der Token muss für genau diesen Client ausgestellt sein (aud-Claim). Der
+  # public Client kubernetes aus dem Realm-Import.
+  - "oidc-client-id={{ kube_oidc_client_id }}"
+  # Woraus der apiserver den Benutzernamen liest. preferred_username ist der
+  # Login-Name aus Keycloak (z. B. viewer).
+  - "oidc-username-claim=preferred_username"
+  # Präfix vor jeden OIDC-Benutzernamen, damit er sich nie mit einem internen
+  # Konto (etwa system:...) überschneidet: aus viewer wird oidc:viewer.
+  - "oidc-username-prefix=oidc:"
+  # Woraus der apiserver die Gruppen liest. Der Realm-Mapper schreibt die
+  # Keycloak-Gruppen in den groups-Claim.
+  - "oidc-groups-claim=groups"
+  # Präfix vor jede OIDC-Gruppe, analog zum Benutzernamen. Aus cluster-viewer
+  # wird oidc:cluster-viewer -- genau das adressiert das ClusterRoleBinding
+  # (files/viewer-clusterrolebinding.yaml).
+  - "oidc-groups-prefix=oidc:"

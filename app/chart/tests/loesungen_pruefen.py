@@ -11,7 +11,7 @@ Die Lösungen kommen als ConfigMap aus dem Chart, mit Schlüsseln der Form
 verzeichnis__datei.py. Die Zuordnung von Verzeichnis zu Aufgabe läuft über
 die Aufgaben-JSONs aus der ConfigMap des Seed. Das Verzeichnis heißt wie der
 Dateistamm der JSON, deren Titel ist der Schlüssel in der Datenbank, wie in
-app/lastgenerator.py.
+app/chart/lastgenerator.py.
 """
 
 import json
@@ -19,13 +19,14 @@ import os
 import pathlib
 import sys
 import time
+import urllib.error
 import urllib.request
 
 API = os.getenv("API_URL", "http://backend:8000")
 LOESUNGEN = pathlib.Path(os.getenv("LOESUNGEN_PFAD", "/loesungen"))
 AUFGABEN = pathlib.Path(os.getenv("AUFGABEN_PFAD", "/aufgaben"))
 
-# Dieselben Header wie in app/lastgenerator.py, siehe api_pruefen.py.
+# Dieselben Header wie in app/chart/lastgenerator.py, siehe api_pruefen.py.
 KOPFZEILEN = {
     "X-Auth-Request-User": "helm-test",
     "X-Auth-Request-Preferred-Username": "helm-test",
@@ -56,6 +57,13 @@ ERWARTET = {
 FRIST_SEKUNDEN = 480
 ABFRAGE_ABSTAND = 5
 
+# helm test kann direkt nach dem Upgrade laufen, und kube-router trägt die
+# Adresse eines neuen Pods erst nach dem Start in die Regeln der NetworkPolicy
+# ein (#62). Bis dahin weist die API die erste Verbindung ab, gemessen am 02.09.
+# mit Testpods zwei Sekunden und ein Fehlversuch, mit einem Testjob acht
+# Sekunden. Die 60 Sekunden sind dasselbe Fenster wie in api_pruefen.py.
+WARTEFRIST = 60
+
 
 def anfrage(pfad, daten=None):
     """GET oder, mit daten, POST gegen die API, Antwort als JSON."""
@@ -63,6 +71,24 @@ def anfrage(pfad, daten=None):
     aufruf = urllib.request.Request(f"{API}{pfad}", data=koerper, headers=KOPFZEILEN)
     with urllib.request.urlopen(aufruf, timeout=10) as antwort:
         return json.load(antwort)
+
+
+def _aufgaben_abwarten(frist=WARTEFRIST):
+    """Holt /tasks und wartet dabei bis zu frist Sekunden auf die API.
+
+    Nur Verbindungsfehler lösen einen neuen Versuch aus. Eine HTTP-Antwort wie
+    401 ist eine Antwort der API, sie würde sich beim Warten nicht ändern.
+    """
+    ende = time.monotonic() + frist
+    while True:
+        try:
+            return anfrage("/tasks")
+        except urllib.error.HTTPError:
+            raise
+        except OSError as fehler:
+            if time.monotonic() >= ende:
+                raise SystemExit(f"{API} nicht erreichbar, {fehler}")
+            time.sleep(5)
 
 
 def _titel_je_stamm():
@@ -101,7 +127,8 @@ def main():
     if not titel_je_stamm:
         print(f"keine Aufgaben-JSONs unter {AUFGABEN}")
         return 1
-    id_je_titel = {t["title"]: t["id"] for t in anfrage("/tasks")}
+
+    id_je_titel = {t["title"]: t["id"] for t in _aufgaben_abwarten()}
 
     fehler = []
 

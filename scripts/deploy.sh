@@ -4,6 +4,10 @@
 # Ansible brauchen es aus, und umschalten kann es nur der Mensch davor.
 # Gewartet wird deshalb nicht auf einen VPN-Zustand, sondern auf die
 # Gegenstelle, die der nächste Abschnitt braucht.
+#
+# Der Weg der betreibenden Person, weil Terraform am Anfang ihren State und
+# ihr Application Credential braucht. Alle anderen fahren die Einzelschritte
+# ab dem Ansible-Block aus dem README, Abschnitt Betrieb.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -19,7 +23,9 @@ fi
 # ---------- Voraussetzungen ----------
 # Alles Fehlende wird gesammelt gemeldet. Ein Lauf, der erst nach dem
 # Apply an einer fehlenden Datei scheitert, lässt halbe Infrastruktur
-# und ein eingeschaltetes VPN zurück.
+# und ein eingeschaltetes VPN zurück. Das Skript fährt Terraform und ist
+# damit der Weg der betreibenden Person, alle anderen nehmen die
+# Ansible-Schritte aus dem README.
 fehlt=0
 
 brauche_datei() {
@@ -38,15 +44,24 @@ brauche_werkzeug() {
 }
 
 brauche_datei terraform/terraform.tfvars
-brauche_datei ansible/dns-credentials.yaml
-brauche_datei ansible/auth-credentials.yaml
-brauche_datei ansible/files/mongodb-password.yaml
-brauche_datei ansible/files/valkey-password.yaml
 brauche_werkzeug terraform
 brauche_werkzeug ansible-galaxy
 brauche_werkzeug ansible-playbook
 brauche_werkzeug kubectl
 brauche_werkzeug python3
+# Die Geheimnisse liegen verschlüsselt im Repo (#77), Ansible entschlüsselt
+# sie mit sops und dem eigenen age-Schlüssel. Kein Vorgabepfad für den
+# Schlüssel: sops sucht ohne die Variable je Betriebssystem anders, .envrc
+# setzt sie auf einen Ort für alle.
+brauche_werkzeug sops
+if [ -z "${SOPS_AGE_KEY_FILE:-}" ]; then
+  echo "FEHLT  SOPS_AGE_KEY_FILE ist nicht gesetzt, direnv allow oder source .envrc." >&2
+  fehlt=1
+elif [ ! -f "$SOPS_AGE_KEY_FILE" ]; then
+  echo "FEHLT  $SOPS_AGE_KEY_FILE, der eigene age-Schlüssel." >&2
+  echo "       Erzeugen mit: age-keygen -o $SOPS_AGE_KEY_FILE" >&2
+  fehlt=1
+fi
 
 [ "$fehlt" -eq 0 ] || exit 1
 
@@ -123,8 +138,7 @@ done
 # lässt, auch wenn requirements.yml eine andere Version pinnt.
 (cd ansible \
   && ansible-galaxy install -r requirements.yml --force \
-  && ansible-playbook -i inventory/generated-inventory.yml \
-                      -i dns-credentials.yaml deploy.yaml)
+  && ansible-playbook -i inventory/generated-inventory.yml deploy.yaml)
 
 # Der Abschlussbeleg kommt aus dem Cluster, nicht aus dem Playbook-Ende.
 KUBECONFIG="$PWD/ansible/kubeconfig-generated.yaml" kubectl get nodes

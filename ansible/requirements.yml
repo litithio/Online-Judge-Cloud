@@ -17,8 +17,12 @@ roles:
 
 # Die Rolle setzt auf dem Steuerrechner diese Collections voraus:
 # kubernetes.core für die Helm- und k8s-Module, ansible.posix für sysctl.
+# community.sops entschlüsselt app-credentials.sops.yaml beim Ausrollen und
+# verschlüsselt die kubeconfig (#77), es braucht das sops-Binary in der PATH.
 collections:
   - name: kubernetes.core
     version: 6.5.0
   - name: ansible.posix
     version: 2.2.2
+  - name: community.sops
+    version: 2.4.0

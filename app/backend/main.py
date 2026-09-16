@@ -293,8 +293,9 @@ def _testfaelle_ansicht(test_results, namen=None):
     namen ordnet test_id einen Namen aus der Aufgabe zu (#71). Die Zuordnung
     läuft über die Position, denn test_results trägt keine Namen, der Worker
     schreibt test_id als Nummer des Falls (worker.py, _urteil). Ohne Treffer
-    zeigt das Template "Testfall N", etwa wenn die Aufgabe gelöscht ist oder
-    ihre Testfälle vor dem nächsten Seed noch keine Namen tragen.
+    zeigt das Template "Testfall N", etwa wenn die Aufgabe gelöscht ist, ihre
+    Testfälle vor dem nächsten Seed noch keine Namen tragen oder der Fall
+    kein Beispiel ist (einreichung_seite, #208).
 
     Die Zuordnung zeigt immer den aktuellen Stand der Aufgabe. Sortiert ein
     Seed die Testfälle um, steht an einer alten Einreichung der Name aus der
@@ -1262,10 +1263,15 @@ def einreichung_seite(sub_id: str, request: Request, user=Depends(get_current_us
     except PyMongoError as fehler:
         return _dienst_nicht_erreichbar(request, fehler, f"/einreichung/{sub_id}")
 
+    # Namen nur für Beispiele, die die Aufgabenseite ohnehin zeigt. Ein
+    # verborgener Fall heißt auf der Seite "Testfall N": Namen wie "Nur der
+    # Startwert 1" nennen sonst die Eingabe, die das Urteil seit #208 nicht
+    # mehr verrät. Der Vergleich mit True wie an den Beispielen in
+    # aufgabe_seite.
     testfall_namen = {
         nummer: fall["name"]
         for nummer, fall in enumerate((aufgabe or {}).get("test_cases", []), 1)
-        if isinstance(fall, dict) and fall.get("name")
+        if isinstance(fall, dict) and fall.get("name") and fall.get("sample") is True
     }
     kontext = {
         "user": user,

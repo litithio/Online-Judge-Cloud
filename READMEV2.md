@@ -460,7 +460,7 @@ SVG macht den Pull Request rot.
 | Thema | Wahl | Alternative | Trade-off | Aus der Domäne |
 |---|---|---|---|---|
 | P1 Anwendung | Zustand in MongoDB, Queue trägt nur die ID, Code läuft als Subprozess im Worker | Stream mit vollem Job, Container je Testlauf | zweiter Zugriff auf MongoDB je Einreichung | keine Einreichung geht verloren, auch nicht mit der Queue |
-| P2 Infrastruktur | eigene Security Group mit vier von außen offenen Ports, zwei Judge-Nodes in fester Zahl | default-Gruppe des Kursprojekts, Jump Host, ein einzelner Judge-Node, Nodes unter Last über Magnum nachstarten | 22 und 6443 offen für jede IPv6-Adresse, mehr Durchsatz braucht einen Lauf | fremder Code und Prüfungsleistungen in einem Projekt, das sich der Kurs teilt, jeder Judge-Worker braucht einen ganzen Kern |
+| P2 Infrastruktur | eigene Security Group mit vier von außen offenen Ports, zwei Judge-Nodes in fester Zahl | default-Gruppe des Kursprojekts, Jump Host, ein einzelner Judge-Node, Nodes unter Last über Magnum nachstarten | 22 und 6443 offen für jede IPv6-Adresse, unter Last kommen keine Nodes dazu | Nodes mit fremdem Code und Prüfungsleistungen hängen direkt am Internet, und ein Worker teilt seinen Kern nicht, weil das Zeitlimit als Frist gilt |
 | P3 Deployment | Request gleich Limit am Worker, Werte aus Messungen, Tags aus Version und Commit | Request an der Last, Spitzen am Limit, VPA | gebundene Kerne | das Zeitlimit gilt als Frist, ein gedrosselter Worker reißt sie |
 | P4 Platzierung | Judge-Nodes mit Taint, RuntimeClass bindet die Worker dorthin | podAntiAffinity auf gemeinsamen Nodes | zwei VMs mehr | fremder Code läuft auf Nodes ohne die Pods von MongoDB, Keycloak und API |
 | P5 Resilienz | Replica-Set mit drei Members, Keycloak mit zwei Replicas auf PostgreSQL, Probes an jedem Dienst | ein Member, H2 auf einem PVC | drei Dienste-Nodes, ein weiterer Operator | Einreichungen sind Prüfungsleistungen, die Anmeldung darf zu Klausurbeginn nicht fehlen |
@@ -503,8 +503,8 @@ mit je einem Kern (P3), ein Node mit vier Kernen trägt sie nicht, am Durchsatz
 schied der einzelne Judge-Node schon in #88 aus. Die Nodeskalierung über
 Magnum lässt gVisor offen, runsc kommt per SSH über Ansible auf die Nodes, ein
 vom Autoscaler erzeugter Node hätte die Laufzeit nicht. Die Zahl ist damit
-fest, mehr Durchsatz heißt `keda.max` auf acht ohne Reserve oder `judge_count`
-anheben, beides braucht einen Lauf.
+fest, unter Last kommen keine Nodes dazu. Mehr Durchsatz heißt `keda.max` auf
+acht ohne Reserve oder `judge_count` anheben und neu deployen.
 
 Fremd sind im Stack das Netz DHBWV6 und als Code die k3s-dhbw-cloud-role der
 Vorlesung als Fork, auf einen Commit gepinnt, mit ihren Addons und Vorgaben,

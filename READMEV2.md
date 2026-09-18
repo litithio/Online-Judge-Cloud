@@ -4,16 +4,14 @@
 
 Programmieraufgaben von Hand zu korrigieren skaliert nicht. Bei mehreren
 hundert Einreichungen je Aufgabe entscheidet die Korrekturkapazität darüber,
-wie oft Studierende überhaupt abgeben dürfen oder wie schnell sie ein
-Ergebnis erhalten. Der Online Judge führt eingereichten Code automatisch
-gegen hinterlegte Testfälle aus und gibt das Urteil zurück. Zwei
-Eigenschaften der Domäne prägen die Infrastruktur. Die Last ist stoßweise,
-denn der Judge wird in Prüfungen eingesetzt, ein ganzer Kurs arbeitet im
-selben Zeitfenster. Zwischen den Prüfungsterminen kommen nur vereinzelte
-Einreichungen aus der Klausurvorbereitung, über weite Strecken läuft keine.
-Außerdem ist der ausgeführte Code fremd. Mit Endlosschleifen,
-Speicherfressern und Zugriffen auf das Netz ist zu rechnen, und sie dürfen
-das System nicht beeinträchtigen.
+wie oft Studierende abgeben dürfen oder wie schnell sie ein Ergebnis erhalten.
+Der Online Judge führt eingereichten Code automatisch gegen hinterlegte
+Testfälle aus und gibt das Urteil zurück. Zwei Eigenschaften der Domäne prägen
+die Infrastruktur. Die Last ist stoßweise, denn in einer Prüfung arbeitet ein
+ganzer Kurs im selben Zeitfenster. Dazwischen kommen nur vereinzelte
+Einreichungen aus der Klausurvorbereitung und über weite Strecken gar keine.
+Außerdem ist der Code fremd. Mit Endlosschleifen, Speicherfressern und
+Netzzugriffen ist zu rechnen, und sie dürfen das System nicht beeinträchtigen.
 
 ## Architektur
 

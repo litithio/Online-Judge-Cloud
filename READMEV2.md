@@ -760,8 +760,9 @@ Sekunden ab, 200 bis 250 Einreichungen je Minute, die meisten Lösungen
 sind in unter einer Sekunde bewertet, das Zeitlimit von bis zu 16 Sekunden
 je Bewertung ist die Obergrenze. Bis dahin wartet eine Einreichung in der
 Schlange, dazu kommt der Anlauf der Worker, gemessen 32 Sekunden bis zur
-ersten und 58 bis zur sechsten Replica, KEDA fragt die Schlange alle 30
-Sekunden ab und weckt erst über `activationListLength`. Ein Kurs von 30
+ersten und 58 bis zur sechsten Replica, KEDA fragt die Schlange im
+Standardintervall von 30 Sekunden ab, im ScaledObject steht kein
+`pollingInterval`, danach muss der Pod erst starten. Ein Kurs von 30
 Personen mit je drei Abgaben in derselben Minute erzeugt 1,5 Einreichungen
 je Sekunde, dafür reichen drei Worker, bei Rate 2 blieb die Schlange unter
 12. Rechnerisch tragen die zwei Judge-Nodes

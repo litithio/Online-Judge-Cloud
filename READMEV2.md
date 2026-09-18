@@ -318,7 +318,7 @@ Anwendung bleibt so frei von Login-Seite und Token-Austausch.
 
 Keycloak läuft mit zwei Replicas gegen eine PostgreSQL, die CloudNativePG als
 Cluster `keycloak-db` mit zwei Instanzen im selben Namespace führt (#163).
-Realm, OIDC-Client, die Rolle `dozent`, ein Test-Benutzer und ein
+Realm, beide OIDC-Clients, die Rolle `dozent`, ein Test-Benutzer und ein
 Dozentenkonto mit dieser Rolle kommen als Code aus der Vorlage
 `ansible/templates/keycloak-realm.json.j2`, die Namen und Passwörter der
 Konten aus `app-credentials.sops.yaml`. Der gerenderte Import liegt als
@@ -360,15 +360,18 @@ erreichbar. Das Dozentenkonto aus derselben Datei trägt die Realm-Rolle
 
 ### Cluster-Zugriff per OIDC
 
-Dieselbe Keycloak-Kennung öffnet einen lesenden `kubectl`-Zugriff auf den
-Cluster, RBAC im Cluster statt in der Anwendung. Drei Teile greifen dafür
-ineinander, alle rollt der Tag `auth` aus. Ein zweiter, öffentlicher Client
-`kubernetes` im Realm mit der Gruppe `cluster-viewer`, einem Mapper für den
-`groups`-Claim und dem Konto `viewer` in dieser Gruppe. Die OIDC-Flags am
-`kube-apiserver` über ein Config-Drop-in (`ansible/tasks/k3s-oidc.yaml`), mit
-dem Präfix `oidc:` an Name und Gruppe. Und ein `ClusterRoleBinding`
-(`ansible/files/viewer-clusterrolebinding.yaml`), das `oidc:cluster-viewer` an die
-eingebaute ClusterRole `view` hängt, lesen ja, schreiben nein, Secrets nein.
+Der Zugriff auf den Cluster ist vom Zugriff auf die Anwendung getrennt (siehe
+Authentifizierung). Beide laufen über denselben Keycloak-Realm `judge`, aber
+über verschiedene Clients, und den lesenden `kubectl`-Zugriff über OIDC erhält
+nur, wer in der Gruppe `cluster-viewer` ist. Drei Teile greifen für das RBAC
+im Cluster ineinander, alle rollt der Tag `auth` aus. Ein zweiter,
+öffentlicher Client `kubernetes` im Realm mit der Gruppe `cluster-viewer`,
+einem Mapper für den `groups`-Claim und dem Konto `viewer` in dieser Gruppe.
+Die OIDC-Flags am `kube-apiserver` über ein Config-Drop-in
+(`ansible/tasks/k3s-oidc.yaml`), mit dem Präfix `oidc:` an Name und Gruppe.
+Und ein `ClusterRoleBinding` (`ansible/files/viewer-clusterrolebinding.yaml`),
+das `oidc:cluster-viewer` an die eingebaute ClusterRole `view` hängt, lesen
+ja, schreiben nein, Secrets nein.
 
 Auf dem eigenen Rechner braucht es das Plugin
 [kubelogin](https://github.com/int128/kubelogin) und einen
@@ -467,7 +470,7 @@ SVG macht den Pull Request rot.
 | P4 Platzierung | Judge-Nodes mit Taint, RuntimeClass bindet die Worker dorthin | podAntiAffinity auf gemeinsamen Nodes | zwei VMs mehr | fremder Code läuft auf Nodes ohne die Pods von MongoDB, Keycloak und API |
 | P5 Resilienz | Replica-Set mit drei Members, Keycloak mit zwei Replicas auf PostgreSQL, Probes an jedem Dienst | ein Member, H2 auf einem PVC | drei Dienste-Nodes, ein weiterer Operator | Einreichungen sind Prüfungsleistungen, die Anmeldung darf zu Klausurbeginn nicht fehlen |
 | W1 Packaging | eigenes Chart mit values-dev, values-prod und Schema | Kustomize, Manifeste je Umgebung über Ansible | Vorlagensprache zwischen Manifest und Cluster | eine zweite Sprache ist ein Eintrag in den values |
-| W6 Authentifizierung | OIDC am Gateway über das Traefik-Plugin, RBAC über dieselbe Kennung | oauth2-proxy mit ForwardAuth, Token-Prüfung in der API, Admin-kubeconfig je Person | fester Herkunftswert zwischen Gateway und API | ein aus der Sandbox ausgebrochener Worker hält kein Token |
+| W6 Authentifizierung | OIDC am Gateway über das Traefik-Plugin, RBAC im Cluster über dasselbe Keycloak | oauth2-proxy mit ForwardAuth, Token-Prüfung in der API, Admin-kubeconfig je Person | fester Herkunftswert zwischen Gateway und API | die API bleibt frei von OIDC-Bibliothek und Token-Prüfung, ein Keycloak für Anwendung und Cluster |
 | W7 Cluster-Härtung | default-deny in beide Richtungen, sops mit age | Freigabe nach Absenderadresse, Sealed Secrets, Passwörter beim Ausrollen erzeugt | jede neue Komponente braucht eine Policy | der Worker führt fremden Code aus, der Radius eines Ausbruchs ist die Policy |
 
 ### P1 Anwendung und Domäne
@@ -573,17 +576,20 @@ Zeitlimit als Frist gilt und ein gedrosselter Worker sie reißt.
 Die Anmeldung läuft am Gateway, Traefik führt den OIDC-Flow über das Plugin
 traefik-oidc-auth gegen Keycloak aus und reicht die Identität als Header an
 die API, die API prüft kein Token, nur einen festen Herkunftswert
-`X-Gateway-Auth`. Dieselbe Kennung trägt den lesenden Cluster-Zugriff, der
-apiserver liest Name und Gruppe aus dem OIDC-Token, ein ClusterRoleBinding
-hängt `oidc:cluster-viewer` an die ClusterRole `view`. Die Alternativen waren
+`X-Gateway-Auth`. Derselbe Realm trägt den lesenden Cluster-Zugriff über
+einen zweiten Client, der apiserver liest Name und Gruppe aus dem
+OIDC-Token, ein ClusterRoleBinding hängt `oidc:cluster-viewer` an die
+ClusterRole `view`. Die Alternativen waren
 oauth2-proxy mit ForwardAuth als zweiter Dienst, die Token-Prüfung gegen die
 JWKS in der API und je Person eine Admin-kubeconfig oder ein ServiceAccount.
 Der Preis ist der feste Herkunftswert, er läuft nie ab und steht im Secret
 wie im Middleware-Objekt, und die OIDC-Flags am apiserver brauchen auf einem
-laufenden Cluster einen Neustart von k3s. Den Ausschlag gibt der Worker, der
-fremden Code ausführt. Wer aus der Sandbox ausbricht, hält weder ein Token
-noch den Herkunftswert, und `automountServiceAccountToken` steht am Worker
-auf false, im Cluster findet er auch kein Token.
+laufenden Cluster einen Neustart von k3s. Den Ausschlag gibt, dass die API
+ohne OIDC-Bibliothek und Token-Prüfung auskommt und ein Keycloak die
+Anwendung und den Cluster bedient. Der Worker, der fremden Code ausführt,
+hält bei jeder der Varianten weder ein OIDC-Token noch den Herkunftswert,
+und `automountServiceAccountToken` steht am Worker auf false, im Pod
+liegt auch kein ServiceAccount-Token.
 
 ### W7 Cluster-Härtung
 
@@ -928,7 +934,7 @@ nie über sein Limit hebt. Last erzeugt der Lastgenerator aus
 **B3 Weiteres Wahlthema, W6 Authentifizierung.** OIDC-Login und
 Token-Prüfung am Gateway über traefik-oidc-auth (`ansible/tasks/traefik-plugin.yaml`,
 Realm aus `ansible/templates/keycloak-realm.json.j2`), dazu RBAC im Cluster
-über dieselbe Kennung (`ansible/tasks/k3s-oidc.yaml`,
+über denselben Realm (`ansible/tasks/k3s-oidc.yaml`,
 `ansible/files/viewer-clusterrolebinding.yaml`). Nachweis vom 11.09.2026 in
 #121, als `oidc:viewer` liefert `kubectl get pods -A` die Liste, `kubectl
 get secrets -n judge` und `kubectl delete pod` enden mit Forbidden, und am

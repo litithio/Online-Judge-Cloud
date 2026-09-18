@@ -465,7 +465,7 @@ SVG macht den Pull Request rot.
 | Thema | Wahl | Alternative | Trade-off | Aus der Domäne |
 |---|---|---|---|---|
 | P1 Anwendung | Zustand in MongoDB, Queue trägt nur die ID, Code läuft als Subprozess im Worker | Stream mit vollem Job, Container je Testlauf | zweiter Zugriff auf MongoDB je Einreichung | keine Einreichung geht verloren, auch nicht mit der Queue |
-| P2 Infrastruktur | Terraform, Ansible mit der k3s-Rolle der Vorlesung, ein gemeinsamer Cluster, Geheimnisse mit sops im Repo | eigene Rolle, eigenes Netz mit Floating IP, ein Cluster je Person | Abhängigkeit vom Upstream, Neuaufbau ist Downtime für alle | Prüfungsbetrieb ist zeitweise, ein Cluster aus einem Ablauf ist billiger als Dauerpflege |
+| P2 Infrastruktur | eigene Security Group mit vier von außen offenen Ports, zwei Judge-Nodes in fester Zahl | default-Gruppe des Kursprojekts, Jump Host, ein einzelner Judge-Node, Nodes unter Last über Magnum nachstarten | 22 und 6443 offen für jede IPv6-Adresse, unter Last kommen keine Nodes dazu | Nodes mit fremdem Code und Prüfungsleistungen hängen direkt am Internet, und ein Worker teilt seinen Kern nicht, weil das Zeitlimit als Frist gilt |
 | P3 Deployment | Request gleich Limit am Worker, Werte aus Messungen, Tags aus Version und Commit | Request an der Last, Spitzen am Limit, VPA | gebundene Kerne | das Zeitlimit gilt als Frist, ein gedrosselter Worker reißt sie |
 | P4 Platzierung | Judge-Nodes mit Taint, RuntimeClass bindet die Worker dorthin | podAntiAffinity auf gemeinsamen Nodes | zwei VMs mehr | fremder Code läuft auf Nodes ohne die Pods von MongoDB, Keycloak und API |
 | P5 Resilienz | Replica-Set mit drei Members, Keycloak mit zwei Replicas auf PostgreSQL, Probes an jedem Dienst | ein Member, H2 auf einem PVC | drei Dienste-Nodes, ein weiterer Operator | Einreichungen sind Prüfungsleistungen, die Anmeldung darf zu Klausurbeginn nicht fehlen |
@@ -490,21 +490,33 @@ Klausur darf keine Einreichung verloren gehen, das entscheidet.
 ### P2 Infrastruktur als Code
 
 Terraform legt gegen den OpenStack-Provider sechs VMs, das Keypair und die
-Security Group `judge-k3s-nodes` an (#213), Ansible rollt mit der
-k3s-dhbw-cloud-role aus der Vorlesung, auf einen Commit gepinnt, den Cluster
-samt Longhorn, cert-manager, ExternalDNS und system-upgrade-controller aus.
-Die Nodes hängen direkt am DHBWV6-Netz. Seit #299 gibt es einen Cluster für
-die Gruppe, die Geheimnisse liegen mit sops im Repo, SSH-Schlüssel kommen aus
-den GitHub-Konten. Die Alternativen waren eine eigene Ansible-Rolle, ein
-eigenes Netz mit Floating IP (gebaut und am selben Tag zurückgenommen) und
-ein Cluster je Person. Der Preis ist die Abhängigkeit vom Upstream der Rolle
-und ihren Vorgaben, etwa Longhorn mit einem Replikat je Volume und dem
-Upgrade-Fenster, und jeder Neuaufbau ist eine Downtime für alle. Der Judge
-läuft nur an Prüfungstagen, ein Cluster, der in einem Ablauf neu entsteht,
-ist billiger als einer, der dauerhaft gepflegt wird. Fremder Code im Stack
-ist die k3s-Rolle mit ihren Addons, der MongoDB Community Operator,
-CloudNativePG, das keycloakx-Chart, der kube-prometheus-stack, KEDA, das
-Plugin traefik-oidc-auth, sops mit age und kubelogin.
+Security Group `judge-k3s-nodes` an, Ansible macht daraus den Cluster samt
+gVisor auf den Judge-Nodes, ein Ablauf bringt alles hoch. Zu entscheiden war,
+was von außen erreichbar ist und wie viele Maschinen der Judge bekommt. Die
+Nodes hängen mit öffentlicher IPv6 direkt am Netz DHBWV6, und die
+default-Gruppe des Kursprojekts filtert nichts, am 25.08.2026 waren von außen
+der kubelet-Port 10250 und rpcbind auf 111 erreichbar (#213). Für einen
+Cluster mit fremdem Code und Prüfungsleistungen lässt die eigene Gruppe von
+außen über IPv6 nur 22, 80, 443 und 6443 zu, zwischen den Nodes alles. Auf den
+Judge-Nodes ist von außen nur noch 22 erreichbar, das zeigt der Portscan vom
+11.09.2026. Der Trade-off ist, dass 22 und 6443 jeder IPv6-Adresse offen
+stehen. Ein Jump Host hätte das auf einen SSH-Port verkleinert, verworfen
+wegen einer weiteren VM bei 79 von 100 Instanzen im Kursprojekt am 03.09.2026
+(#213) und weil der lesende Zugriff aus W6 dann einen SSH-Tunnel brauchen
+würde. Der Judge bekommt zwei eigene Nodes. `keda.max` steht auf sechs Worker
+mit je einem Kern (P3), ein Node mit vier Kernen trägt sie nicht, am Durchsatz
+schied der einzelne Judge-Node schon in #88 aus. Die Nodeskalierung über
+Magnum lässt gVisor offen, runsc kommt per SSH über Ansible auf die Nodes, ein
+vom Autoscaler erzeugter Node hätte die Laufzeit nicht. Die Zahl ist damit
+fest, unter Last kommen keine Nodes dazu. Mehr Durchsatz heißt `keda.max` auf
+acht ohne Reserve oder `judge_count` anheben und neu deployen.
+
+Fremd sind im Stack das Netz DHBWV6 und als Code die k3s-dhbw-cloud-role der
+Vorlesung als Fork, auf einen Commit gepinnt, mit ihren Addons und Vorgaben,
+darunter Longhorn mit einem Replikat je Volume und das Upgrade-Fenster, der
+MongoDB Community Operator, CloudNativePG, das keycloakx-Chart, der
+kube-prometheus-stack, KEDA, das Plugin traefik-oidc-auth, sops mit age und
+kubelogin.
 
 ### P3 Deployment und Konfiguration
 

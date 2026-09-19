@@ -488,31 +488,41 @@ Klausur darf keine Einreichung verloren gehen, das entscheidet.
 ### P2 Infrastruktur als Code
 
 Terraform legt gegen den OpenStack-Provider sechs VMs, das Keypair und die
-Security Group `judge-k3s-nodes` an, Ansible macht daraus den Cluster samt
-gVisor auf den Judge-Nodes, ein Ablauf bringt alles hoch. Zu entscheiden war,
-was von außen erreichbar ist und wie viele Maschinen der Judge bekommt. Die
-Nodes hängen mit öffentlicher IPv6 direkt am Netz DHBWV6, und die
-default-Gruppe des Kursprojekts filtert nichts, am 25.08.2026 waren von außen
-der kubelet-Port 10250 und rpcbind auf 111 erreichbar (#213). Für einen
+Security Group `judge-k3s-nodes` an und schreibt das Inventory, Ansible macht
+daraus den Cluster samt gVisor auf den Judge-Nodes, ein Ablauf bringt alles
+hoch. Zu entscheiden war, was von außen erreichbar ist und wie viele Maschinen
+der Judge bekommt. Die erste Entscheidung betrifft die Erreichbarkeit. Die
+Nodes hängen mit öffentlicher IPv6 direkt am Netz DHBWV6. Die default-Gruppe
+des Kursprojekts schied aus, weil sie nichts filtert. Am 25.08.2026 waren von
+außen der kubelet-Port 10250 und rpcbind auf 111 erreichbar (#213). Für einen
 Cluster mit fremdem Code und Prüfungsleistungen lässt die eigene Gruppe von
-außen über IPv6 nur 22, 80, 443 und 6443 zu, zwischen den Nodes alles. Auf den
-Judge-Nodes ist von außen nur noch 22 erreichbar, das zeigt der Portscan vom
-11.09.2026. Der Trade-off ist, dass 22 und 6443 jeder IPv6-Adresse offen
-stehen. Ein Jump Host hätte das auf einen SSH-Port verkleinert, verworfen
-wegen einer weiteren VM bei 79 von 100 Instanzen im Kursprojekt am 03.09.2026
-(#213) und weil der lesende Zugriff aus W6 dann einen SSH-Tunnel brauchen
-würde. Der Judge bekommt zwei eigene Nodes. `keda.max` steht auf sechs Worker
-mit je einem Kern (P3), ein Node mit vier Kernen trägt sie nicht, am Durchsatz
-schied der einzelne Judge-Node schon in #88 aus. Die Nodeskalierung über
-Magnum lässt gVisor offen, runsc kommt per SSH über Ansible auf die Nodes, ein
-vom Autoscaler erzeugter Node hätte die Laufzeit nicht. Die Zahl ist damit
-fest, unter Last kommen keine Nodes dazu. Mehr Durchsatz heißt `keda.max` auf
-acht ohne Reserve oder `judge_count` anheben und neu deployen.
+außen über IPv6 nur 22, 80, 443 und 6443 zu, zwischen den Nodes alles. Die
+Alternative war ein Jump Host, der das auf einen SSH-Port verkleinert hätte,
+verworfen wegen einer weiteren VM bei 79 von 100 Instanzen im Kursprojekt am
+03.09.2026 (#213) und weil der lesende Zugriff aus W6 dann einen SSH-Tunnel
+brauchen würde. Der Trade-off ist, dass 22 und 6443 jeder IPv6-Adresse offen
+stehen. Die Gruppe lässt auf allen Nodes dieselben vier Ports zu. Auf den
+Judge-Nodes antwortet im Portscan vom 11.09.2026 von diesen vier nur 22, weil
+dort nur SSH lauscht, nicht weil die Gruppe dort enger ist.
 
-Fremd sind im Stack das Netz DHBWV6 und als Code die k3s-dhbw-cloud-role der
-Vorlesung als Fork, auf einen Commit gepinnt, mit ihren Addons und Vorgaben,
-darunter Longhorn mit einem Replikat je Volume und das Upgrade-Fenster, der
-MongoDB Community Operator, CloudNativePG, das keycloakx-Chart, der
+Die zweite Entscheidung betrifft die Zahl der Judge-Nodes. Der Judge bekommt
+zwei eigene Nodes, `keda.max` steht auf sechs Worker mit je einem Kern (P3),
+ein Node mit vier Kernen trägt sie nicht, am Durchsatz schied der einzelne
+Judge-Node schon in #88 aus. Die Alternative war die Nodeskalierung über
+Magnum. Sie lässt gVisor offen, denn runsc kommt per SSH über Ansible auf die
+Nodes, und ein vom Autoscaler erzeugter Node hätte die Laufzeit nicht. Der
+Trade-off ist die feste Zahl, unter Last kommen keine Nodes dazu. Mehr
+Durchsatz heißt `keda.max` auf acht ohne Reserve oder `judge_count` anheben
+und neu deployen.
+
+Nicht aus dem Repo entstehen das Netz DHBWV6, das Boot-Image und die Flavors
+der DHBWCloud, der SSH-Schlüssel und das Application Credential der
+betreibenden Person sowie die Basiszone und der TSIG-Key aus dem Self-Service.
+Die Records darunter und das Zertifikat legen ExternalDNS und cert-manager im
+Cluster an. Fremder Code im Stack ist die k3s-dhbw-cloud-role der Vorlesung
+als Fork, auf einen Commit gepinnt, mit ihren Addons und Vorgaben, darunter
+Longhorn mit einem Replikat je Volume und das Upgrade-Fenster, der MongoDB
+Community Operator, CloudNativePG, das keycloakx-Chart, der
 kube-prometheus-stack, KEDA, das Plugin traefik-oidc-auth, sops mit age und
 kubelogin.
 

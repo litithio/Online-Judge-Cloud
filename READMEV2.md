@@ -775,25 +775,31 @@ brauchen ein Upgrade des Release.
 ## Grenzen
 
 Unter echter Last tragen sechs Worker den Judge. Gemessen am 11.09.2026 mit
-dem Lastmix des Generators bauen sie eine Warteschlange von 207 in 60
-Sekunden ab, 200 bis 250 Einreichungen je Minute, die meisten Lösungen
-sind in unter einer Sekunde bewertet, das Zeitlimit von bis zu 16 Sekunden
-je Bewertung ist die Obergrenze. Bis dahin wartet eine Einreichung in der
-Schlange, dazu kommt der Anlauf der Worker, gemessen 32 Sekunden bis zur
-ersten und 58 bis zur sechsten Replica, KEDA fragt die Schlange im
-Standardintervall von 30 Sekunden ab, im ScaledObject steht kein
-`pollingInterval`, danach muss der Pod erst starten. Ein Kurs von 30
-Personen mit je drei Abgaben in derselben Minute erzeugt 1,5 Einreichungen
-je Sekunde, dafür reichen drei Worker, bei Rate 2 blieb die Schlange unter
-12. Rechnerisch tragen die zwei Judge-Nodes
-acht Worker, `keda.max` steht auf sechs, damit je Node ein Kern für kubelet,
-containerd und runsc frei bleibt. Mehr Durchsatz heißt entweder `keda.max`
-auf acht ohne diese Reserve oder mehr Judge-Nodes über `judge_count` in
-`terraform/variables.tf`, und ein Neuaufbau ist seit #299 eine Downtime für
-die Gruppe. Keycloak mit zwei Replicas trug am 10.09. 22 Anmeldungen je
-Sekunde ohne Fehler, ein Failover der PostgreSQL kostete 2 von 1644
-Anmeldungen in 19 Sekunden. Longhorn läuft mit einem Replikat je Volume, für
-Valkey ohne Ausgleich.
+dem Lastmix des Generators bauen sie eine Warteschlange von 207 in 60 Sekunden
+ab, 200 bis 250 Einreichungen je Minute, die meisten Lösungen sind in unter
+einer Sekunde bewertet, das Zeitlimit von bis zu 16 Sekunden je Bewertung ist
+die Obergrenze. Bis dahin wartet eine Einreichung in der Schlange, dazu kommt
+der Anlauf der Worker, gemessen 32 Sekunden bis zur ersten und 58 bis zur
+sechsten Replica, KEDA fragt die Schlange im Standardintervall von 30 Sekunden
+ab, im ScaledObject steht kein `pollingInterval`, danach muss der Pod erst
+starten. Ein Kurs von 30 Personen mit je drei Abgaben in derselben Minute
+erzeugt 1,5 Einreichungen je Sekunde, dafür reichen drei Worker, bei Rate 2
+blieb die Schlange unter 12. Kommt mehr an, als sechs Worker schaffen, wächst
+die Schlange und mit ihr die Wartezeit. Die API nimmt weiter an, die Schlange
+trägt nur IDs, und die Frist einer Einreichung läuft erst ab der Übernahme
+durch einen Worker. Der Zustand steht in MongoDB, fehlt die ID einer wartenden
+Einreichung in Valkey, reiht der Durchlauf sie bis zu dreimal wieder ein,
+danach endet sie auf UNRESOLVED. Im Lauf vom 11.09.2026 mit 6 je Sekunde aus
+null Workern war die Schlange 87 Sekunden nach der letzten Einreichung leer,
+bis dahin hatten die Worker alle Einreichungen übernommen. Rechnerisch tragen
+die zwei Judge-Nodes acht Worker, `keda.max` steht auf sechs, damit je Node
+ein Kern für kubelet, containerd und runsc frei bleibt. Mehr Durchsatz heißt
+entweder `keda.max` auf acht ohne diese Reserve oder mehr Judge-Nodes über
+`judge_count` in `terraform/variables.tf`, und ein Neuaufbau ist seit #299
+eine Downtime für die Gruppe. Keycloak mit zwei Replicas trug am 10.09. 22
+Anmeldungen je Sekunde ohne Fehler, ein Failover der PostgreSQL kostete 2 von
+1644 Anmeldungen in 19 Sekunden. Longhorn läuft mit einem Replikat je Volume,
+für Valkey ohne Ausgleich.
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je
 Lauf eigenen UID und mit eigenen Grenzen für Rechenzeit, Speicher,
@@ -833,6 +839,10 @@ Einreichungen und Aufgaben, nicht nur die eigene. Die default-deny-Policy
 begrenzt den Radius auf MongoDB und Valkey. Den Worker über die API schreiben
 zu lassen, nähme die Zugangsdaten aus dem Pod, dafür läge die API im
 Judge-Pfad, ihr Ausfall träfe jeden Lauf.
+
+SSH und die Kubernetes-API stehen auf den Ports 22 und 6443 jeder IPv6-Adresse
+offen, die Quelle lässt sich nicht eingrenzen, weil das VPN der DHBW kein IPv6
+trägt. Ein Jump Host ist verworfen, die Gründe stehen unter P2.
 
 Ein k3s-Upgrade trifft laufende Judge-Worker. Der `agent-plan` des
 system-upgrade-controller räumt den Node mit `drain.force` leer, mit

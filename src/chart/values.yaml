@@ -119,7 +119,7 @@ judge:
 
   # Ab diesem Alter in Sekunden gilt der Heartbeat eines Workers als zu alt
   # und die Liveness-Probe schlägt an. Der Worker schreibt es nach jedem
-  # abgeschlossenen Schritt, siehe _heartbeat in app/worker/worker.py.
+  # abgeschlossenen Schritt, siehe _heartbeat in src/worker/worker.py.
   #
   # Die längste Lücke zwischen zwei Schritten ist ein Sandbox-Lauf. Er endet
   # nach zeit + 1 + ZEITFRIST_PUFFER, mit zeit höchstens GRENZE_ZEIT_MAX also
@@ -170,7 +170,7 @@ judge:
   # die Liste judge:<name>, aus der dieser Worker liest. Eine weitere Sprache
   # braucht ein eigenes Image und einen Eintrag hier, keine weitere Datei im
   # Chart. Die API führt daneben ihre eigene Liste, AKTIVE_SPRACHEN in
-  # app/backend/main.py, und lehnt eine Sprache ohne Eintrag dort mit 400 ab.
+  # src/backend/main.py, und lehnt eine Sprache ohne Eintrag dort mit 400 ab.
   sprachen:
     - name: python
       repository: online-judge-worker

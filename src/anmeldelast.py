@@ -18,7 +18,7 @@ Durchlauf sind drei Anfragen.
 
 Aufruf aus dem Repo, gegen den Cluster über die Ingress:
 
-    python3 app/anmeldelast.py --parallel 5 --dauer 120
+    python3 src/anmeldelast.py --parallel 5 --dauer 120
 
 Host und Realm kommen aus ansible/vars/dns.yaml, die Zugangsdaten aus
 ansible/app-credentials.sops.yaml über sops -d, damit sie an einer Stelle

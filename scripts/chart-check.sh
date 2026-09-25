@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prüft das Helm-Chart unter app/chart. Lint und Rendern je mit values.yaml
+# Prüft das Helm-Chart unter src/chart. Lint und Rendern je mit values.yaml
 # allein sowie mit dem dev- und dem prod-Overlay, kubeconform über die Renders
 # und Negativtests am values-Schema. Der chart-Job in lint.yml ruft genau
 # dieses Skript auf, lokal läuft es über ./scripts/check.sh, damit prüfen beide
@@ -43,7 +43,7 @@ render=$(mktemp -d /tmp/chart-check.XXXXXX)
 trap 'rm -rf "$render"' EXIT
 
 helm() {
-    docker run --rm -v "$PWD/app/chart":/chart "$helm_image" "$@"
+    docker run --rm -v "$PWD/src/chart":/chart "$helm_image" "$@"
 }
 
 # Der Image-Tag hat im Schema bewusst keine Vorgabe, ohne --set bricht schon

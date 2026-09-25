@@ -16,10 +16,10 @@ Die Wirkung der Last zeigt das Dashboard aus #11, nicht dieses Skript. Es
 zählt nur, was die API geantwortet hat.
 
 Lokal läuft es aus dem Repo gegen den Compose-Stand. Der Wert ist der aus
-app/docker-compose.yml:
+src/docker-compose.yml:
 
     GATEWAY_SECRET=nur-lokal-ohne-gateway-kein-geheimnis \
-        python3 app/chart/lastgenerator.py --rate 5 --dauer 60
+        python3 src/chart/lastgenerator.py --rate 5 --dauer 60
 
 Die Identität kommt als X-Auth-Request-Header mit, so wie das Gateway sie
 setzen würde. Der Weg über das Gateway selbst bräuchte eine Browser-Session
@@ -47,12 +47,12 @@ import time
 import urllib.error
 import urllib.request
 
-# Nur python. Die API nimmt über AKTIVE_SPRACHEN in app/backend/main.py auch
+# Nur python. Die API nimmt über AKTIVE_SPRACHEN in src/backend/main.py auch
 # nur python an und lehnt jede andere Sprache mit 400 ab, ein Worker-Image
 # gibt es ebenfalls nur dafür.
 SPRACHE = "python"
 
-# Die Aufgaben-JSONs und die Lösungen. Im Repo liegen sie unter app/aufgaben
+# Die Aufgaben-JSONs und die Lösungen. Im Repo liegen sie unter src/aufgaben
 # und neben diesem Skript unter loesungen/, der Prüflauf aus #19 nutzt
 # dieselben Dateien. Im Pod kommen beide als ConfigMap unter /aufgaben und
 # /loesungen an, das Chart setzt die beiden Variablen.
@@ -103,7 +103,7 @@ def _herkunftswert():
         raise SystemExit(
             "GATEWAY_SECRET fehlt. Im Cluster setzt es das Chart aus dem Secret "
             "gateway-auth, lokal der Aufruf, der Wert für den Compose-Stand "
-            "steht in app/docker-compose.yml."
+            "steht in src/docker-compose.yml."
         )
     return wert
 
@@ -112,7 +112,7 @@ def _kopfzeilen(nutzer):
     """Die Header, wie das Gateway sie setzen würde.
 
     Dieselben Namen wie im Headers-Block der Middleware
-    (ansible/tasks/traefik-auth.yaml), gelesen von app/backend/auth.py. Ohne
+    (ansible/tasks/traefik-auth.yaml), gelesen von src/backend/auth.py. Ohne
     X-Gateway-Auth antwortet die API auf jede Route mit 401, denn ein direkter
     Aufruf des Service umgeht das Gateway.
     """

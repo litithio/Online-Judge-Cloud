@@ -21,7 +21,7 @@ import pytest
 
 os.environ.setdefault("GATEWAY_SECRET", "test")
 sys.path.insert(
-    0, str(pathlib.Path(__file__).resolve().parents[1] / "app" / "chart" / "tests")
+    0, str(pathlib.Path(__file__).resolve().parents[1] / "src" / "chart" / "tests")
 )
 
 import loesungen_pruefen  # noqa: E402

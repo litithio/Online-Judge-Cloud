@@ -1,4 +1,4 @@
-# Baut die beiden Dienste aus app/ und schiebt sie nach
+# Baut die beiden Dienste aus src/ und schiebt sie nach
 # ghcr.io/<owner>/online-judge-{backend,worker}.
 #
 # Die Packages entstehen beim ersten Push mit der Sichtbarkeit des Repos, also
@@ -70,7 +70,7 @@ jobs:
       - name: Bauen und schieben
         uses: docker/build-push-action@v7.3.0
         with:
-          context: app/${{ matrix.dienst }}
+          context: src/${{ matrix.dienst }}
           # Ziel sind die Nodes: Ubuntu 24.04 auf Flavor k8s.node, also amd64.
           # Ein zweiter Bau für arm64 liefe auf dem Runner emuliert und
           # vervielfacht die Laufzeit für ein Artefakt, das der Cluster nie zieht.

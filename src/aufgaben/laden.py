@@ -14,7 +14,7 @@ import sys
 from pymongo import MongoClient
 
 # Die Lösungen gehören nicht in die Datenbank. Sie sind Material für den
-# Prüflauf und liegen deshalb im Chart (app/chart/loesungen).
+# Prüflauf und liegen deshalb im Chart (src/chart/loesungen).
 ORDNER = pathlib.Path(__file__).parent
 FELDER = (
     "title",
@@ -31,7 +31,7 @@ SCHWIERIGKEITEN = ("leicht", "mittel", "schwer")
 
 # Zeit und Speicher darf jede Aufgabe selbst festlegen, weil sich der Bedarf
 # stark unterscheidet. Fehlen sie, nimmt der Worker seine Vorgaben.
-# Obergrenzen wie in app/worker/worker.py. Eine Aufgabe soll das Zeitlimit nicht
+# Obergrenzen wie in src/worker/worker.py. Eine Aufgabe soll das Zeitlimit nicht
 # abschalten und nicht mehr Speicher erlauben, als der Container hat.
 GRENZEN = {"time_limit_seconds": 60, "memory_limit_mb": 256}
 

@@ -34,7 +34,7 @@
 
 - name: Gateway_secret muss mindestens 32 Zeichen haben
   # Die API vergleicht diesen Wert mit dem X-Gateway-Auth-Header und lehnt
-  # kürzere Werte beim Start ab (app/backend/auth.py). Hier vorab, damit der
+  # kürzere Werte beim Start ab (src/backend/auth.py). Hier vorab, damit der
   # Fehler nicht erst im Backend-Pod auftaucht.
   ansible.builtin.assert:
     that: gateway_secret | length >= 32

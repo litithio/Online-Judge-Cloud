@@ -33,7 +33,7 @@ from pymongo import MongoClient, ReturnDocument
 # Sekunden. Überholt eine Übernahme das Signal knapp, läuft diese eine
 # Bewertung noch ganz durch. Die Grace-Period im Chart deckt beide Wege, die
 # Herleitung steht an judge.terminationGracePeriodSeconds in
-# app/chart/values.yaml.
+# src/chart/values.yaml.
 _beenden = False
 
 
@@ -168,7 +168,7 @@ CLAIM_FRIST_PUFFER_SEKUNDEN = int(os.getenv("CLAIM_FRIST_PUFFER_SEKUNDEN", "90")
 # Obergrenzen für das, was eine Aufgabe fordern darf. Ohne sie könnte eine
 # Aufgabe das Zeitlimit praktisch abschalten oder mehr Speicher erlauben, als der
 # Container insgesamt hat, und damit statt der Einreichung den Worker in den
-# OOM-Kill treiben. Dieselben Werte stehen in app/aufgaben/laden.py, dort fallen
+# OOM-Kill treiben. Dieselben Werte stehen in src/aufgaben/laden.py, dort fallen
 # sie schon beim Laden auf.
 GRENZE_ZEIT_MAX = 60
 GRENZE_SPEICHER_MAX_MB = 256
@@ -220,7 +220,7 @@ TRENNUNG_ERZWINGEN = os.getenv("SANDBOX_TRENNUNG_ERZWINGEN", "1") != "0"
 # bleibt auf RUNNING stehen, bis der Durchlauf ihre Frist reißen sieht.
 #
 # serverSelectionTimeoutMS bleibt bei der Vorgabe von 30 Sekunden, wie am
-# Hauptclient der API (app/backend/main.py). MongoDB läuft als ReplicaSet, und
+# Hauptclient der API (src/backend/main.py). MongoDB läuft als ReplicaSet, und
 # während einer Neuwahl des Primary ist für einige Sekunden kein Server wählbar.
 # Diese Wartezeit ist gewollt. socketTimeoutMS deckt den anderen Fall ab, eine
 # stehende Verbindung ohne Antwort, und zehn Sekunden liegen weit über allem,

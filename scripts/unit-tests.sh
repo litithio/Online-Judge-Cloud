@@ -22,8 +22,8 @@ fi
 
 # Eigene Tags, damit der Lauf nicht die :local-Images des Compose-Stands
 # überschreibt.
-docker build -q -t judge-worker:tests app/worker >/dev/null
-docker build -q -t judge-backend:tests app/backend >/dev/null
+docker build -q -t judge-worker:tests src/worker >/dev/null
+docker build -q -t judge-backend:tests src/backend >/dev/null
 
 # uid 1000 statt root. Als root nähme der Import von worker.py den Sandbox-Pfad
 # mit UID-Bereich und Namespace-Probe, als gewöhnlicher User genügt das

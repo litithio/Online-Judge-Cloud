@@ -17,7 +17,7 @@ from unittest import mock
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "app" / "chart"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src" / "chart"))
 
 import lastgenerator  # noqa: E402
 
@@ -58,9 +58,9 @@ def test_pfade_aus_der_umgebung(tmp_path, monkeypatch):
 
 
 def test_vorgabepfade_zeigen_ins_repo():
-    # Lokal gegen den Compose-Stand liest das Skript app/aufgaben und
-    # app/chart/loesungen, dieselben Dateien wie der Prüflauf aus #19.
-    wurzel = pathlib.Path(__file__).resolve().parents[1] / "app"
+    # Lokal gegen den Compose-Stand liest das Skript src/aufgaben und
+    # src/chart/loesungen, dieselben Dateien wie der Prüflauf aus #19.
+    wurzel = pathlib.Path(__file__).resolve().parents[1] / "src"
     assert lastgenerator.AUFGABEN == wurzel / "aufgaben"
     assert lastgenerator.LOESUNGEN == wurzel / "chart" / "loesungen"
 

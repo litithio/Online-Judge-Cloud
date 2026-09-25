@@ -63,4 +63,4 @@ darüber hinaus offen): `verwaltung.html` mit Kennzahlen und Aufgabenliste,
 `verwaltung-einreichungen.html` mit den Einreichungen aller Personen. Der
 Navigationspunkt Verwaltung erscheint nur mit der Rolle. Studierendenseiten
 zeigen ihn nicht, deshalb führt nur `index.html` dorthin. Offen sind das
-Verhalten zum Seed-Job aus `app/aufgaben` und der Feldzuschnitt aus #71.
+Verhalten zum Seed-Job aus `src/aufgaben` und der Feldzuschnitt aus #71.

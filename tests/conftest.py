@@ -8,7 +8,7 @@ vor jedem Testmodul, damit funktioniert dort ein gewöhnliches import worker.
 
 WORKER_PFAD übersteuert, welcher worker.py-Stand getestet wird. Das braucht der
 Nachweis, dass ein Test seinen Fehler fängt, er läuft dann gegen eine Kopie mit
-genau diesem Fehler statt gegen app/worker.
+genau diesem Fehler statt gegen src/worker.
 """
 
 import os
@@ -22,6 +22,6 @@ sys.path.insert(
     0,
     os.getenv(
         "WORKER_PFAD",
-        str(pathlib.Path(__file__).resolve().parents[1] / "app" / "worker"),
+        str(pathlib.Path(__file__).resolve().parents[1] / "src" / "worker"),
     ),
 )

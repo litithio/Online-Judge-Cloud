@@ -30,13 +30,13 @@
     <a href="/verwaltung" class="zurueck">&#8592; Verwaltung</a>
     <div class="kopfzeile">
       <h1>Neue Aufgabe</h1>
-      <p>Die Felder folgen dem Aufgabenformat aus app/aufgaben samt der
+      <p>Die Felder folgen dem Aufgabenformat aus src/aufgaben samt der
          Erweiterungen aus #71 (Schwierigkeit, Name je Testfall, Limits je
          Aufgabe). Dieselbe Maske dient später dem Bearbeiten.</p>
     </div>
 
     <!-- Über die Oberfläche angelegte Aufgaben stehen nur in MongoDB. Der
-         Seed-Job (app/aufgaben/laden.py) upsertet über den Titel: Gleicher
+         Seed-Job (src/aufgaben/laden.py) upsertet über den Titel: Gleicher
          Titel wird beim Neuaufbau überschrieben, anderer Titel geht
          verloren - dieselbe Aufgabe kann also durch einen Seed-Lauf mit
          gleichem Titel wieder verschwinden. Das Verhalten ist offen und in

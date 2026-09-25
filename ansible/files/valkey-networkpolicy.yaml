@@ -18,7 +18,7 @@ spec:
             matchLabels:
               app: backend
         # Sprachunabhängig, das Label sitzt am Pod-Template jedes Workers
-        # (app/chart/templates/judge.yaml). app: code-worker-<sprache> wäre
+        # (src/chart/templates/judge.yaml). app: code-worker-<sprache> wäre
         # je Sprache ein eigener Eintrag.
         - podSelector:
             matchLabels:

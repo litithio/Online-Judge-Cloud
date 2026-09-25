@@ -5,7 +5,7 @@
 # sich mit den Datendiensten nur über die Adressen aus values.
 #
 # Läuft auf dem Server, weil dort die kubeconfig liegt. Der Chart steht im Repo
-# unter app/chart; die Helm-Module laufen aber auf dem Server, deshalb wird er
+# unter src/chart; die Helm-Module laufen aber auf dem Server, deshalb wird er
 # zuerst dorthin kopiert.
 
 # Erst löschen, dann kopieren. ansible.builtin.copy legt an und überschreibt,
@@ -28,13 +28,13 @@
 
 - name: Chart auf den Server kopieren
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../app/chart/"
+    src: "{{ playbook_dir }}/../src/chart/"
     dest: "{{ app_chart_remote }}/"
     mode: "0644"
     directory_mode: "0755"
 
 # Vor dem Helm-Aufruf, denn ohne den Wert bricht das Backend beim Start ab
-# (app/backend/auth.py). Denselben Wert setzt das Gateway als Header, die
+# (src/backend/auth.py). Denselben Wert setzt das Gateway als Header, die
 # Middleware dafür steht in tasks/traefik-auth.yaml.
 #
 # Auf einem frischen Cluster genügt ein Lauf des ganzen Playbooks. Die Ingress

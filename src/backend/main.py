@@ -27,7 +27,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 
 # DB Connections
 #
-# connectTimeoutMS/socketTimeoutMS wie am Worker (app/worker/worker.py):
+# connectTimeoutMS/socketTimeoutMS wie am Worker (src/worker/worker.py):
 # serverSelectionTimeoutMS bleibt bei der Vorgabe von 30 Sekunden, das deckt
 # eine Neuwahl des Primary im ReplicaSet ab. Ohne die beiden anderen Werte
 # wartet ein Aufruf unbegrenzt, sobald MongoDB die Verbindung annimmt und
@@ -156,14 +156,14 @@ app.mount("/static", StaticFiles(directory=BASIS_VERZEICHNIS / "static"), name="
 SPRACHEN = ("python", "java", "cpp", "rust")
 
 # Sprachen, zu denen tatsächlich ein Worker läuft (judge.sprachen in
-# app/chart/values.yaml, je Eintrag ein Deployment samt ScaledObject). Nur
+# src/chart/values.yaml, je Eintrag ein Deployment samt ScaledObject). Nur
 # gegen diese Liste prüft /submit. Eine Sprache aus dem Bauplan wandert
 # hierher, sobald ihr Worker-Image existiert und das Chart sie ausrollt.
 AKTIVE_SPRACHEN = ("python",)
 STANDARD_SPRACHE = "python"
 
 # Vorgaben des Workers, wenn eine Aufgabe kein eigenes Limit trägt
-# (app/worker/worker.py, grenzen_der_aufgabe: SANDBOX_TIMEOUT/
+# (src/worker/worker.py, grenzen_der_aufgabe: SANDBOX_TIMEOUT/
 # SANDBOX_SPEICHER_MB). Hier dupliziert, weil der Worker in einem anderen
 # Image liegt und aufgabe_seite nur zur Anzeige braucht, was tatsächlich
 # gilt - "–" wäre falsch, der Worker setzt in diesem Fall durch, nicht ab.
@@ -694,7 +694,7 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
 
 # Höchstlänge für code in /submit. Dieselbe Grenze, die die Sandbox der
 # Ausgabe einer Einreichung setzt (SANDBOX_AUSGABE_BYTES in
-# app/worker/worker.py). Die größte Musterlösung unter app/aufgaben/loesungen
+# src/worker/worker.py). Die größte Musterlösung unter src/aufgaben/loesungen
 # misst unter 2 KiB, die Grenze hält also keine echte Lösung auf. Sie hält
 # das Dokument der Einreichung zugleich weit unter den 16 MB, die MongoDB je
 # Dokument zulässt, auch wenn jedes Zeichen in UTF-8 bis zu vier Bytes belegt.
@@ -1021,7 +1021,7 @@ def verwaltung_seite(request: Request, user=Depends(get_current_user)):
 
 
 # Formularfelder von verwaltung-aufgabe-neu.html, dieselben Regeln wie
-# app/aufgaben/laden.py (gelesen): eigene Konstanten hier statt eines
+# src/aufgaben/laden.py (gelesen): eigene Konstanten hier statt eines
 # Imports, laden.py liegt im Worker-Image, main.py im Backend-Image, ein
 # Import über die Image-Grenze böte nur eine Kopplung zur Build-Zeit.
 SCHWIERIGKEITEN = ("leicht", "mittel", "schwer")

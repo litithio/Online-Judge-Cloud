@@ -1,6 +1,6 @@
 """Tests zur Prüfung der Aufgaben-Dateien in laden.py (#71).
 
-laden.py liegt nicht am Pfad aus tests/conftest.py, der zeigt auf app/worker.
+laden.py liegt nicht am Pfad aus tests/conftest.py, der zeigt auf src/worker.
 Der Import bekommt deshalb hier seinen eigenen Eintrag. pymongo ist im
 Worker-Image vorhanden, der Import von laden verbindet sich noch nicht.
 """
@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-AUFGABEN = pathlib.Path(__file__).resolve().parents[1] / "app" / "aufgaben"
+AUFGABEN = pathlib.Path(__file__).resolve().parents[1] / "src" / "aufgaben"
 sys.path.insert(0, str(AUFGABEN))
 
 import laden  # noqa: E402
@@ -35,7 +35,7 @@ def _datei(tmp_path, aufgabe):
 
 
 def test_die_aufgaben_im_repo_bestehen_die_pruefung():
-    # Hält die Dateien unter app/aufgaben und die Regeln in laden.py
+    # Hält die Dateien unter src/aufgaben und die Regeln in laden.py
     # zusammen. Ein neues Pflichtfeld fällt so im CI auf, nicht erst im Seed.
     for datei in sorted(AUFGABEN.glob("*.json")):
         laden.gelesen(datei)

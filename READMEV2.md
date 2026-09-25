@@ -67,7 +67,7 @@ Queue-Eintrag, reiht er sie erneut ein, bis MAX_VERSUCHE erreicht ist (#113).
 
 Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster samt der
 Datendienste (MongoDB, Valkey, PostgreSQL), dem Judge-Worker und dem Seed der
-Aufgaben und rollt die eigene API als Helm-Release aus (`app/chart`). Die
+Aufgaben und rollt die eigene API als Helm-Release aus (`src/chart`). Die
 Images baut `.github/workflows/images.yml` nach ghcr.io. Ein neues Package
 entsteht dort mit der Sichtbarkeit privat und wird einmal von Hand auf
 öffentlich gestellt, danach zieht der Cluster es ohne Zugangsdaten.
@@ -220,7 +220,7 @@ Dienste-Node liegen.
 
 ### Anwendung
 
-Das Chart `app/chart` rollt die eigenen Dienste aus, die API (`backend`) und
+Das Chart `src/chart` rollt die eigenen Dienste aus, die API (`backend`) und
 die Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob. MongoDB, Valkey
 und der Seed der Aufgaben gehören zur Infrastruktur und stehen schon im
 Cluster. Das Chart verbindet sich mit ihnen über `externe` in den values, mit
@@ -236,7 +236,7 @@ Chart auf den Server und ruft `helm upgrade --install`.
 (cd ansible && ansible-playbook -i inventory/generated-inventory.yml deploy.yaml --tags app)
 ```
 
-Der ausgerollte Stand steht als `appVersion` in `app/chart/Chart.yaml`,
+Der ausgerollte Stand steht als `appVersion` in `src/chart/Chart.yaml`,
 gebaut von `.github/workflows/images.yml` bei einem Git-Tag. `ansible/vars/app.yaml` liest den
 Wert von dort und reicht ihn als Image-Tag an Helm und den Seed-Job durch.
 `app_values_env` wählt zwischen den Overlays `values-prod.yaml` mit zwei
@@ -248,7 +248,7 @@ fehlt.
 Eine weitere Sprache ist ein Eintrag unter `judge.sprachen` in den values,
 samt eigenem Worker-Image. Das Chart erzeugt daraus Deployment und
 ScaledObject. Die API führt ihre eigene Liste, `AKTIVE_SPRACHEN` in
-`app/backend/main.py`. Fehlt die Sprache dort, lehnt `/submit` jede
+`src/backend/main.py`. Fehlt die Sprache dort, lehnt `/submit` jede
 Einreichung dafür mit 400 ab.
 
 Prüfen mit `kubectl get pods -n judge`, dort steht `backend` auf Running.
@@ -291,7 +291,7 @@ Das Skript wartet auf den Rollout der Chart-Workloads, lässt per SSH auf dem
 Server `helm test online-judge` laufen und prüft danach den Pod-Verkehr über
 Node-Grenzen, die Queue-Metrik in Prometheus und den Wert des ScaledObject.
 Der Testjob `test-api` spricht die API am Service an, `test-loesungen` reicht
-die Beispiellösungen aus `app/chart/loesungen` über `/submit` ein und
+die Beispiellösungen aus `src/chart/loesungen` über `/submit` ein und
 vergleicht die Urteile mit den Dateinamen. Jede fehlgeschlagene Prüfung nennt
 das nächste Kommando. Die NetworkPolicies prüft `scripts/policycheck.sh`, je
 Pod eine Verbindung, die gehen muss, und eine, die nicht gehen darf.
@@ -309,7 +309,7 @@ Plugin [traefik-oidc-auth](https://github.com/sevensolutions/traefik-oidc-auth)
 selbst ausführt, ohne zweiten Dienst. Ohne gültige Session leitet das Plugin
 zur Keycloak-Anmeldung um, nach der Anmeldung füllt es die Identität aus den
 Token-Claims in `X-Auth-Request-*`-Header, die es an die API weiterreicht.
-Die API prüft keine Tokens, sie liest nur diese Header (`app/backend/auth.py`)
+Die API prüft keine Tokens, sie liest nur diese Header (`src/backend/auth.py`)
 und weist eine Anfrage ohne sie mit 401 ab. Dazu vergleicht sie den festen
 Herkunftswert `X-Gateway-Auth`, den nur das Gateway setzt, siehe W6. Die
 Anwendung bleibt so frei von Login-Seite und Token-Austausch.
@@ -334,7 +334,7 @@ eine Anmeldung deshalb scheitern.
 Die Anmeldeseite zeigt das DHBW-Layout aus `docs/oberflaeche/login.html`
 (#122). Das Theme `dhbw` ist eine ConfigMap, die das Play als Ordner
 `/opt/keycloak/themes/dhbw` in den Pod hängt, `dhbw.css` und `logo.jpg`
-kommen aus `app/backend/static`, damit Anwendung und Anmeldung dieselbe Datei
+kommen aus `src/backend/static`, damit Anwendung und Anmeldung dieselbe Datei
 tragen. Eine geänderte ConfigMap liest Keycloak erst nach einem Neustart des
 Pods.
 
@@ -417,7 +417,7 @@ ist als Startseite gesetzt. Der Benutzer heißt `admin`, das Passwort setzt
 Anwendung hängt Grafana nicht hinter der Anmeldung aus #20, es prüft selbst.
 
 Ohne Last stehen beide Kurven auf null. Einreichungen erzeugt der
-Lastgenerator `app/chart/lastgenerator.py`. Er läuft als Pod im Namespace
+Lastgenerator `src/chart/lastgenerator.py`. Er läuft als Pod im Namespace
 `judge`, weil die backend-NetworkPolicy aus #62 Ingress nur von benannten
 Pods zulässt. Das Chart legt ihn als angehaltenen CronJob an, einen Lauf
 startet ein Job aus dieser Vorlage.
@@ -428,7 +428,7 @@ kubectl create job -n judge --from=cronjob/lastgenerator lastgenerator-1
 kubectl logs -n judge -f job/lastgenerator-1
 ```
 
-Rate und Dauer stehen in `app/chart/values.yaml` unter `lastgenerator`, 6 je
+Rate und Dauer stehen in `src/chart/values.yaml` unter `lastgenerator`, 6 je
 Sekunde über 60 Sekunden, also 360 Einreichungen. Gemessen am 11.09.2026
 stieg die Warteschlange damit auf 207, KEDA startete die ersten Worker nach
 32 Sekunden und hatte nach 58 Sekunden alle sechs bereit, nach 147 Sekunden
@@ -579,7 +579,7 @@ fehlgeschlagene Anmeldung.
 
 ### W1 Packaging
 
-Die Anwendung kommt aus einem eigenen Chart in `app/chart` mit
+Die Anwendung kommt aus einem eigenen Chart in `src/chart` mit
 `values-dev.yaml`, `values-prod.yaml` und `values.schema.json`, die
 Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob eingeschlossen. Die
 Alternativen waren Kustomize mit Base und zwei Overlays, oder die Manifeste
@@ -675,7 +675,7 @@ bildet.
 
 **Keycloak.** 250m und 832Mi als Request, 1000m und 1152Mi als Limit, die
 Heap-Decke über `JAVA_OPTS_KC_HEAP` fest auf 512Mi. Gemessen mit
-`app/anmeldelast.py`, fünf Läufe mit 13970 Anmeldungen und bis zu 18 je
+`src/anmeldelast.py`, fünf Läufe mit 13970 Anmeldungen und bis zu 18 je
 Sekunde, steigt der Pod von 560Mi auf 735Mi und bleibt dort, mit fester
 Heap-Decke bei 707Mi. Ein Request am Leerlauf läge nach der ersten
 Anmeldewelle unter dem Verbrauch. Eine Anmeldung kostet 59
@@ -730,7 +730,7 @@ zurück, ein Versuch ist verbraucht.
 **Geordneter Auslauf der Judge-Worker.** Der Worker fängt SIGTERM ab,
 übernimmt nichts Neues mehr, legt einen gezogenen Queue-Eintrag zurück und
 rechnet die laufende Bewertung zu Ende, `terminationGracePeriodSeconds` 300,
-hergeleitet in `app/chart/values.yaml`. Die Alternative war, den Verlust
+hergeleitet in `src/chart/values.yaml`. Die Alternative war, den Verlust
 unter Grenzen zu dokumentieren. Ein abgeschossener Lauf kostet einen der
 drei Versuche, in einer Klausur entschiede der Zeitpunkt des Rollouts mit
 über das Urteil. Der Preis ist ein Rollout von bis zu 300 Sekunden je Pod.
@@ -943,7 +943,7 @@ keiner Person.
 **B4 Neue Technologie, gVisor.** Die Judge-Worker laufen unter der
 RuntimeClass `gvisor` mit dem Handler `runsc`, angelegt in
 `ansible/tasks/gvisor.yaml`, gebunden über `runtimeClassName` in
-`app/chart/templates/judge.yaml`. Die RuntimeClass bindet jeden Pod über
+`src/chart/templates/judge.yaml`. Die RuntimeClass bindet jeden Pod über
 ihren `scheduling.nodeSelector` an die Judge-Nodes und toleriert deren
 Taint, siehe P4. Nachweis vom 30.08.2026 in #152, ein Worker-Pod auf einem
 Judge-Node meldet den Kernel `4.19.0-gvisor` und hat im selben Lauf
@@ -951,13 +951,13 @@ Einreichungen mit SUCCESS und FAILED bewertet. Die Anrechnung als B4 hat
 Prof. Pfisterer am 31.08.2026 bestätigt.
 
 **B2 Autoscaling, KEDA.** Das ScaledObject `code-worker-python` in
-`app/chart/templates/judge.yaml` skaliert das Worker-Deployment an der
+`src/chart/templates/judge.yaml` skaliert das Worker-Deployment an der
 Länge der Valkey-Liste `judge:python`, von null bis `keda.max`, die
 Zugangsdaten über eine TriggerAuthentication. Die Metrik ist die
 Warteschlange und nicht die CPU, weil sich Einreichungen stauen, bevor ein
 Worker ausgelastet ist, und weil ein Worker mit Request gleich Limit die CPU
 nie über sein Limit hebt. Last erzeugt der Lastgenerator aus
-`app/chart/templates/lastgenerator.yaml`, die Wirkung zeigt das Dashboard
+`src/chart/templates/lastgenerator.yaml`, die Wirkung zeigt das Dashboard
 `Judge unter Last` aus `ansible/files/dashboard-judge.json`. Gemessen am
 11.09.2026 aus null Workern, Warteschlange 207, Worker von null auf sechs in
 58 Sekunden, siehe Betrieb unter Dashboard.

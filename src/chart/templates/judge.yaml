@@ -104,7 +104,7 @@ spec:
       automountServiceAccountToken: false
       # Frist für den geordneten Auslauf nach SIGTERM (#199). Der Worker nimmt
       # nach dem Signal keine Einreichung mehr an und rechnet die laufende
-      # Bewertung zu Ende, siehe _sigterm in app/worker/worker.py. Gilt für
+      # Bewertung zu Ende, siehe _sigterm in src/worker/worker.py. Gilt für
       # Rollout, KEDA-Scale-down und Drain, alle drei löschen den Pod über
       # denselben Weg. Die Herleitung des Werts steht in values.yaml.
       terminationGracePeriodSeconds: {{ $.Values.judge.terminationGracePeriodSeconds }}
@@ -285,7 +285,7 @@ spec:
 ---
 {{- end }}
 # Nimmt Einreichungen zurück, deren Frist ohne Ergebnis verstrichen ist, siehe
-# app/worker/durchlauf.py. Ein CronJob für alle Sprachen, das Skript selbst
+# src/worker/durchlauf.py. Ein CronJob für alle Sprachen, das Skript selbst
 # braucht nur MongoDB und Valkey, keine eigene Laufzeitumgebung wie der Worker.
 {{- $durchlaufDaten := dict "MAX_VERSUCHE" (.Values.judge.durchlauf.maxVersuche | toString) }}
 apiVersion: v1
@@ -334,14 +334,14 @@ spec:
               # worker.py und teilt dessen Abhängigkeiten.
               image: {{ include "online-judge.image" (dict "root" . "repo" .Values.judge.durchlauf.repository) }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              # Absoluter Pfad: WORKDIR /app im Image (app/worker/Dockerfile),
+              # Absoluter Pfad: WORKDIR /app im Image (src/worker/Dockerfile),
               # COPY . . legt durchlauf.py dorthin, neben worker.py.
               command: ["python3", "/app/durchlauf.py"]
               # Anders als der Worker ohne root und ohne jede Capability.
               # durchlauf.py startet keinen fremden Code und wechselt keinen
               # User, es braucht nur die zwei Verbindungen oben. 65534 ist
               # nobody aus dem Image. Die Gruppe 0 muss dazu, /app liegt mit
-              # 750 auf root:root (app/worker/Dockerfile), ohne sie scheitert
+              # 750 auf root:root (src/worker/Dockerfile), ohne sie scheitert
               # schon das Öffnen von durchlauf.py. Gemessen mit docker run
               # --user 65534:0 --cap-drop ALL gegen MongoDB und Valkey: der
               # Lauf geht durch, als 65534:65534 endet er mit EACCES.

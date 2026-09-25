@@ -62,7 +62,7 @@ services:
     environment:
       MONGO_URI: mongodb://mongodb:27017
       REDIS_URI: redis://valkey:6379
-      # Ohne diesen Wert startet die API nicht (app/backend/auth.py). Im
+      # Ohne diesen Wert startet die API nicht (src/backend/auth.py). Im
       # Cluster setzt ihn Ansible als Secret, und die Middleware schickt
       # denselben Wert als Header. Hier steht er im Klartext, weil der lokale
       # Stand kein Gateway davor hat und der Aufrufer die Header selbst setzt.
@@ -100,9 +100,9 @@ services:
     networks:
       - coding_net
 
-  # Durchlauf aus #82 (app/worker/durchlauf.py): nimmt Einreichungen zurück,
+  # Durchlauf aus #82 (src/worker/durchlauf.py): nimmt Einreichungen zurück,
   # deren Frist ohne Ergebnis verstrichen ist. Im Cluster ein CronJob
-  # (app/chart/templates/judge.yaml) mit eigenem Zeitplan, hier stattdessen
+  # (src/chart/templates/judge.yaml) mit eigenem Zeitplan, hier stattdessen
   # ein einzelner Lauf auf Abruf, damit ein Testlauf nicht zufällig mitten in
   # einen Timer platzt. profiles hält ihn aus einem gewöhnlichen
   # `docker compose up` heraus:

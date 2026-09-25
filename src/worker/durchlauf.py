@@ -13,7 +13,7 @@ Das deckt drei Fälle ab, die für die Queue gleich aussehen:
   dem Insert und dem RPUSH stirbt, oder weil ein Worker den Eintrag per BLPOP
   schon zog, aber vor der bedingten Übernahme in MongoDB starb (#85). Dazu der
   Fall, dass der RPUSH der API ohne Bestätigung blieb. Die Einreichung trägt
-  dann last_enqueued_at None (app/backend/main.py) und wartet nicht erst eine
+  dann last_enqueued_at None (src/backend/main.py) und wartet nicht erst eine
   Frist ab, geprüft wird sie wie alle anderen. Ohne Queue-Eintrag bleibt so eine
   Einreichung sonst für immer auf PENDING stehen, ohne dass je eine Frist zu
   laufen beginnt. last_enqueued_at allein kann das nicht von einer
@@ -22,7 +22,7 @@ Das deckt drei Fälle ab, die für die Queue gleich aussehen:
   unten trennt beide Fälle.
 
 Läuft einmal und beendet sich. Im Cluster als CronJob
-(app/chart/templates/judge.yaml), lokal von Hand über
+(src/chart/templates/judge.yaml), lokal von Hand über
 `docker compose run --rm worker python3 durchlauf.py`.
 """
 
@@ -52,7 +52,7 @@ MAX_VERSUCHE = int(os.getenv("MAX_VERSUCHE", "3"))
 # Die Frist muss über der normalen Wartezeit einer gesunden Einreichung liegen.
 # KEDA pollt die Liste ohne eigenes pollingInterval alle 30 Sekunden, dazu kommt
 # die Zeit, bis der Worker-Pod aus minReplicaCount 0 startet und das Image
-# zieht. Das ScaledObject dazu steht in app/chart/templates/judge.yaml.
+# zieht. Das ScaledObject dazu steht in src/chart/templates/judge.yaml.
 #
 # LPOS allein trägt das nicht. Zwischen dem BLPOP im Worker und der Übernahme
 # auf RUNNING ist die ID aus der Liste und der Status noch PENDING. Fällt ein
@@ -91,7 +91,7 @@ def _ohne_frischen_eintrag(schwelle):
     vergleicht. Gegen MongoDB 8.0.28 gemessen findet $lt gegen ein Datum von
     vier Dokumenten mit altem Datum, neuem Datum, null und fehlendem Feld nur
     das mit altem Datum. Null steht dort, wo der RPUSH schon bei der Anlage
-    ohne Bestätigung blieb (app/backend/main.py). Ob die ID trotzdem in der
+    ohne Bestätigung blieb (src/backend/main.py). Ob die ID trotzdem in der
     Liste steht, ist damit offen, die Verbindung kann nach der Ausführung
     abgebrochen sein. Entschieden wird das wie bei jedem anderen Kandidaten
     unten per LPOS, nur wartet diese Einreichung keine
@@ -102,7 +102,7 @@ def _ohne_frischen_eintrag(schwelle):
     die haben aus derselben Zeit auch kein requeue_versuche. Die Schleife
     unten liest es über eintrag[...] ohne Rückfall, ein Treffer dieser Art
     beendete den Durchlauf also mit einem KeyError, bevor der Rest der Liste
-    dran wäre. Jede Anlage setzt beide Felder (app/backend/main.py), eine
+    dran wäre. Jede Anlage setzt beide Felder (src/backend/main.py), eine
     Einreichung ohne sie entsteht nicht mehr.
     """
     return [
@@ -127,14 +127,14 @@ def _verwaiste_pending(db, schwelle):
 
 def _einreihen(redis_client, db, sub_id, sprache):
     """Schreibt die ID in die Queue der Sprache und meldet, ob das bestätigt
-    wurde. Dieselbe Behandlung wie in /submit seit #150 (app/backend/main.py),
+    wurde. Dieselbe Behandlung wie in /submit seit #150 (src/backend/main.py),
     dort steht die Herleitung. Ohne den Fang verließe die Exception den ganzen
     Lauf, die restlichen Kandidaten blieben liegen, und jeder Anlauf des
     CronJobs bräche an derselben Einreichung erneut ab (#151). Der bedingte
     Update davor hat da schon gegriffen, last_enqueued_at steht auf jetzt.
 
     Kein flush an den prints wie in main.py, das Worker-Image setzt
-    PYTHONUNBUFFERED (app/worker/Dockerfile)."""
+    PYTHONUNBUFFERED (src/worker/Dockerfile)."""
     try:
         redis_client.rpush(f"judge:{sprache}", str(sub_id))
     except Exception as fehler:
@@ -164,7 +164,7 @@ def _einreihen(redis_client, db, sub_id, sprache):
 def durchlauf():
     # Dieselben Zeitlimits wie in worker.py, dort steht die Herleitung. Hier
     # wiegt ein hängender Aufruf schwerer als am Worker. Der CronJob läuft mit
-    # concurrencyPolicy Forbid (app/chart/templates/judge.yaml), ein Lauf ohne
+    # concurrencyPolicy Forbid (src/chart/templates/judge.yaml), ein Lauf ohne
     # Ende hält damit jeden weiteren auf, und abgelaufene Einreichungen bleiben
     # liegen, solange niemand den Job von Hand abräumt. Valkey bekommt hier ein
     # kürzeres socket_timeout als am Worker, der Durchlauf ruft nur LPOS und

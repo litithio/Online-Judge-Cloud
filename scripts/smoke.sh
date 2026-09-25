@@ -92,7 +92,7 @@ rollout_pruefen() {
 
 # ---------- helm test auf dem Server ----------
 # Der Timeout deckt den Prüflauf gegen die Beispiellösungen, seine Herleitung
-# steht in app/chart/tests/loesungen_pruefen.py. Hostkey-Prüfung aus wie in
+# steht in src/chart/tests/loesungen_pruefen.py. Hostkey-Prüfung aus wie in
 # ansible/ansible.cfg, die Nodes entstehen bei jedem Frisch-Deployment neu.
 #
 # Kein --logs am helm-Aufruf. helm sucht die Logs unter einem Pod mit dem

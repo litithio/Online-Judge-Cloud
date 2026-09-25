@@ -2,7 +2,7 @@
 # verloren, findet der wiederkehrende Durchlauf die betroffenen Einreichungen
 # über MongoDB und reiht sie erneut ein: RUNNING mit abgelaufener Frist über
 # #82, PENDING ohne frischen Queue-Eintrag über last_enqueued_at und
-# REENQUEUE_AFTER_SECONDS aus #113 (app/worker/durchlauf.py). Das Volume ist
+# REENQUEUE_AFTER_SECONDS aus #113 (src/worker/durchlauf.py). Das Volume ist
 # darum eine Optimierung gegen unnötige Zweitläufe, keine Voraussetzung für
 # Korrektheit.
 apiVersion: v1

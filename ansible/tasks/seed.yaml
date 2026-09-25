@@ -1,16 +1,16 @@
 ---
 # Der Seed der Aufgaben. Worker, Rückhol-CronJob und ScaledObject liegen seit
-# dem Umzug im Chart (app/chart/templates/judge.yaml) und kommen mit dem Tag
+# dem Umzug im Chart (src/chart/templates/judge.yaml) und kommen mit dem Tag
 # app. Hier bleibt, was Dateien aus dem Repo braucht. laden.py und die
 # Aufgaben-JSONs liegen nicht im Worker-Image, der Build-Kontext ist
-# app/worker, deshalb gehen sie als ConfigMap in den Cluster und ein Job führt
+# src/worker, deshalb gehen sie als ConfigMap in den Cluster und ein Job führt
 # das Skript aus dem Mount aus. laden.py liest die JSONs aus seinem eigenen
 # Verzeichnis, der Mount unter /seed genügt also.
 
 - name: Aufgaben und Seed-Skript einsammeln
   ansible.builtin.set_fact:
     seed_daten: "{{ (seed_daten | default({})) | combine({item | basename: lookup('file', item)}) }}"
-  loop: "{{ (lookup('fileglob', playbook_dir ~ '/../app/aufgaben/*.json', wantlist=True) + [playbook_dir ~ '/../app/aufgaben/laden.py']) | sort }}"
+  loop: "{{ (lookup('fileglob', playbook_dir ~ '/../src/aufgaben/*.json', wantlist=True) + [playbook_dir ~ '/../src/aufgaben/laden.py']) | sort }}"
   loop_control:
     label: "{{ item | basename }}"
 
@@ -76,7 +76,7 @@
                 # Dasselbe Image wie der Worker, pymongo liegt dort schon.
                 # Ein eigenes Seed-Image wäre ein weiterer Build für ein
                 # Skript. Der Tag kommt über vars/app.yaml aus appVersion in
-                # app/chart/Chart.yaml, damit Seed und Worker denselben Stand
+                # src/chart/Chart.yaml, damit Seed und Worker denselben Stand
                 # fahren.
                 image: "ghcr.io/litithio/online-judge-worker:{{ app_image_tag }}"
                 command: ["python", "/seed/laden.py"]

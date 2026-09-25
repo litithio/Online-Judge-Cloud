@@ -93,7 +93,7 @@ spec:
                   name: {{ .Values.externe.redisSecret.name | quote }}
                   key: {{ .Values.externe.redisSecret.key | quote }}
             # Keine KEYCLOAK_URL. Die Identität prüft das Gateway, die App liest
-            # sie aus den X-Auth-Request-*-Headern (app/backend/auth.py).
+            # sie aus den X-Auth-Request-*-Headern (src/backend/auth.py).
             #
             # Der Herkunftswert liegt im Secret und nicht in der ConfigMap, und
             # er steht aus demselben Grund nicht in den values. Sonst schriebe
@@ -193,7 +193,7 @@ spec:
             matchLabels:
               app: backend
         # Die beiden Helm-Test-Jobs. Beide rufen http://backend:8000 auf,
-        # siehe app/chart/tests/api_pruefen.py und loesungen_pruefen.py.
+        # siehe src/chart/tests/api_pruefen.py und loesungen_pruefen.py.
         - podSelector:
             matchLabels:
               batch.kubernetes.io/job-name: test-api

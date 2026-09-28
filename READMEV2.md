@@ -68,9 +68,10 @@ Queue-Eintrag, reiht er sie erneut ein, bis MAX_VERSUCHE erreicht ist (#113).
 Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster samt der
 Datendienste (MongoDB, Valkey, PostgreSQL), dem Judge-Worker und dem Seed der
 Aufgaben und rollt die eigene API als Helm-Release aus (`src/chart`). Die
-Images baut `.github/workflows/images.yml` nach ghcr.io. Ein neues Package
-entsteht dort mit der Sichtbarkeit privat und wird einmal von Hand auf
-öffentlich gestellt, danach zieht der Cluster es ohne Zugangsdaten.
+Images baut `.github/workflows/images.yml` aus `src/backend` und `src/worker`
+nach ghcr.io. Ein neues Package entsteht dort mit der Sichtbarkeit privat und
+wird einmal von Hand auf öffentlich gestellt, danach zieht der Cluster es ohne
+Zugangsdaten.
 
 VPN an für Terraform, VPN aus für alles andere. Terraform spricht mit der
 OpenStack-API und braucht den Tunnel. SSH, Ansible und kubectl erreichen die

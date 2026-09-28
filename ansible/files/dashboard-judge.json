@@ -22,7 +22,7 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
+        "h": 10,
         "w": 24,
         "x": 0,
         "y": 0
@@ -96,10 +96,10 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
+        "h": 10,
         "w": 24,
         "x": 0,
-        "y": 8
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {

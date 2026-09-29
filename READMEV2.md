@@ -691,9 +691,10 @@ Rechnung aus `shared_buffers` 64MB und 100 Verbindungen zu je 4MB
 `work_mem`, eine Obergrenze ist das nicht, der Beleg ist der Messwert unter
 einem Viertel des Limits.
 
-**Monitoring.** Prometheus, Grafana und kube-state-metrics tragen Werte aus
-einer Messung am 30.08., die Herleitung steht als Kommentar in
-`ansible/tasks/observability.yaml`.
+**Monitoring.** Prometheus, kube-state-metrics und die Sidecars von Grafana
+tragen Werte aus zwei Messungen am 27. und 28.08., der Grafana-Container
+selbst aus einer Messung am 28. und 29.09. mit offenem Dashboard. Die
+Herleitung steht als Kommentar in `ansible/tasks/observability.yaml`.
 
 ### Herleitungen zu P5
 

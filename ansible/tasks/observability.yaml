@@ -144,17 +144,25 @@
           online-judge/rolle: dienste
 
       grafana:
-        # 250,8 MiB, und 41,7m als höchster Zweiminutenmittelwert bei 7,8m im
-        # Schnitt. Ein Mittelwert verdeckt kurze Spitzen, der wahre
-        # CPU-Höchstwert liegt also darüber. Das Limit steht deshalb beim
-        # Fünffachen des Gemessenen.
+        # Anders als oben gemessen am 28. und 29.09.2026. Höchstwerte und CPU
+        # stammen aus Prometheus, der Verlauf aus kubectl top. Mit offenem
+        # Dashboard pendelte sich ein frisch gestarteter Pod bei 485 MiB ein,
+        # einer nach einem Tag Laufzeit und zwei Lastläufen bei 565 MiB,
+        # Höchstwert 569,1 MiB. Ein zweiter Zuschauer änderte den Wert um
+        # weniger als 5 MiB. Ohne Zuschauer lagen die beiden Pods bei 216 und
+        # 387 MiB. Die Anfrage ist das nächste Vielfache von 64 über dem
+        # Höchstwert, das Limit das Anderthalbfache davon. Mehr als zwei
+        # Zuschauer und Abfragen über lange Zeiträume sind nicht gemessen. CPU
+        # mit offenem Dashboard höchstens 11,9m, die Anfrage ist wie bei den
+        # anderen Komponenten das nächste Vielfache von 10m darüber. Beim Start
+        # des Pods 85,6m im Zweiminutenmittel, das Limit von 200m liegt darüber.
         resources:
           requests:
             cpu: "20m"
-            memory: "256Mi"
+            memory: "576Mi"
           limits:
             cpu: "200m"
-            memory: "384Mi"
+            memory: "864Mi"
         nodeSelector:
           online-judge/rolle: dienste
         # Eigener Host auf der Ebene unter der Zone, wie die Anwendung und

@@ -691,9 +691,10 @@ Rechnung aus `shared_buffers` 64MB und 100 Verbindungen zu je 4MB
 `work_mem`, eine Obergrenze ist das nicht, der Beleg ist der Messwert unter
 einem Viertel des Limits.
 
-**Monitoring.** Prometheus, Grafana und kube-state-metrics tragen Werte aus
-einer Messung am 30.08., die Herleitung steht als Kommentar in
-`ansible/tasks/observability.yaml`.
+**Monitoring.** Prometheus, kube-state-metrics und die Sidecars von Grafana
+tragen Werte aus zwei Messungen am 27. und 28.08., der Grafana-Container
+selbst aus einer Messung am 28. und 29.09. mit offenem Dashboard. Die
+Herleitung steht als Kommentar in `ansible/tasks/observability.yaml`.
 
 ### Herleitungen zu P5
 
@@ -864,14 +865,19 @@ Valkey prüft die Probe nicht, ohne die Queue nimmt `/submit` die Einreichung
 weiter an und antwortet mit ID und PENDING, der Durchlauf reiht sie ein,
 sobald Valkey zurück ist.
 
-KEDA bleibt blind für laufende Arbeit, es misst nur die Länge der
-Warteschlange und fährt das Deployment 300 Sekunden nach ihrem Leerwerden
-auf null, auch wenn ein Pod noch rechnet. Seit dem SIGTERM-Handler kostet
-das keinen Versuch, solange die restliche Bewertung in die Frist passt. Eine
-Bewertung über der Frist endet per SIGKILL, die Einreichung bleibt auf
-RUNNING, der Durchlauf reiht sie erneut ein, nach dem dritten Versuch endet
-sie auf UNRESOLVED. Mit den Aufgaben im Repo, höchstens 3 Testfälle und bei
-`editierdistanz` gut 16 Sekunden je Bewertung, tritt der Fall nicht ein.
+KEDA bleibt blind für laufende Arbeit, es fragt die Länge der Warteschlange
+alle 30 Sekunden ab und fährt das Deployment 300 Sekunden nach der letzten
+Abfrage mit wartenden Einreichungen auf null, auch wenn ein Pod noch rechnet.
+Seit dem SIGTERM-Handler kostet das keinen Versuch, solange die restliche
+Bewertung in die Frist passt. Eine Bewertung über der Frist endet per SIGKILL,
+die Einreichung bleibt auf RUNNING, der Durchlauf reiht sie erneut ein, nach
+dem dritten Versuch endet sie auf UNRESOLVED. Mit den Aufgaben im Repo,
+höchstens 3 Testfälle und bei `editierdistanz` gut 16 Sekunden je Bewertung,
+tritt der Fall nicht ein. Holt ein laufender Worker eine Einreichung zwischen
+zwei Abfragen ab, sieht KEDA sie nicht, und das Deployment fährt trotz
+weiterer Einreichungen herunter. Die nächste Einreichung wartet dann auf den
+Start eines Pods, bei null Workern am 29.09.2026 gemessen 21 Sekunden von der
+Einreichung bis zum Urteil.
 
 Der Judge-Worker hat keine readinessProbe, auf ihn zeigt kein Service, und
 für den Rollout wartet die startupProbe. Zwei Fälle beenden einen Worker,

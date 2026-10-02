@@ -372,35 +372,61 @@ Und ein `ClusterRoleBinding` (`ansible/files/viewer-clusterrolebinding.yaml`),
 das `oidc:cluster-viewer` an die eingebaute ClusterRole `view` hängt, lesen
 ja, schreiben nein, Secrets nein.
 
-Auf dem eigenen Rechner braucht es das Plugin
-[kubelogin](https://github.com/int128/kubelogin) und einen
-kubeconfig-Eintrag, der auf Keycloak zeigt. krew ist der Plugin-Manager
-von kubectl, unter macOS `brew install krew`, unter Linux nach
-[krew.sigs.k8s.io](https://krew.sigs.k8s.io/docs/user-guide/setup/install/),
-danach gehört `~/.krew/bin` in den PATH:
+Auf dem eigenen Rechner braucht es
+[kubelogin](https://github.com/int128/kubelogin) als `kubectl-oidc_login` im
+PATH und einen kubeconfig-Eintrag, der auf Keycloak zeigt. Unter macOS kommt
+es aus Homebrew:
 
 ```bash
-export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
-kubectl krew install oidc-login
-kubectl oidc-login setup --oidc-issuer-url=https://auth.<zone>/realms/judge --oidc-client-id=kubernetes
+brew install kubelogin
+```
+
+Unter WSL mit Ubuntu aus dem Release auf GitHub, ohne Paketmanager:
+
+```bash
+sudo apt install unzip
+curl -fsSL -o /tmp/kubelogin.zip https://github.com/int128/kubelogin/releases/download/v1.36.4/kubelogin_linux_amd64.zip
+unzip -o -d /tmp/kubelogin /tmp/kubelogin.zip
+install -D /tmp/kubelogin/kubelogin ~/.local/bin/kubectl-oidc_login
+```
+
+`~/.local/bin` liegt unter Ubuntu im PATH, sobald es existiert, nach dem
+ersten Anlegen die Shell neu öffnen. Auf einem ARM-Gerät die Datei mit `arm64`
+im Namen. Danach der Eintrag in der kubeconfig, die Zone kommt als
+`JUDGE_ZONE` aus `.envrc`. Unter WSL kommt die Zeile
+`--exec-arg=--skip-open-browser` dazu, denn dort öffnet sich in der Regel kein
+Browser:
+
+```bash
 kubectl config set-credentials viewer \
   --exec-api-version=client.authentication.k8s.io/v1beta1 \
   --exec-command=kubectl \
   --exec-arg=oidc-login \
   --exec-arg=get-token \
-  --exec-arg=--oidc-issuer-url=https://auth.<zone>/realms/judge \
+  --exec-arg=--oidc-issuer-url="https://auth.${JUDGE_ZONE}/realms/judge" \
   --exec-arg=--oidc-client-id=kubernetes
 kubectl config set-context judge-viewer --cluster=default --user=viewer
 kubectl config use-context judge-viewer
 ```
 
-`setup` öffnet den Browser-Login mit dem Konto `viewer` aus
-`app-credentials.sops.yaml` und zeigt die Claims des Tokens, dort muss
-`groups` mit `cluster-viewer` stehen, sonst greift das Binding nicht.
-Danach hält kubelogin das Token bis zum Ablauf. Prüfen mit `kubectl auth whoami`, dort steht `oidc:viewer`,
-`kubectl get pods -A` geht, `kubectl get secrets -n judge` und
-`kubectl delete pod -n judge <pod>` enden mit Forbidden. Zurück geht es mit
-`kubectl config use-context default`, die Admin-kubeconfig bleibt gültig.
+Der erste `kubectl`-Aufruf im Kontext `judge-viewer` öffnet den Browser für
+die Anmeldung mit dem Konto `viewer` aus `app-credentials.sops.yaml`. Unter
+WSL schreibt kubelogin stattdessen die Adresse `http://localhost:8000` in die
+Konsole, ist Port 8000 belegt, die mit Port 18000. Sie geht im Browser unter
+Windows auf, WSL reicht den Port durch. Vorab prüfen lässt sich die Anmeldung
+mit diesem Aufruf, unter WSL ebenfalls mit `--skip-open-browser`:
+
+```bash
+kubectl oidc-login setup --oidc-issuer-url="https://auth.${JUDGE_ZONE}/realms/judge" --oidc-client-id=kubernetes
+```
+
+Die Ausgabe zeigt die Claims des Tokens, dort muss `groups` mit
+`cluster-viewer` stehen, sonst greift das Binding nicht. Nach der Anmeldung
+hält kubelogin das Token bis zum Ablauf. Prüfen mit `kubectl auth whoami`,
+dort steht `oidc:viewer`, `kubectl get pods -A` geht, `kubectl get secrets -n
+judge` und `kubectl delete pod -n judge <pod>` enden mit Forbidden. Zurück
+geht es mit `kubectl config use-context default`, die Admin-kubeconfig bleibt
+gültig.
 
 ### Dashboard
 

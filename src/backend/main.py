@@ -694,7 +694,7 @@ def aufgabe_seite(task_id: str, request: Request, user=Depends(get_current_user)
 
 # Höchstlänge für code in /submit. Dieselbe Grenze, die die Sandbox der
 # Ausgabe einer Einreichung setzt (SANDBOX_AUSGABE_BYTES in
-# src/worker/worker.py). Die größte Musterlösung unter src/aufgaben/loesungen
+# src/worker/worker.py). Die größte Musterlösung unter src/chart/loesungen
 # misst unter 2 KiB, die Grenze hält also keine echte Lösung auf. Sie hält
 # das Dokument der Einreichung zugleich weit unter den 16 MB, die MongoDB je
 # Dokument zulässt, auch wenn jedes Zeichen in UTF-8 bis zu vier Bytes belegt.

@@ -27,10 +27,12 @@ sequenceDiagram
     T->>A: Anfrage mit<br/>Identitäts-Headern
     A->>M: Einreichung anlegen,<br/>Status PENDING
     A->>V: RPUSH judge:python,<br/>nur die Einreichungs-ID
-    A-->>S: angenommen, Einreichungs-ID
+    A-->>T: Antwort
+    T-->>S: angenommen, Einreichungs-ID
     loop alle zwei Sekunden, bis das Urteil vorliegt
         S->>T: Stand abfragen
         T->>A: mit Identitäts-Headern
         A->>M: Stand lesen
-        A-->>S: Status, am Ende mit Urteil
+        A-->>T: Antwort
+        T-->>S: Status, am Ende mit Urteil
     end

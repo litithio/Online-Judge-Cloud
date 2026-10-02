@@ -1,5 +1,9 @@
 # Online-Judge-Cloud
 
+Laborarbeit von Timon Dages, Johannes Ullrich, Paul Viereckl und
+Feni Yuliastutik, auf GitHub `TDages`, `litithio`, `viereckl` und
+`Feniyuli`.
+
 Der Screencast liegt unter [`docs/screencast.mp4`](docs/screencast.mp4) und
 dauert 6:26 Minuten.
 

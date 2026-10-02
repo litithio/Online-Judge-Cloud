@@ -105,10 +105,11 @@ judge:
   runtimeClass: gvisor
 
   # Deckel für die Arbeitsverzeichnisse der Läufe unter /work, als sizeLimit an
-  # einem emptyDir. Ein Lauf braucht höchstens rund 20 MiB, die Lösung (mehr als
-  # 16 MB passen nicht in das Einreichungs-Dokument in MongoDB), die größte
-  # Eingabe im Repo mit 372 KB und zwei Ausgabedateien à 1 MiB, und räumt danach
-  # auf. 64Mi lässt davon das Dreifache. Herleitung in README ## Entscheidungen.
+  # einem emptyDir. Ein Lauf braucht höchstens rund 7 MiB, die Lösung mit
+  # höchstens CODE_MAX_ZEICHEN aus src/backend/main.py, also bis zu 4 MiB in
+  # UTF-8, die größte Eingabe im Repo mit 372 KB und zwei Ausgabedateien à 1 MiB,
+  # und räumt danach auf. 64Mi lässt davon das Neunfache. Herleitung im README
+  # unter Herleitungen zu P3.
   workSizeLimit: "64Mi"
 
   # Deckel für das /tmp des Worker-Pods. Seit #189 bekommt jeder Lauf sein
@@ -123,12 +124,13 @@ judge:
   #
   # Die längste Lücke zwischen zwei Schritten ist ein Sandbox-Lauf. Er endet
   # nach zeit + 1 + ZEITFRIST_PUFFER, mit zeit höchstens GRENZE_ZEIT_MAX also
-  # nach 61,5 Sekunden, dazu REST_FRIST mit 1,0 für das Aufräumen. Das sind
-  # 62,5 berechenbare Sekunden. Eine MongoDB-Operation endet seit den
+  # nach 61,5 Sekunden, dazu SIGKILL_FRIST mit 5 für das Einsammeln des per
+  # SIGKILL beendeten Prozesses und REST_FRIST mit 1,0 für das Aufräumen. Das
+  # sind 67,5 berechenbare Sekunden. Eine MongoDB-Operation endet seit den
   # Zeitlimits am Client nach 10 Sekunden, mit einem erneuten Versuch über eine
   # Neuwahl des Primary nach 40, und liegt damit darunter.
   #
-  # Die 120 lassen 57,5 Sekunden darüber. Der Abstand fängt, was keine eigene
+  # Die 120 lassen 52,5 Sekunden darüber. Der Abstand fängt, was keine eigene
   # Grenze hat, nämlich das Anlegen des Arbeitsverzeichnisses, das chown, das
   # Lesen der Ausgabe und das rmtree. Das sind Zugriffe auf das emptyDir des
   # Pods, kein Netz. Eine Obergrenze ist der Abstand nicht, denn das rmtree

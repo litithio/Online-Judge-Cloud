@@ -17,7 +17,7 @@ Netzzugriffen ist zu rechnen, und sie dürfen das System nicht beeinträchtigen.
 
 Terraform legt die VMs im Kursprojekt an, Ansible rollt darauf mit der
 k3s-Rolle den Cluster aus. Die sechs VMs verteilen sich auf drei Rollen. Der
-Server trägt die Steuerung und nimmt sonst nur Addons auf, drei Dienste-Nodes
+Server trägt die Steuerung und nimmt sonst nur Add-ons auf, drei Dienste-Nodes
 tragen MongoDB, Valkey, PostgreSQL, Keycloak, die API und das Monitoring, zwei
 Judge-Nodes führen eingereichten Code aus. Von außen führt ein einziger Weg
 hinein. Die DNS-Zone zeigt auf die öffentliche IPv6 der Nodes, dort nimmt
@@ -65,8 +65,8 @@ Queue-Eintrag, reiht er sie erneut ein, bis MAX_VERSUCHE erreicht ist (#113).
 
 ## Betrieb
 
-Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster samt der
-Datendienste (MongoDB, Valkey, PostgreSQL), dem Judge-Worker und dem Seed der
+Terraform legt die VMs an, Ansible baut darauf den k3s-Cluster samt den
+Datendiensten (MongoDB, Valkey, PostgreSQL), dem Judge-Worker und dem Seed der
 Aufgaben und rollt die eigene API als Helm-Release aus (`src/chart`). Die
 Images baut `.github/workflows/images.yml` aus `src/backend` und `src/worker`
 nach ghcr.io. Ein neues Package entsteht dort mit der Sichtbarkeit privat und
@@ -93,11 +93,12 @@ Gruppenchat angesagt.
 Auf dem eigenen Rechner liegen Python 3.12, Terraform, Docker, kubectl,
 direnv, sops und age. `scripts/infra-check.sh` ruft `terraform` auf,
 `scripts/diagramme.sh` und `scripts/chart-check.sh` rufen `docker` auf, mit
-`kubectl` prüft man den Cluster nach dem Ausrollen. Helm liegt nicht lokal,
-es läuft im Container. Seine Version steht einmal im Repo, als
+`kubectl` prüft man den Cluster nach dem Ausrollen. Helm liegt nicht lokal, es
+läuft im Container. Seine Version steht einmal im Repo, als
 `judge_helm_version` in `ansible/deploy.yaml`, und `scripts/chart-check.sh`
 liest sie von dort. Die Terraform-Version steht in
-`.github/workflows/infra.yml`, die Python-Version in beiden Workflows.
+`.github/workflows/infra.yml`, die Python-Version in `infra.yml` und
+`lint.yml`.
 
 Einmal je Person:
 
@@ -139,10 +140,12 @@ chmod 600 ansible/kubeconfig-generated.yaml
 Dorthin zeigt `KUBECONFIG` aus `.envrc`. Nach einem Neuaufbau des Clusters
 committet die betreibende Person die neue `kubeconfig.sops.yaml`, dann noch
 einmal `sops -d`. Zone und E-Mail stehen im Klartext in
-`ansible/vars/dns.yaml`, die Vorlage `ansible/app-credentials.yaml.example`
-erklärt jeden Wert und braucht nur, wer die Datei neu anlegt. Ohne direnv
-stattdessen `source .envrc` im Wurzelverzeichnis, die Datei setzt KUBECONFIG
-relativ zum aktuellen Verzeichnis.
+`ansible/vars/dns.yaml`. Die Vorlage `ansible/app-credentials.yaml.example`
+erklärt jeden Wert, sie braucht nur, wer die Datei neu anlegt. direnv lädt die
+Datei nur mit seinem Hook in der Shell, unter WSL `eval "$(direnv hook bash)"`
+am Ende von `~/.bashrc`, unter macOS `eval "$(direnv hook zsh)"` am Ende von
+`~/.zshrc`. Ohne direnv stattdessen `source .envrc` im Wurzelverzeichnis, die
+Datei setzt KUBECONFIG relativ zum aktuellen Verzeichnis.
 
 Nur die betreibende Person dazu:
 
@@ -189,10 +192,7 @@ anderen beginnen beim Ansible-Block:
 terraform -chdir=terraform init && terraform -chdir=terraform apply
 
 # VPN aus
-cd ansible
-ansible-galaxy install -r requirements.yml --force
-ansible-playbook -i inventory/generated-inventory.yml deploy.yaml
-cd ..
+(cd ansible && ansible-galaxy install -r requirements.yml --force && ansible-playbook -i inventory/generated-inventory.yml deploy.yaml)
 kubectl get nodes
 ```
 
@@ -215,9 +215,9 @@ NoSchedule. Auf einen Judge-Node kommt damit nur, was dieses Taint toleriert,
 und das tun die RuntimeClass `gvisor` und der `agent-plan` des
 system-upgrade-controller. Der Server trägt kein Rollen-Label, ihn grenzt
 allein `CriticalAddonsOnly=true:NoSchedule` ab. Dieses Taint tolerieren die
-Addons von k3s, darunter coredns, metrics-server und Traefik. Ein nodeSelector
-bindet sie nicht an den Server, Traefik kann deshalb auch auf einem
-Dienste-Node liegen.
+Add-ons von k3s, darunter coredns, metrics-server und Traefik. Ein
+nodeSelector bindet sie nicht an den Server, Traefik kann deshalb auch auf
+einem Dienste-Node liegen.
 
 ### Anwendung
 
@@ -228,9 +228,9 @@ Cluster. Das Chart verbindet sich mit ihnen über `externe` in den values, mit
 MongoDB über das Operator-Secret, das die URI samt Zugangsdaten hält, und mit
 Valkey über das Secret aus dem Play `valkey`, den Wert aus
 `app-credentials.sops.yaml` (#61). Das Secret trägt die URI als
-`connectionString` für Backend, Worker und Durchlauf und das rohe Passwort
-für die TriggerAuthentication von KEDA. Das Play mit dem Tag `app` kopiert den
-Chart auf den Server und ruft `helm upgrade --install`.
+`connectionString` für Backend, Worker und Durchlauf und das rohe Passwort für
+die TriggerAuthentication von KEDA. Das Play mit dem Tag `app` kopiert das
+Chart auf den Server und ruft dort `helm upgrade --install` auf.
 
 ```bash
 # nach dem Cluster-Deploy, VPN aus
@@ -295,10 +295,10 @@ Der Testjob `test-api` spricht die API am Service an, `test-loesungen` reicht
 die Beispiellösungen aus `src/chart/loesungen` über `/submit` ein und
 vergleicht die Urteile mit den Dateinamen. Jede fehlgeschlagene Prüfung nennt
 das nächste Kommando. Die NetworkPolicies prüft `scripts/policycheck.sh`, je
-Pod eine Verbindung, die gehen muss, und eine, die nicht gehen darf.
-Zustandsprüfungen wie CrashLooping oder ungebundene PVCs kommen als
-Alert-Regeln aus dem kube-prometheus-stack und werden nicht nachgebaut. Für
-die Fehlersuche darüber hinaus taugen k9s und
+Pod eine Verbindung, die gehen muss, und eine, die nicht gehen darf, den
+Worker nur, wenn einer läuft. Zustandsprüfungen wie CrashLooping oder
+ungebundene PVCs kommen als Alert-Regeln aus dem kube-prometheus-stack und
+werden nicht nachgebaut. Für die Fehlersuche darüber hinaus taugen k9s und
 `kubectl logs -l <selector> --prefix`, bei Bedarf stern, das sich auch an
 später gestartete Pods hängt.
 
@@ -493,7 +493,7 @@ als B3.
 | Thema | Wahl | Alternative | Trade-off | Aus der Domäne |
 |---|---|---|---|---|
 | P1 Anwendung | Zustand in MongoDB, Queue trägt nur die ID, Code läuft als Subprozess im Worker | Stream mit vollem Job, Container je Testlauf | zweiter Zugriff auf MongoDB je Einreichung | keine Einreichung geht verloren, auch nicht mit der Queue |
-| P2 Infrastruktur | eigene Security Group mit vier von außen offenen Ports, zwei Judge-Nodes in fester Zahl | default-Gruppe des Kursprojekts, Jump Host, ein einzelner Judge-Node, Nodes unter Last über Magnum nachstarten | 22 und 6443 offen für jede IPv6-Adresse, unter Last kommen keine Nodes dazu | Nodes mit fremdem Code und Prüfungsleistungen hängen direkt am Internet, und ein Worker teilt seinen Kern nicht, weil das Zeitlimit als Frist gilt |
+| P2 Infrastruktur | eigene Security Group mit vier von außen offenen Ports, zwei Judge-Nodes in fester Zahl | default-Gruppe des Kursprojekts, Jump Host, ein einzelner Judge-Node, Nodes unter Last über Magnum nachstarten | 22 und 6443 offen für jede IPv6-Adresse, unter Last kommen keine Nodes dazu | Nodes mit fremdem Code und Prüfungsleistungen hängen direkt am Internet, und jeder Worker fordert eine ganze CPU an, weil das Zeitlimit als Frist gilt |
 | P3 Deployment | Request gleich Limit am Worker, Werte aus Messungen, Tags aus Version und Commit | Request an der Last, Spitzen am Limit, VPA | gebundene Kerne | das Zeitlimit gilt als Frist, ein gedrosselter Worker reißt sie |
 | P4 Platzierung | Judge-Nodes mit Taint, RuntimeClass bindet die Worker dorthin | podAntiAffinity auf gemeinsamen Nodes | zwei VMs mehr | fremder Code läuft auf Nodes ohne die Pods von MongoDB, Keycloak und API |
 | P5 Resilienz | Replica-Set mit drei Members, Keycloak mit zwei Replicas auf PostgreSQL, Probes an jedem Dienst | ein Member, H2 auf einem PVC | drei Dienste-Nodes, ein weiterer Operator | Einreichungen sind Prüfungsleistungen, die Anmeldung darf zu Klausurbeginn nicht fehlen |
@@ -519,21 +519,22 @@ Klausur darf keine Einreichung verloren gehen, das entscheidet.
 
 Terraform legt gegen den OpenStack-Provider sechs VMs, das Keypair und die
 Security Group `judge-k3s-nodes` an und schreibt das Inventory, Ansible macht
-daraus den Cluster samt gVisor auf den Judge-Nodes, ein Ablauf bringt alles
-hoch. Zu entscheiden war, was von außen erreichbar ist und wie viele Maschinen
-der Judge bekommt. Die erste Entscheidung betrifft die Erreichbarkeit. Die
-Nodes hängen mit öffentlicher IPv6 direkt am Netz DHBWV6. Die default-Gruppe
-des Kursprojekts schied aus, weil sie nichts filtert. Am 25.08.2026 waren von
-außen der kubelet-Port 10250 und rpcbind auf 111 erreichbar (#213). Für einen
-Cluster mit fremdem Code und Prüfungsleistungen lässt die eigene Gruppe von
-außen über IPv6 nur 22, 80, 443 und 6443 zu, zwischen den Nodes alles. Die
-Alternative war ein Jump Host, der das auf einen SSH-Port verkleinert hätte,
-verworfen wegen einer weiteren VM bei 79 von 100 Instanzen im Kursprojekt am
-03.09.2026 (#213) und weil der lesende Zugriff aus W6 dann einen SSH-Tunnel
-brauchen würde. Der Trade-off ist, dass 22 und 6443 jeder IPv6-Adresse offen
-stehen. Die Gruppe lässt auf allen Nodes dieselben vier Ports zu. Auf den
-Judge-Nodes antwortet im Portscan vom 11.09.2026 von diesen vier nur 22, weil
-dort nur SSH lauscht, nicht weil die Gruppe dort enger ist.
+daraus den Cluster und richtet gVisor auf den Agent-Nodes ein, und ein Ablauf
+bringt alles hoch. Zu entscheiden war, was von außen erreichbar ist und wie
+viele Maschinen der Judge bekommt. Die erste Entscheidung betrifft die
+Erreichbarkeit. Die Nodes hängen mit öffentlicher IPv6 direkt am Netz DHBWV6.
+Die default-Gruppe des Kursprojekts schied aus, weil sie nichts filtert. Am
+25.08.2026 waren von außen der kubelet-Port 10250 und rpcbind auf 111
+erreichbar (#213). Für einen Cluster mit fremdem Code und Prüfungsleistungen
+lässt die eigene Gruppe von außen über IPv6 nur 22, 80, 443 und 6443 zu,
+zwischen den Nodes alles. Die Alternative war ein Jump Host, der das auf einen
+SSH-Port verkleinert hätte, verworfen wegen einer weiteren VM bei 79 von 100
+Instanzen im Kursprojekt am 03.09.2026 (#213) und weil der lesende Zugriff aus
+W6 dann einen SSH-Tunnel brauchen würde. Der Trade-off ist, dass 22 und 6443
+jeder IPv6-Adresse offen stehen. Die Gruppe lässt auf allen Nodes dieselben
+vier Ports zu. Auf den Judge-Nodes antwortet im Portscan vom 11.09.2026 von
+diesen vier nur 22, weil dort nur SSH lauscht, nicht weil die Gruppe dort
+enger ist.
 
 Die zweite Entscheidung betrifft die Zahl der Judge-Nodes. Der Judge bekommt
 zwei eigene Nodes, `keda.max` steht auf sechs Worker mit je einem Kern (P3),
@@ -549,44 +550,47 @@ Nicht aus dem Repo entstehen das Netz DHBWV6, das Boot-Image und die Flavors
 der DHBWCloud, der SSH-Schlüssel und das Application Credential der
 betreibenden Person sowie die Basiszone und der TSIG-Key aus dem Self-Service.
 Die Records darunter und das Zertifikat legen ExternalDNS und cert-manager im
-Cluster an. Fremder Code im Stack ist die k3s-dhbw-cloud-role der Vorlesung
-als Fork, auf einen Commit gepinnt, mit ihren Addons und Vorgaben, darunter
-Longhorn mit einem Replikat je Volume und das Upgrade-Fenster, der MongoDB
-Community Operator, CloudNativePG, das keycloakx-Chart, der
-kube-prometheus-stack, KEDA, das Plugin traefik-oidc-auth, sops mit age und
-kubelogin.
+Cluster an. Fremder Code im Stack ist k3s mit Traefik und den übrigen Add-ons
+der k3s-dhbw-cloud-role der Vorlesung, als Fork auf einen Commit gepinnt, mit
+ihren Vorgaben, darunter Longhorn mit einem Replikat je Volume und das
+Upgrade-Fenster. Dazu kommen gVisor, MongoDB mit dem Community Operator,
+PostgreSQL über CloudNativePG, Keycloak über das keycloakx-Chart, Valkey, der
+kube-prometheus-stack, KEDA, das Plugin traefik-oidc-auth, sops mit age,
+kubelogin, htmx mit der Erweiterung json-enc unter `src/backend/static` und
+die Python-Bibliotheken aus den `requirements.txt` der Dienste.
 
 ### P3 Deployment und Konfiguration
 
-Jeder Container trägt Requests und Limits aus einer Messung, der Worker mit
-Request gleich Limit bei der CPU. Die Images tragen Tags aus Version und
-Commit, `latest` gibt es nicht, die Konfiguration kommt über ConfigMaps und
-Secrets in die Pods. Die Alternative war ein CPU-Request an der Last, dessen
-Spitzen das Limit auffängt, oder ein VPA, der die Werte nachführt. Der Preis
-sind gebundene Kerne, sechs Worker halten sechs Kerne, auch wenn eine
-Einreichung wartet statt zu rechnen. Den Ausschlag gibt das Urteil. Das
-Zeitlimit einer Aufgabe gilt als Frist auf die vergangene Zeit, ein Worker,
-der seinen Kern nicht bekommt, reißt sie, ohne die Rechenzeit zu erreichen,
-und eine korrekte Einreichung bekäme TLE. Die Herleitung jeder Zahl steht
-unter Herleitungen zu P3.
+Die Container der Anwendung, der Datendienste, von Keycloak und vom Monitoring
+tragen Requests und Limits, hergeleitet unten und als Kommentar an den
+Manifesten, der Worker mit Request gleich Limit bei der CPU. KEDA und die
+Add-ons der k3s-Rolle laufen mit den Vorgaben ihrer Charts. Die Images tragen
+Tags aus Version und Commit, `latest` gibt es nicht, die Konfiguration kommt
+über ConfigMaps und Secrets in die Pods. Die Alternative war ein CPU-Request
+an der Last, dessen Spitzen das Limit auffängt, oder ein VPA, der die Werte
+nachführt. Der Preis sind gebundene Kerne, sechs Worker halten sechs Kerne,
+auch wenn eine Einreichung wartet statt zu rechnen. Den Ausschlag gibt das
+Urteil. Das Zeitlimit einer Aufgabe gilt als Frist auf die vergangene Zeit,
+ein Worker, der seinen Kern nicht bekommt, reißt sie, ohne die Rechenzeit zu
+erreichen, und eine korrekte Einreichung bekäme TLE. Die Herleitung jeder Zahl
+steht unter Herleitungen zu P3.
 
 ### P4 Scheduling und Platzierung
 
 Die zwei Judge-Nodes tragen das Label `online-judge/sandbox=runsc` und
 denselben Wert als Taint, die RuntimeClass `gvisor` toleriert ihn und bindet
 jeden Worker-Pod über ihren nodeSelector dorthin. Die drei Dienste-Nodes
-tragen `online-judge/rolle=dienste`, daran hängen MongoDB, Valkey,
-PostgreSQL, Keycloak, die API und Longhorn. Die Alternative ohne zusätzliche
-Nodes war eine podAntiAffinity am Worker gegen MongoDB und Keycloak. Mit
-`required` bliebe der Worker Pending, sobald alle Nodes ein Member tragen,
-mit `preferred` liefen Judge und Dienste weiter auf denselben Nodes. Der
-Zuschnitt kostet zwei Instanzen mehr. Drei Dienste-Nodes, weil das
-Replica-Set den Verlust eines Nodes nur mit drei Members auf drei Nodes
-übersteht, zwei Judge-Nodes für den Durchsatz. Fremder Code läuft so auf
-Nodes, auf denen außer den k3s-Addons und dem Upgrade-Job nichts läuft, ein
-Ausbruch aus der Sandbox erreicht weder die Pods noch die Secrets von
-MongoDB, Keycloak und API auf dem Node. Was der Worker-Pod selbst hält,
-bleibt erreichbar, siehe Grenzen.
+tragen `online-judge/rolle=dienste`, daran hängen MongoDB, Valkey, PostgreSQL,
+Keycloak, die API und Longhorn. Die Alternative ohne zusätzliche Nodes war
+eine podAntiAffinity am Worker gegen MongoDB und Keycloak. Mit `required`
+bliebe der Worker Pending, sobald alle Nodes ein Member tragen, mit
+`preferred` liefen Judge und Dienste weiter auf denselben Nodes. Der Zuschnitt
+kostet zwei Instanzen mehr. Drei Dienste-Nodes, weil das Replica-Set den
+Verlust eines Nodes nur mit drei Members auf drei Nodes übersteht, zwei
+Judge-Nodes für den Durchsatz. Fremder Code läuft so auf Nodes, auf denen
+außer dem Upgrade-Job nichts läuft, ein Ausbruch aus der Sandbox erreicht
+weder die Pods noch die Secrets von MongoDB, Keycloak und API auf dem Node.
+Was der Worker-Pod selbst hält, bleibt erreichbar, siehe Grenzen.
 
 ### P5 Resilienz und Persistenz
 
@@ -612,13 +616,13 @@ fehlgeschlagene Anmeldung.
 Die Anwendung kommt aus einem eigenen Chart in `src/chart` mit
 `values-dev.yaml`, `values-prod.yaml` und `values.schema.json`, die
 Judge-Kette aus Worker, ScaledObject und Rückhol-CronJob eingeschlossen. Die
-Alternativen waren Kustomize mit Base und zwei Overlays, oder die Manifeste
-je Umgebung über Ansible einzuspielen, der Stand bis zum 19.08. Der Preis ist
+Alternativen waren Kustomize mit Base und zwei Overlays, oder die Manifeste je
+Umgebung über Ansible einzuspielen, der Stand bis zum 19.08. Der Preis ist
 eine Vorlagensprache zwischen Manifest und Cluster, wer wissen will, was im
 Cluster steht, braucht `helm template` statt `cat`, und Objekte, die Helm
 nicht gehören, muss man vor dem ersten Upgrade entfernen. Eine zweite Sprache
 ist ein Eintrag unter `judge.sprachen` statt einer weiteren Datei, und dev
-wird über weniger Worker klein statt über kleinere Grenzen, weil das
+wird über weniger Worker klein statt über kleinere Grenzen am Worker, weil das
 Zeitlimit als Frist gilt und ein gedrosselter Worker sie reißt.
 
 ### W6 Authentifizierung
@@ -643,19 +647,21 @@ liegt auch kein ServiceAccount-Token.
 
 ### W7 Cluster-Härtung
 
-Im Namespace `judge` gilt ein default-deny in beide Richtungen, daneben je
-Pod-Art eine Policy mit Absendern und Zielen als Pod-Label
-(`ansible/files/judge-networkpolicy.yaml`). Die Passwörter der Dienste, der
-TSIG-Key und die kubeconfig liegen mit sops und age verschlüsselt im Repo,
-Ansible entschlüsselt beim Ausrollen (#77). Die Alternativen waren
-Freigaben nach Absenderadresse, deren Bestand nach einem Neuaufbau ungeprüft
-ist, Sealed Secrets, deren Schlüssel je Cluster entsteht und beim Neuaufbau
-von Null die versiegelten Werte wertlos macht, und beim Ausrollen erzeugte
-Passwörter, die den Stand nur im Cluster hielten. Der Preis, jede neue
-Komponente in `judge` braucht eine eigene Policy mit mindestens einer Regel
-auf kube-dns, und ein ausscheidendes Mitglied kann alte Stände weiter lesen,
-bis die Passwörter getauscht sind. Der Worker führt fremden Code aus, die
-Policy begrenzt den Radius eines Ausbruchs auf MongoDB und Valkey.
+Im Namespace `judge` gilt ein default-deny in beide Richtungen
+(`ansible/files/judge-networkpolicy.yaml`), daneben je Pod-Art eine Policy mit
+Absendern und Zielen als Pod-Label, für die Datendienste in
+`ansible/files/*-networkpolicy.yaml`, für API, Worker und Lastgenerator im
+Chart. Die Passwörter der Dienste, der TSIG-Key und die kubeconfig liegen mit
+sops und age verschlüsselt im Repo, Ansible entschlüsselt beim Ausrollen
+(#77). Die Alternativen waren Freigaben nach Absenderadresse, deren Bestand
+nach einem Neuaufbau ungeprüft ist, Sealed Secrets, deren Schlüssel je Cluster
+entsteht und beim Neuaufbau von Null die versiegelten Werte wertlos macht, und
+beim Ausrollen erzeugte Passwörter, die den Stand nur im Cluster hielten. Der
+Preis ist, dass jede neue Komponente in `judge` eine eigene Policy mit
+mindestens einer Regel auf kube-dns braucht und ein ausscheidendes Mitglied
+alte Stände weiter lesen kann, bis die Passwörter getauscht sind. Der Worker
+führt fremden Code aus, die Policy begrenzt den Radius eines Ausbruchs auf
+MongoDB, Valkey und kube-dns.
 
 ### Herleitungen zu P3
 
@@ -794,43 +800,44 @@ Prüfung vorbei.
 **Unit-Tests in den Dienst-Images.** `tests/` läuft mit pytest über
 `scripts/unit-tests.sh` in den Images statt lokal, weil `worker.py` beim
 Import die Sandbox initialisiert und so gegen dieselbe Python-Version und
-glibc wie im Cluster geprüft wird. Der Preis, der CI-Job baut je Lauf beide
-Images.
+glibc wie im Cluster geprüft wird. Der Preis ist, dass der CI-Job je Lauf
+beide Images baut.
 
 **Lastgenerator als Pod im Cluster.** Der Lastgenerator läuft als Pod in
-`judge`, die backend-Policy nennt ihn über das Label `app: lastgenerator`.
-Die Alternative war ein Lauf vom Server-Node mit Freigabe seiner Adresse,
-die jeder Prozess dort teilt. Der Preis, andere Werte für Rate und Dauer
-brauchen ein Upgrade des Release.
+`judge`, die backend-Policy nennt ihn über das Label `app: lastgenerator`. Die
+Alternative war ein Lauf vom Server-Node mit Freigabe seiner Adresse, die
+jeder Prozess dort teilt. Der Preis ist, dass andere Werte für Rate und Dauer
+ein Upgrade des Release brauchen.
 
 ## Grenzen
 
 Unter echter Last tragen sechs Worker den Judge. Gemessen am 11.09.2026 mit
-dem Lastmix des Generators bauen sie eine Warteschlange von 207 in 60 Sekunden
-ab, 200 bis 250 Einreichungen je Minute, die meisten Lösungen sind in unter
-einer Sekunde bewertet, das Zeitlimit von bis zu 16 Sekunden je Bewertung ist
-die Obergrenze. Bis dahin wartet eine Einreichung in der Schlange, dazu kommt
-der Anlauf der Worker, gemessen 32 Sekunden bis zur ersten und 58 bis zur
-sechsten Replica, KEDA fragt die Schlange im Standardintervall von 30 Sekunden
-ab, im ScaledObject steht kein `pollingInterval`, danach muss der Pod erst
-starten. Ein Kurs von 30 Personen mit je drei Abgaben in derselben Minute
-erzeugt 1,5 Einreichungen je Sekunde, dafür reichen drei Worker, bei Rate 2
-blieb die Schlange unter 12. Kommt mehr an, als sechs Worker schaffen, wächst
-die Schlange und mit ihr die Wartezeit. Die API nimmt weiter an, die Schlange
-trägt nur IDs, und die Frist einer Einreichung läuft erst ab der Übernahme
-durch einen Worker. Der Zustand steht in MongoDB, fehlt die ID einer wartenden
-Einreichung in Valkey, reiht der Durchlauf sie bis zu dreimal wieder ein,
-danach endet sie auf UNRESOLVED. Im Lauf vom 11.09.2026 mit 6 je Sekunde aus
-null Workern war die Schlange 87 Sekunden nach der letzten Einreichung leer,
-bis dahin hatten die Worker alle Einreichungen übernommen. Rechnerisch tragen
-die zwei Judge-Nodes acht Worker, `keda.max` steht auf sechs, damit je Node
-ein Kern für kubelet, containerd und runsc frei bleibt. Mehr Durchsatz heißt
-entweder `keda.max` auf acht ohne diese Reserve oder mehr Judge-Nodes über
-`judge_count` in `terraform/variables.tf`, und ein Neuaufbau ist seit #299
-eine Downtime für die Gruppe. Keycloak mit zwei Replicas trug am 10.09. 22
-Anmeldungen je Sekunde ohne Fehler, ein Failover der PostgreSQL kostete 2 von
-1644 Anmeldungen in 19 Sekunden. Longhorn läuft mit einem Replikat je Volume,
-für Valkey ohne Ausgleich.
+dem Lastmix des Generators bauen sie die Warteschlange von ihrem Höchststand
+207 in 60 Sekunden auf null ab, 200 bis 250 Einreichungen je Minute, die
+meisten Lösungen sind in unter einer Sekunde bewertet, das Zeitlimit von bis
+zu 16 Sekunden je Bewertung ist die Obergrenze. Bis dahin wartet eine
+Einreichung in der Schlange, dazu kommt der Anlauf der Worker, gemessen 32
+Sekunden bis zur ersten und 58 bis zur sechsten Replica, KEDA fragt die
+Schlange im Standardintervall von 30 Sekunden ab, im ScaledObject steht kein
+`pollingInterval`, danach muss der Pod erst starten. Ein Kurs von 30 Personen
+mit je drei Abgaben in derselben Minute erzeugt 1,5 Einreichungen je Sekunde,
+dafür reichen drei Worker, bei Rate 2 blieb die Schlange unter 12. Kommt mehr
+an, als sechs Worker schaffen, wächst die Schlange und mit ihr die Wartezeit.
+Die API nimmt weiter an, die Schlange trägt nur IDs, und die Frist einer
+Einreichung läuft erst ab der Übernahme durch einen Worker. Der Zustand steht
+in MongoDB, fehlt die ID einer wartenden Einreichung in Valkey, reiht der
+Durchlauf sie bis zu dreimal wieder ein, danach endet sie auf UNRESOLVED. Im
+Lauf vom 11.09.2026 schickte der Generator aus null Workern 60 Sekunden lang 6
+Einreichungen je Sekunde, 147 Sekunden nach seinem Start war die Schlange
+leer. Rechnerisch tragen die zwei Judge-Nodes acht Worker, `keda.max` steht
+auf sechs, damit bei drei Workern je Node ein Kern für kubelet, containerd und
+runsc frei bleibt. Mehr Durchsatz heißt entweder `keda.max` auf acht ohne
+diese Reserve oder mehr Judge-Nodes über `judge_count` in
+`terraform/variables.tf`, und ein Neuaufbau ist seit #299 eine Downtime für
+die Gruppe. Keycloak mit zwei Replicas trug am 10.09. 22 Anmeldungen je
+Sekunde ohne Fehler, ein Failover der PostgreSQL kostete 2 von 1644
+Anmeldungen in 19 Sekunden. Longhorn läuft mit einem Replikat je Volume, für
+Valkey ohne Ausgleich.
 
 Der eingereichte Code läuft als Subprozess im Judge-Worker, unter einer je
 Lauf eigenen UID und mit eigenen Grenzen für Rechenzeit, Speicher,
@@ -865,11 +872,13 @@ Menge der geschriebenen Daten. Wer die Datei zwischendurch verkleinert, gibt
 in Summe mehr aus.
 
 Was ein Ausbruch aus der Sandbox erreicht, hängt am Worker-Pod. Er hält die
-Zugangsdaten für MongoDB. Wer ausbricht, liest und schreibt alle
-Einreichungen und Aufgaben, nicht nur die eigene. Die default-deny-Policy
-begrenzt den Radius auf MongoDB und Valkey. Den Worker über die API schreiben
-zu lassen, nähme die Zugangsdaten aus dem Pod, dafür läge die API im
-Judge-Pfad, ihr Ausfall träfe jeden Lauf.
+Zugangsdaten für MongoDB und Valkey. Wer ausbricht, liest und schreibt alle
+Einreichungen und Aufgaben, nicht nur die eigene, und kann die Warteschlange
+verändern. Die default-deny-Policy begrenzt den Radius auf MongoDB, Valkey und
+kube-dns, über DNS-Anfragen, die kube-dns weiterleitet, bleibt ein Weg nach
+außen. Den Worker über die API schreiben zu lassen, nähme die Zugangsdaten für
+MongoDB aus dem Pod, die für Valkey blieben für die Warteschlange, dafür läge
+die API im Judge-Pfad, ihr Ausfall träfe jeden Lauf.
 
 SSH und die Kubernetes-API stehen auf den Ports 22 und 6443 jeder IPv6-Adresse
 offen, die Quelle lässt sich nicht eingrenzen, weil das VPN der DHBW kein IPv6
@@ -977,14 +986,14 @@ keiner Person.
 ## Bonus
 
 **B4 Neue Technologie, gVisor.** Die Judge-Worker laufen unter der
-RuntimeClass `gvisor` mit dem Handler `runsc`, angelegt in
-`ansible/tasks/gvisor.yaml`, gebunden über `runtimeClassName` in
-`src/chart/templates/judge.yaml`. Die RuntimeClass bindet jeden Pod über
-ihren `scheduling.nodeSelector` an die Judge-Nodes und toleriert deren
-Taint, siehe P4. Nachweis vom 30.08.2026 in #152, ein Worker-Pod auf einem
-Judge-Node meldet den Kernel `4.19.0-gvisor` und hat im selben Lauf
-Einreichungen mit SUCCESS und FAILED bewertet. Die Anrechnung als B4 hat
-Prof. Pfisterer am 31.08.2026 bestätigt.
+RuntimeClass `gvisor` mit dem Handler `runsc`. `ansible/tasks/gvisor.yaml`
+installiert runsc, `ansible/deploy.yaml` legt die RuntimeClass an, gebunden
+wird sie über `runtimeClassName` in `src/chart/templates/judge.yaml`. Die
+RuntimeClass bindet jeden Pod über ihren `scheduling.nodeSelector` an die
+Judge-Nodes und toleriert deren Taint, siehe P4. Nachweis vom 30.08.2026 in
+#152, ein Worker-Pod auf einem Judge-Node meldet den Kernel `4.19.0-gvisor`
+und hat im selben Lauf Einreichungen mit SUCCESS und FAILED bewertet. Die
+Anrechnung als B4 hat Prof. Pfisterer am 31.08.2026 bestätigt.
 
 **B2 Autoscaling, KEDA.** Das ScaledObject `code-worker-python` in
 `src/chart/templates/judge.yaml` skaliert das Worker-Deployment an der
@@ -998,12 +1007,12 @@ nie über sein Limit hebt. Last erzeugt der Lastgenerator aus
 11.09.2026 aus null Workern, Warteschlange 207, Worker von null auf sechs in
 58 Sekunden, siehe Betrieb unter Dashboard.
 
-**B3 Weiteres Wahlthema, W6 Authentifizierung.** OIDC-Login und
-Token-Prüfung am Gateway über traefik-oidc-auth (`ansible/tasks/traefik-plugin.yaml`,
-Realm aus `ansible/templates/keycloak-realm.json.j2`), dazu RBAC im Cluster
-über denselben Realm (`ansible/tasks/k3s-oidc.yaml`,
+**B3 Weiteres Wahlthema, W6 Authentifizierung.** OIDC-Login und Token-Prüfung
+am Gateway über traefik-oidc-auth (`ansible/tasks/traefik-plugin.yaml`, Realm
+aus `ansible/templates/keycloak-realm.json.j2`), dazu RBAC im Cluster über
+denselben Realm (`ansible/tasks/k3s-oidc.yaml`,
 `ansible/files/viewer-clusterrolebinding.yaml`). Nachweis vom 11.09.2026 in
-#121, als `oidc:viewer` liefert `kubectl get pods -A` die Liste, `kubectl
-get secrets -n judge` und `kubectl delete pod` enden mit Forbidden, und am
-Worker-Deployment steht `automountServiceAccountToken: false`. Die
+#121, als `oidc:viewer` liefert `kubectl get pods -A` die Liste, `kubectl get
+secrets -n judge` und `kubectl delete pod -n judge <pod>` enden mit Forbidden,
+und am Worker-Deployment steht `automountServiceAccountToken: false`. Die
 Begründung steht unter W6.

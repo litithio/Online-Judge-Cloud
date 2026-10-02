@@ -487,6 +487,9 @@ SVG macht den Pull Request rot.
 
 ## Entscheidungen
 
+Gewertetes Wahlthema für Teil B ist W1 (#3), W6 steht zusätzlich unter Bonus
+als B3.
+
 | Thema | Wahl | Alternative | Trade-off | Aus der Domäne |
 |---|---|---|---|---|
 | P1 Anwendung | Zustand in MongoDB, Queue trägt nur die ID, Code läuft als Subprozess im Worker | Stream mit vollem Job, Container je Testlauf | zweiter Zugriff auf MongoDB je Einreichung | keine Einreichung geht verloren, auch nicht mit der Queue |

@@ -943,10 +943,16 @@ Worker zählte für KEDA weiter als Kapazität.
 Während eines Rollouts der API fehlt eine Replica. Das Deployment setzt
 `maxUnavailable` 1, weil die Anti-Affinity für den neuen Pod einen Node ohne
 backend-Pod verlangt, ohne den Wert stand der Rollout gemessen nach acht
-Stunden noch. In diesem Fenster trägt eine Replica die Last allein, in dev
-mit einer Replica fällt die API ganz aus. Wird das neue Image nicht ready,
-holt der Controller die entfernte Replica nicht zurück, ein automatisches
-Rollback gibt es nicht.
+Stunden noch. In diesem Fenster trägt eine Replica die Last allein, in dev mit
+einer Replica fällt die API ganz aus. Wird das neue Image nicht ready, holt
+der Controller die entfernte Replica nicht zurück, ein automatisches Rollback
+gibt es nicht. Bei einem Lastlauf am 02.10.2026 lief `kubectl rollout restart
+deployment/backend`, während der Lastgenerator 6 Einreichungen je Sekunde
+schickte. 3 der 360 Anfragen scheiterten ohne Antwort, gezählt als
+`keine_verbindung`, und legten keine Einreichung an. Die übrigen 357 hatten
+gut eine Minute nach dem Lauf alle ein Urteil. Ob der Rollout die drei
+Fehlschläge verursachte, ist nicht belegt, einen preStop-Haken, der den Pod
+kurz weiterlaufen lässt, bis der Service ihn austrägt, hat die API nicht.
 
 Ein Wechsel eines Passworts in `app-credentials.sops.yaml` erreicht laufende
 Pods nicht, am Beispiel Valkey. Das Secret hängt als Umgebungsvariable an

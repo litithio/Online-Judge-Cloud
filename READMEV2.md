@@ -1,5 +1,17 @@
 # Online-Judge-Cloud
 
+Der Screencast liegt unter [`docs/screencast.mp4`](docs/screencast.mp4) und
+dauert 6:26 Minuten.
+
+| Zeit | Kapitel |
+|---|---|
+| 0:00 | Einreichung im Online Judge |
+| 0:53 | Aufbau und Platzierung im Cluster |
+| 1:33 | Pflichtszene, Pod löschen |
+| 3:06 | Last und Autoscaling |
+| 5:01 | RBAC im Cluster |
+| 5:35 | Grenzen |
+
 ## Problem
 
 Programmieraufgaben von Hand zu korrigieren skaliert nicht. Bei mehreren
